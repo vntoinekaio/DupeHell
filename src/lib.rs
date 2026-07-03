@@ -96,7 +96,7 @@ fn generate(
 }
 
 #[pymodule]
-fn dupehell(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate, m)?)?;
     m.add_class::<GenerateResult>()?;
     Ok(())
