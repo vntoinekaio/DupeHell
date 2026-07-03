@@ -69,7 +69,13 @@ fn fuzz_year(s: &str, rng: &mut Rng) -> String {
         return s.to_string();
     }
     // Find the year part (4-digit)
-    let year_idx = if parts[0].len() == 4 { 0 } else if parts[2].len() == 4 { 2 } else { return s.to_string(); };
+    let year_idx = if parts[0].len() == 4 {
+        0
+    } else if parts[2].len() == 4 {
+        2
+    } else {
+        return s.to_string();
+    };
     let year: i32 = match parts[year_idx].parse() {
         Ok(y) => y,
         Err(_) => return s.to_string(),
@@ -168,7 +174,11 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
             builder.append_value(s);
             continue;
         }
-        let year_idx = if parts[0].len() == 4 { 0 } else if parts[2].len() == 4 { 2 } else {
+        let year_idx = if parts[0].len() == 4 {
+            0
+        } else if parts[2].len() == 4 {
+            2
+        } else {
             builder.append_value(s);
             continue;
         };
@@ -182,7 +192,7 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
         let new_year = match strategies[i] {
             0 => year + rng2.next_usize(30) as i32 + 121, // impossibly old
             1 => year - rng2.next_usize(31) as i32 - 20,  // negative age
-            _ => rng2.next_usize(101) as i32 + 1800,     // 1800-1900
+            _ => rng2.next_usize(101) as i32 + 1800,      // 1800-1900
         };
         let mut new_parts: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
         new_parts[year_idx] = format!("{:04}", new_year);
@@ -197,8 +207,12 @@ mod tests {
     use super::*;
     use arrow::array::{Array, AsArray, StringArray};
 
-    fn test_rng() -> Rng { Rng::new(42) }
-    fn make_arr(vals: &[&str]) -> ArrayRef { Arc::new(StringArray::from(vals.to_vec())) }
+    fn test_rng() -> Rng {
+        Rng::new(42)
+    }
+    fn make_arr(vals: &[&str]) -> ArrayRef {
+        Arc::new(StringArray::from(vals.to_vec()))
+    }
 
     #[test]
     fn test_noise_dates() {

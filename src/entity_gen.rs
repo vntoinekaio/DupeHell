@@ -359,7 +359,9 @@ fn apply_action_set_pool(
     let pool_strs = if mask_count > 0 {
         let pool = crate::pool_lookup::pool_values(pool_name, mask_count, rng, ctx);
         let pool_s = pool.as_string::<i32>();
-        (0..mask_count).map(|i| pool_s.value(i).to_string()).collect::<Vec<_>>()
+        (0..mask_count)
+            .map(|i| pool_s.value(i).to_string())
+            .collect::<Vec<_>>()
     } else {
         Vec::new()
     };
@@ -426,10 +428,7 @@ fn apply_action_set_pool(
 
 /// Generate an entity batch from a JSON request.
 /// Returns a RecordBatch with the generated columns.
-pub fn generate_entity_batch(
-    ctx: &Context,
-    request_json: &str,
-) -> Result<RecordBatch, String> {
+pub fn generate_entity_batch(ctx: &Context, request_json: &str) -> Result<RecordBatch, String> {
     let req: EntityBatchRequest =
         serde_json::from_str(request_json).map_err(|e| format!("invalid request JSON: {e}"))?;
 
@@ -543,7 +542,10 @@ mod tests {
         use arrow::array::AsArray;
         let arr = batch.column(0).as_string::<i32>();
         let null_count = (0..100).filter(|&i| arr.is_null(i)).count();
-        assert!(null_count > 10 && null_count < 70, "null count = {null_count}");
+        assert!(
+            null_count > 10 && null_count < 70,
+            "null count = {null_count}"
+        );
         assert!(arr.is_valid(0), "first element should not be null");
     }
 

@@ -34,6 +34,7 @@ pub struct ColumnDef {
     pub null_rate: f64,
 }
 
+#[cfg(test)]
 impl ColumnDef {
     pub fn new(name: &str, col_type: ColType) -> Self {
         Self {
@@ -195,7 +196,7 @@ fn gen_boolean(n: usize, rng: &mut Rng) -> ArrayRef {
 
 fn gen_date(n: usize, rng: &mut Rng) -> ArrayRef {
     let start_days = 709_705_i64; // days from 0000-01-01 to 1940-01-01 (approx)
-    let end_days = 732_165_i64;   // days from 0000-01-01 to 2005-12-31 (approx)
+    let end_days = 732_165_i64; // days from 0000-01-01 to 2005-12-31 (approx)
     let range = (end_days - start_days) as usize;
     let mut builder = StringBuilder::with_capacity(n, 10);
     for _ in 0..n {
@@ -366,7 +367,9 @@ mod tests {
 
     fn test_ctx() -> Context {
         let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap().join("dupehell/assets/pools");
+            .parent()
+            .unwrap()
+            .join("dupehell/assets/pools");
         Context::new("kyc", pools_dir.to_str().unwrap()).unwrap()
     }
 
@@ -418,7 +421,10 @@ mod tests {
     fn test_gen_float64() {
         let mut rng = test_rng();
         let arr = gen_float64("sale_price", 10, &mut rng);
-        let a = arr.as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
+        let a = arr
+            .as_any()
+            .downcast_ref::<arrow::array::Float64Array>()
+            .unwrap();
         assert_eq!(a.len(), 10);
         for i in 0..10 {
             let v = a.value(i);
@@ -443,7 +449,10 @@ mod tests {
         for i in 0..10 {
             let v = s.value(i);
             assert_eq!(v.len(), 10, "date[{i}] = {v:?}");
-            assert!(v.starts_with("19") || v.starts_with("20"), "date[{i}] = {v:?}");
+            assert!(
+                v.starts_with("19") || v.starts_with("20"),
+                "date[{i}] = {v:?}"
+            );
         }
     }
 
@@ -537,7 +546,10 @@ mod tests {
         let result = apply_null_rate(&*src, 0.3, &mut rng);
         let s = result.as_string::<i32>();
         let null_count = (0..100).filter(|&i| s.is_null(i)).count();
-        assert!(null_count > 10 && null_count < 60, "null count = {null_count}");
+        assert!(
+            null_count > 10 && null_count < 60,
+            "null count = {null_count}"
+        );
         // First element should never be null
         assert!(s.is_valid(0), "first element should not be null");
     }

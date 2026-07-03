@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayBuilder, ArrayRef, AsArray, StringArray, UInt64Array, UInt64Builder};
+use arrow::array::{
+    Array, ArrayBuilder, ArrayRef, AsArray, StringArray, UInt64Array, UInt64Builder,
+};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use serde::Deserialize;
@@ -18,20 +20,11 @@ pub struct PipelineConfig {
     pub seed: u64,
     pub difficulty: String,
     pub output_format: String,
-    pub output_dir: String,
     pub run_id: String,
-
-    pub total_unique: usize,
-    pub n_duplicates: usize,
 
     pub entity_plans: Vec<EntityPlan>,
     pub hard_neg_types: Vec<HnTypeConfig>,
 
-    pub global_dob_null: f64,
-    pub global_postal_null: f64,
-    pub global_address_null: f64,
-
-    pub singleton_master_fraction: f64,
     pub hard_neg_ratio: f64,
 }
 
@@ -39,7 +32,6 @@ pub struct PipelineConfig {
 pub struct EntityPlan {
     pub name: String,
     pub n_base: usize,
-    pub n_dup: usize,
     pub identifier_col: Option<String>,
     pub columns_json: String,
     pub noise_types: Vec<NoisePlanEntry>,
@@ -61,7 +53,6 @@ pub struct FkRemapEntry {
 
 #[derive(Debug, Deserialize)]
 pub struct HnTypeConfig {
-    pub name: String,
     pub entity_type: String,
     pub config_json: String,
     pub count: usize,
@@ -81,7 +72,6 @@ pub struct PipelineStats {
     pub hard_negs: usize,
     pub uniques: usize,
     pub masters: usize,
-    pub duration_secs: f64,
 }
 
 // ── Pre-allocated ID pools ─────────────────────────────────────────────────
@@ -150,16 +140,17 @@ fn match_noise_columns(schema: &Schema, noise_type: &str) -> Vec<String> {
         }
         let lower = field.name().to_lowercase();
         match noise_type {
-            "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty"
-            | "homoglyph" | "unicode_pollution" | "ocr_errors" | "case_swap"
-            | "char_dropout" | "nickname" | "initials" | "partial"
-            | "name_compound" | "gender_swap" | "language_mix"
+            "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "homoglyph"
+            | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout" | "nickname"
+            | "initials" | "partial" | "name_compound" | "gender_swap" | "language_mix"
             | "blocking_fail" | "fuzzy_match" | "phonetic" => {
-                if contains_any(&lower, &[
-                    "name", "first", "last", "given", "family",
-                    "address", "street", "city", "email", "phone",
-                    "company", "legal", "trading",
-                ]) {
+                if contains_any(
+                    &lower,
+                    &[
+                        "name", "first", "last", "given", "family", "address", "street", "city",
+                        "email", "phone", "company", "legal", "trading",
+                    ],
+                ) {
                     matched.push(field.name().clone());
                 }
             }
@@ -188,12 +179,11 @@ fn match_noise_columns(schema: &Schema, noise_type: &str) -> Vec<String> {
                     matched.push(field.name().clone());
                 }
             }
-            "exact" | "english_name" | "estonian_name" | "lithuanian_name"
-            | "slovak_name" | "serbian_name" | "norwegian_name" | "swedish_name"
-            | "dutch_name" | "czech_name" | "albanian_name" | "polish_name"
-            | "romanian_name" | "hungarian_name" | "german_name" | "italian_name"
-            | "spanish_name" | "portuguese_name" | "name_null" | "dob_null"
-            | "combo_hard" | "combo_extreme" | "combo_ultimate" | "french_address" => {
+            "exact" | "english_name" | "estonian_name" | "lithuanian_name" | "slovak_name"
+            | "serbian_name" | "norwegian_name" | "swedish_name" | "dutch_name" | "czech_name"
+            | "albanian_name" | "polish_name" | "romanian_name" | "hungarian_name"
+            | "german_name" | "italian_name" | "spanish_name" | "portuguese_name" | "name_null"
+            | "dob_null" | "combo_hard" | "combo_extreme" | "combo_ultimate" | "french_address" => {
                 // These noise types are handled inline or are no-ops — skip
             }
             _ => {
@@ -237,7 +227,9 @@ fn apply_noise_to_batch(
     let mut new_columns: Vec<Option<ArrayRef>> = (0..n_cols).map(|_| None).collect();
 
     let get_col = |new_columns: &[Option<ArrayRef>], idx: usize, rb: &RecordBatch| -> ArrayRef {
-        new_columns[idx].clone().unwrap_or_else(|| rb.column(idx).clone())
+        new_columns[idx]
+            .clone()
+            .unwrap_or_else(|| rb.column(idx).clone())
     };
 
     match noise_type {
@@ -247,11 +239,11 @@ fn apply_noise_to_batch(
                 if let Ok(idx) = schema.index_of(col_name) {
                     let col = get_col(&new_columns, idx, rb);
                     if lower.contains("first") || lower.contains("given") {
-                        new_columns[idx] = Some(
-                            crate::noise::extra::apply_blocking_initial(&*col, rng));
+                        new_columns[idx] =
+                            Some(crate::noise::extra::apply_blocking_initial(&*col, rng));
                     } else {
-                        new_columns[idx] = Some(
-                            crate::noise::extra::apply_blocking_partial(&*col, rng));
+                        new_columns[idx] =
+                            Some(crate::noise::extra::apply_blocking_partial(&*col, rng));
                     }
                 }
             }
@@ -289,8 +281,16 @@ fn apply_noise_to_batch(
                 let n = phone_s.len();
                 let mut builder = arrow::array::StringBuilder::with_capacity(n, 8);
                 for i in 0..n {
-                    let pv = if phone_s.is_null(i) { "" } else { phone_s.value(i) };
-                    let ev = if email_s.is_null(i) { "" } else { email_s.value(i) };
+                    let pv = if phone_s.is_null(i) {
+                        ""
+                    } else {
+                        phone_s.value(i)
+                    };
+                    let ev = if email_s.is_null(i) {
+                        ""
+                    } else {
+                        email_s.value(i)
+                    };
                     if !ev.is_empty() && rng.next_usize(2) == 0 {
                         builder.append_value("");
                     } else {
@@ -304,12 +304,8 @@ fn apply_noise_to_batch(
             for col_name in &target_cols {
                 if let Ok(col_idx) = schema.index_of(col_name) {
                     let col = get_col(&new_columns, col_idx, rb);
-                    let result = crate::noise::apply_noise_to_column(
-                        &*col,
-                        noise_type,
-                        rng,
-                    )
-                    .map_err(|e| format!("noise '{noise_type}' on '{col_name}': {e}"))?;
+                    let result = crate::noise::apply_noise_to_column(&*col, noise_type, rng)
+                        .map_err(|e| format!("noise '{noise_type}' on '{col_name}': {e}"))?;
                     new_columns[col_idx] = Some(result);
                 }
             }
@@ -318,7 +314,11 @@ fn apply_noise_to_batch(
 
     // Fill remaining from original, unwrap all
     let final_columns: Vec<ArrayRef> = (0..n_cols)
-        .map(|i| new_columns[i].clone().unwrap_or_else(|| rb.column(i).clone()))
+        .map(|i| {
+            new_columns[i]
+                .clone()
+                .unwrap_or_else(|| rb.column(i).clone())
+        })
         .collect();
 
     RecordBatch::try_new(schema, final_columns).map_err(|e| format!("RecordBatch: {e}"))
@@ -336,8 +336,12 @@ fn topological_sort(
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     for i in 0..n {
         for remap in &plans[i].fk_remaps {
-            let Some(&target) = name_to_idx.get(remap.target_entity.as_str()) else { continue };
-            if target == i { continue; }
+            let Some(&target) = name_to_idx.get(remap.target_entity.as_str()) else {
+                continue;
+            };
+            if target == i {
+                continue;
+            }
             adj[target].push(i); // target → i means target must come before i
             in_degree[i] += 1;
         }
@@ -385,14 +389,18 @@ pub fn run_pipeline(
     // Build the full schema once (union of all entity columns + metadata)
     let full_arc = Arc::new(build_full_schema(config));
     let mut dataset_path = format!("{}/{}.ipc", output_dir, config.run_id);
-    let out_file = std::fs::File::create(&dataset_path)
-        .map_err(|e| format!("create {dataset_path}: {e}"))?;
+    let out_file =
+        std::fs::File::create(&dataset_path).map_err(|e| format!("create {dataset_path}: {e}"))?;
     let mut writer = arrow::ipc::writer::FileWriter::try_new(out_file, &full_arc)
         .map_err(|e| format!("IPC FileWriter error: {e}"))?;
 
     // Topological sort for FK dependency processing order
-    let name_to_idx: HashMap<&str, usize> = config.entity_plans.iter()
-        .enumerate().map(|(i, p)| (p.name.as_str(), i)).collect();
+    let name_to_idx: HashMap<&str, usize> = config
+        .entity_plans
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.name.as_str(), i))
+        .collect();
     let entity_order = topological_sort(&config.entity_plans, &name_to_idx)?;
 
     // Cross-entity storage (lightweight)
@@ -411,17 +419,22 @@ pub fn run_pipeline(
     let mut _t_dup = 0.0f64;
     let mut _write_calls = 0u64;
     // Compute HN pool size: need at least 2× the max hn_cfg.count for any entity type
-    let hn_pool_sizing: std::collections::HashMap<&str, usize> = config.hard_neg_types.iter()
-        .fold(std::collections::HashMap::new(), |mut m, hn| {
-            let entry = m.entry(hn.entity_type.as_str()).or_insert(0);
-            *entry = (*entry).max(hn.count);
-            m
-        });
-    let HN_MAX_POOL: usize = hn_pool_sizing.values().max().copied().unwrap_or(50_000) * 2 + 1_000;
+    let hn_pool_sizing: std::collections::HashMap<&str, usize> =
+        config
+            .hard_neg_types
+            .iter()
+            .fold(std::collections::HashMap::new(), |mut m, hn| {
+                let entry = m.entry(hn.entity_type.as_str()).or_insert(0);
+                *entry = (*entry).max(hn.count);
+                m
+            });
+    let hn_max_pool: usize = hn_pool_sizing.values().max().copied().unwrap_or(50_000) * 2 + 1_000;
 
     for &plan_idx in &entity_order {
         let plan = &config.entity_plans[plan_idx];
-        if plan.n_base == 0 { continue; }
+        if plan.n_base == 0 {
+            continue;
+        }
 
         let prefix = entity_prefix(&plan.name);
         let col_json_str = &plan.columns_json;
@@ -459,7 +472,12 @@ pub fn run_pipeline(
                 let mut r = rb;
                 for remap in &plan.fk_remaps {
                     if let Some(pool) = fk_pools.get(&remap.target_entity) {
-                        r = crate::fk_remap::fk_remap_batch(&r, pool, &remap.source_col, &mut fk_rng)?;
+                        r = crate::fk_remap::fk_remap_batch(
+                            &r,
+                            pool,
+                            &remap.source_col,
+                            &mut fk_rng,
+                        )?;
                     }
                 }
                 r
@@ -481,17 +499,22 @@ pub fn run_pipeline(
 
             // HN pool: accumulate slices up to max pool size
             let hn_accum: usize = hn_slices.iter().map(|s| s.num_rows()).sum();
-            if hn_accum < HN_MAX_POOL {
-                let take = (HN_MAX_POOL - hn_accum).min(batch_n);
+            if hn_accum < hn_max_pool {
+                let take = (hn_max_pool - hn_accum).min(batch_n);
                 hn_slices.push(rb.slice(0, take));
             }
 
             // Build col_lookup from first batch's schema
             if col_lookup.is_none() {
                 let plan_schema = rb.schema();
-                col_lookup = Some(full_arc.fields().iter().skip(4)
-                    .map(|f| plan_schema.column_with_name(f.name()).map(|(idx, _)| idx))
-                    .collect());
+                col_lookup = Some(
+                    full_arc
+                        .fields()
+                        .iter()
+                        .skip(4)
+                        .map(|f| plan_schema.column_with_name(f.name()).map(|(idx, _)| idx))
+                        .collect(),
+                );
             }
 
             // Master IDs for this batch
@@ -501,18 +524,25 @@ pub fn run_pipeline(
             let batch_mids_slice = &batch_mids[..];
 
             // Add metadata + IPC write
-            let rid_slice: &[String] = &ids.record_ids[global_rid_offset..global_rid_offset + batch_n];
+            let rid_slice: &[String] =
+                &ids.record_ids[global_rid_offset..global_rid_offset + batch_n];
             let t_m0 = std::time::Instant::now();
             let base_rb = add_metadata_and_align(
-                &rb, &config.domain, &plan.name,
-                rid_slice, batch_mids_slice,
-                &full_arc, col_lookup.as_ref().unwrap(),
+                &rb,
+                &config.domain,
+                &plan.name,
+                rid_slice,
+                batch_mids_slice,
+                &full_arc,
+                col_lookup.as_ref().unwrap(),
                 &mut null_cache,
             );
             _t_meta += t_m0.elapsed().as_secs_f64();
 
             let t_w0 = std::time::Instant::now();
-            writer.write(&base_rb).map_err(|e| format!("write base: {e}"))?;
+            writer
+                .write(&base_rb)
+                .map_err(|e| format!("write base: {e}"))?;
             _t_write += t_w0.elapsed().as_secs_f64();
             _write_calls += 1;
 
@@ -548,8 +578,7 @@ pub fn run_pipeline(
                 for i in 0..n_fields {
                     let refs: Vec<&dyn Array> =
                         hn_slices.iter().map(|pb| pb.column(i).as_ref()).collect();
-                    concat_arrays.push(arrow::compute::concat(&refs)
-                        .expect("hn pool concat col"));
+                    concat_arrays.push(arrow::compute::concat(&refs).expect("hn pool concat col"));
                 }
                 RecordBatch::try_new(schema, concat_arrays).expect("hn pool concat batch")
             };
@@ -569,15 +598,27 @@ pub fn run_pipeline(
                 let mids_ref = master_id_pool.get(&plan.name).unwrap();
 
                 // Pre-generate indices + parallel noise (Phase 13c)
-                let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan.noise_types.iter()
+                let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan
+                    .noise_types
+                    .iter()
                     .filter(|n| n.count > 0)
                     .map(|n| {
                         let mut b = UInt64Builder::with_capacity(n.count);
-                        for _ in 0..n.count { b.append_value(batch_rng.next_usize(last_n) as u64); }
-                        (b.finish(), batch_rng.next_u64(), n.noise_type.as_str(), n.columns.as_slice(), n.count)
-                    }).collect();
+                        for _ in 0..n.count {
+                            b.append_value(batch_rng.next_usize(last_n) as u64);
+                        }
+                        (
+                            b.finish(),
+                            batch_rng.next_u64(),
+                            n.noise_type.as_str(),
+                            n.columns.as_slice(),
+                            n.count,
+                        )
+                    })
+                    .collect();
 
-                let mut results: Vec<Result<(RecordBatch, Vec<String>), String>> = Vec::with_capacity(ndata.len());
+                let mut results: Vec<Result<(RecordBatch, Vec<String>), String>> =
+                    Vec::with_capacity(ndata.len());
                 std::thread::scope(|s| {
                     let mut handles = Vec::with_capacity(ndata.len());
                     for (indices, seed, ntype, cols, cnt) in &ndata {
@@ -590,19 +631,28 @@ pub fn run_pipeline(
                             let mut rng = Rng::new(*seed);
                             let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng)?;
                             let mut mb = Vec::with_capacity(*cnt);
-                            for j in 0..*cnt { mb.push(mslice[idxs.value(j) as usize % mslice.len()].clone()); }
+                            for j in 0..*cnt {
+                                mb.push(mslice[idxs.value(j) as usize % mslice.len()].clone());
+                            }
                             Ok((noisy, mb))
                         }));
                     }
-                    for h in handles { results.push(h.join().unwrap()); }
+                    for h in handles {
+                        results.push(h.join().unwrap());
+                    }
                 });
-                for res in results { let (rb, mb) = res?; dup_batches.push(rb); dup_mids_buf.extend(mb); }
+                for res in results {
+                    let (rb, mb) = res?;
+                    dup_batches.push(rb);
+                    dup_mids_buf.extend(mb);
+                }
                 _t_dup += t_d0.elapsed().as_secs_f64();
 
                 // Write dups
                 if !dup_batches.is_empty() {
                     let dup_total = dup_mids_buf.len();
-                    let dup_rids: &[String] = &ids.record_ids[global_rid_offset..global_rid_offset + dup_total];
+                    let dup_rids: &[String] =
+                        &ids.record_ids[global_rid_offset..global_rid_offset + dup_total];
 
                     let concated = if dup_batches.len() == 1 {
                         dup_batches.into_iter().next().unwrap()
@@ -613,22 +663,30 @@ pub fn run_pipeline(
                         for i in 0..n_fields {
                             let refs: Vec<&dyn Array> =
                                 dup_batches.iter().map(|b| b.column(i).as_ref()).collect();
-                            concat_arrays.push(arrow::compute::concat(&refs)
-                                .map_err(|e| format!("concat dup col {i}: {e}"))?);
+                            concat_arrays.push(
+                                arrow::compute::concat(&refs)
+                                    .map_err(|e| format!("concat dup col {i}: {e}"))?,
+                            );
                         }
                         RecordBatch::try_new(schema, concat_arrays)
                             .map_err(|e| format!("concat dups: {e}"))?
                     };
 
                     let dup_rb_full = add_metadata_and_align(
-                        &concated, &config.domain, &plan.name,
-                        dup_rids, &dup_mids_buf,
-                        &full_arc, col_lookup.as_ref().unwrap(),
+                        &concated,
+                        &config.domain,
+                        &plan.name,
+                        dup_rids,
+                        &dup_mids_buf,
+                        &full_arc,
+                        col_lookup.as_ref().unwrap(),
                         &mut null_cache,
                     );
 
                     let t_wd = std::time::Instant::now();
-                    writer.write(&dup_rb_full).map_err(|e| format!("write dups: {e}"))?;
+                    writer
+                        .write(&dup_rb_full)
+                        .map_err(|e| format!("write dups: {e}"))?;
                     _t_write += t_wd.elapsed().as_secs_f64();
                     _write_calls += 1;
 
@@ -651,7 +709,9 @@ pub fn run_pipeline(
         if hn_cfg.count == 0 {
             continue;
         }
-        let Some(pool_data) = hn_pools.get(&hn_cfg.entity_type) else { continue };
+        let Some(pool_data) = hn_pools.get(&hn_cfg.entity_type) else {
+            continue;
+        };
         let hn_total = pool_data.total_count;
 
         let pool_rb = &pool_data.batch;
@@ -684,7 +744,10 @@ pub fn run_pipeline(
 
         // Build col lookup for the HN entity type schema
         let hn_schema = hn_rb.schema();
-        let hn_col_lookup: Vec<Option<usize>> = full_arc.fields().iter().skip(4)
+        let hn_col_lookup: Vec<Option<usize>> = full_arc
+            .fields()
+            .iter()
+            .skip(4)
             .map(|f| hn_schema.column_with_name(f.name()).map(|(idx, _)| idx))
             .collect();
 
@@ -700,7 +763,9 @@ pub fn run_pipeline(
         );
 
         let t_wh = std::time::Instant::now();
-        writer.write(&hn_rb_full).map_err(|e| format!("write hn: {e}"))?;
+        writer
+            .write(&hn_rb_full)
+            .map_err(|e| format!("write hn: {e}"))?;
         _t_write += t_wh.elapsed().as_secs_f64();
         _write_calls += 1;
 
@@ -717,29 +782,50 @@ pub fn run_pipeline(
     {
         let mut canary_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
         crate::canary::generate_all(
-            ctx, config, &full_arc, &mut canary_null_cache,
-            &mut global_rid_offset, &ids, &mut writer,
-            &mut gt_record_id_arrs, &mut gt_entity_type_arrs, &mut gt_master_id_arrs,
+            ctx,
+            config,
+            &full_arc,
+            &mut canary_null_cache,
+            &mut global_rid_offset,
+            &ids,
+            &mut writer,
+            &mut gt_record_id_arrs,
+            &mut gt_entity_type_arrs,
+            &mut gt_master_id_arrs,
         )?;
     }
 
     // ── Phase 3: Finalize + GT (use accumulated arrays) ────────────────
     let t3 = std::time::Instant::now();
-    writer.finish().map_err(|e| format!("finish IPC writer: {e}"))?;
+    writer
+        .finish()
+        .map_err(|e| format!("finish IPC writer: {e}"))?;
     let t3a_elapsed = t3.elapsed().as_secs_f64();
 
     let t3b = std::time::Instant::now();
 
     // Phase 13: concat once, keep ArrayRef alive, as_string borrows from it
     let rid_arr = arrow::compute::concat(
-        &gt_record_id_arrs.iter().map(|a| a.as_ref()).collect::<Vec<_>>()
-    ).map_err(|e| format!("concat rid: {e}"))?;
+        &gt_record_id_arrs
+            .iter()
+            .map(|a| a.as_ref())
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|e| format!("concat rid: {e}"))?;
     let et_arr = arrow::compute::concat(
-        &gt_entity_type_arrs.iter().map(|a| a.as_ref()).collect::<Vec<_>>()
-    ).map_err(|e| format!("concat et: {e}"))?;
+        &gt_entity_type_arrs
+            .iter()
+            .map(|a| a.as_ref())
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|e| format!("concat et: {e}"))?;
     let mid_arr = arrow::compute::concat(
-        &gt_master_id_arrs.iter().map(|a| a.as_ref()).collect::<Vec<_>>()
-    ).map_err(|e| format!("concat mid: {e}"))?;
+        &gt_master_id_arrs
+            .iter()
+            .map(|a| a.as_ref())
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|e| format!("concat mid: {e}"))?;
 
     // Downcast once, reuse references
     let record_id_arr: &StringArray = rid_arr.as_string::<i32>();
@@ -747,14 +833,15 @@ pub fn run_pipeline(
     let master_id_arr: &StringArray = mid_arr.as_string::<i32>();
 
     let t_gt0 = std::time::Instant::now();
-    let (gt_match_types, n_exact_dup, n_hard_neg, n_unique) = crate::gt::compute_gt(
-        record_id_arr,
-        master_id_arr,
-        entity_type_arr,
-    );
+    let (gt_match_types, n_exact_dup, n_hard_neg, n_unique) =
+        crate::gt::compute_gt(record_id_arr, master_id_arr, entity_type_arr);
     let _t_gt_compute = t_gt0.elapsed().as_secs_f64();
 
-    let gt_ext = if config.output_format == "parquet" { "parquet" } else { "ipc" };
+    let gt_ext = if config.output_format == "parquet" {
+        "parquet"
+    } else {
+        "ipc"
+    };
     let gt_path = format!("{}/{}_ground_truth.{}", output_dir, config.run_id, gt_ext);
 
     let _gt_meta = build_metadata_map(config);
@@ -807,26 +894,30 @@ pub fn run_pipeline(
 
         let parquet_file = std::fs::File::create(&parquet_path)
             .map_err(|e| format!("create {parquet_path}: {e}"))?;
-        let zstd_level = parquet::basic::ZstdLevel::try_new(3)
-            .map_err(|e| format!("zstd: {e}"))?;
+        let zstd_level = parquet::basic::ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
         let meta_kv: Vec<parquet::file::metadata::KeyValue> = build_metadata_map(config)
-            .into_iter().map(|(k, v)| parquet::file::metadata::KeyValue { key: k, value: Some(v) }).collect();
+            .into_iter()
+            .map(|(k, v)| parquet::file::metadata::KeyValue {
+                key: k,
+                value: Some(v),
+            })
+            .collect();
         let props = parquet::file::properties::WriterProperties::builder()
             .set_compression(parquet::basic::Compression::ZSTD(zstd_level))
             .set_max_row_group_row_count(Some(usize::MAX / 2))
             .set_key_value_metadata(Some(meta_kv))
             .build();
-        let mut parquet_writer = parquet::arrow::ArrowWriter::try_new(
-            parquet_file, batch.schema(), Some(props),
-        )
-        .map_err(|e| format!("ArrowWriter for conversion: {e}"))?;
-        parquet_writer.write(&batch)
+        let mut parquet_writer =
+            parquet::arrow::ArrowWriter::try_new(parquet_file, batch.schema(), Some(props))
+                .map_err(|e| format!("ArrowWriter for conversion: {e}"))?;
+        parquet_writer
+            .write(&batch)
             .map_err(|e| format!("write parquet conversion: {e}"))?;
-        parquet_writer.close()
+        parquet_writer
+            .close()
             .map_err(|e| format!("close parquet conversion: {e}"))?;
 
-        std::fs::remove_file(&dataset_path)
-            .map_err(|e| format!("remove IPC temp file: {e}"))?;
+        std::fs::remove_file(&dataset_path).map_err(|e| format!("remove IPC temp file: {e}"))?;
         dataset_path = parquet_path;
     }
 
@@ -834,11 +925,22 @@ pub fn run_pipeline(
 
     eprintln!(
         "[pipeline_timing] alloc={:.3}s  sink={:.3}s  hn={:.3}s  merge={:.3}s  meta={:.3}s/dup={:.3}s/write={:.3}s  gt(comp={:.3}s+write={:.3}s)={:.3}s  total={:.3}s",
-        t_alloc, t1e_elapsed, t2_elapsed, t3a_elapsed, _t_meta, _t_dup, _t_write, _t_gt_compute, _t_gt_write, t3b_elapsed, duration,
+        t_alloc,
+        t1e_elapsed,
+        t2_elapsed,
+        t3a_elapsed,
+        _t_meta,
+        _t_dup,
+        _t_write,
+        _t_gt_compute,
+        _t_gt_write,
+        t3b_elapsed,
+        duration,
     );
 
-    let master_set: std::collections::HashSet<&str> =
-        (0..master_id_arr.len()).map(|i| master_id_arr.value(i)).collect();
+    let master_set: std::collections::HashSet<&str> = (0..master_id_arr.len())
+        .map(|i| master_id_arr.value(i))
+        .collect();
 
     let stats = PipelineStats {
         total_records: global_rid_offset,
@@ -846,7 +948,6 @@ pub fn run_pipeline(
         hard_negs: n_hard_neg,
         uniques: n_unique,
         masters: master_set.len(),
-        duration_secs: duration,
     };
 
     Ok(PipelineOutput {
@@ -864,16 +965,28 @@ fn build_metadata_map(config: &PipelineConfig) -> HashMap<String, String> {
         .map(|d| d.as_secs().to_string())
         .unwrap_or_else(|_| "unknown".into());
     HashMap::from([
-        ("dupehell.generator".into(),  format!("DupeHell v{}", env!("CARGO_PKG_VERSION"))),
-        ("dupehell.provenance".into(), "dupehell-synthetic-data".into()),
-        ("dupehell.license".into(),    "MIT".into()),
-        ("dupehell.purpose".into(),    "Educational Use Only — Record Linkage Benchmarking".into()),
-        ("dupehell.url".into(),        "https://github.com/anomalyco/dupehell".into()),
-        ("dupehell.domain".into(),     config.domain.clone()),
-        ("dupehell.size".into(),       config.size.to_string()),
-        ("dupehell.seed".into(),       config.seed.to_string()),
-        ("dupehell.run_id".into(),     config.run_id.clone()),
-        ("dupehell.timestamp".into(),  ts),
+        (
+            "dupehell.generator".into(),
+            format!("DupeHell v{}", env!("CARGO_PKG_VERSION")),
+        ),
+        (
+            "dupehell.provenance".into(),
+            "dupehell-synthetic-data".into(),
+        ),
+        ("dupehell.license".into(), "MIT".into()),
+        (
+            "dupehell.purpose".into(),
+            "Educational Use Only — Record Linkage Benchmarking".into(),
+        ),
+        (
+            "dupehell.url".into(),
+            "https://github.com/anomalyco/dupehell".into(),
+        ),
+        ("dupehell.domain".into(), config.domain.clone()),
+        ("dupehell.size".into(), config.size.to_string()),
+        ("dupehell.seed".into(), config.seed.to_string()),
+        ("dupehell.run_id".into(), config.run_id.clone()),
+        ("dupehell.timestamp".into(), ts),
     ])
 }
 
@@ -887,7 +1000,8 @@ fn build_full_schema(config: &PipelineConfig) -> Schema {
         field_map.push((mf.to_string(), DataType::Utf8));
     }
     for plan in &config.entity_plans {
-        let cols: Vec<serde_json::Value> = serde_json::from_str(&plan.columns_json).unwrap_or_default();
+        let cols: Vec<serde_json::Value> =
+            serde_json::from_str(&plan.columns_json).unwrap_or_default();
         for col in &cols {
             let name = col["name"].as_str().unwrap_or("").to_string();
             if name.is_empty() || field_map.iter().any(|(n, _)| n == &name) {
@@ -897,7 +1011,10 @@ fn build_full_schema(config: &PipelineConfig) -> Schema {
             field_map.push((name, col_type));
         }
     }
-    let fields: Vec<Field> = field_map.into_iter().map(|(n, dt)| Field::new(&n, dt, true)).collect();
+    let fields: Vec<Field> = field_map
+        .into_iter()
+        .map(|(n, dt)| Field::new(&n, dt, true))
+        .collect();
     Schema::new(fields).with_metadata(build_metadata_map(config))
 }
 
@@ -972,5 +1089,3 @@ fn pick_rows(rb: &RecordBatch, indices: &UInt64Array) -> Result<RecordBatch, Str
 
     RecordBatch::try_new(rb.schema(), new_columns).map_err(|e| format!("RecordBatch: {e}"))
 }
-
-

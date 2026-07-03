@@ -5,8 +5,8 @@
 // No liability for misuse.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 
@@ -22,17 +22,49 @@ static NICKNAMES_MAP: LazyLock<HashMap<&'static str, Vec<&'static str>>> = LazyL
 });
 
 static MALE_NAMES: &[&str] = &[
-    "Jean", "Pierre", "Michel", "François", "Laurent", "Bruno",
-    "Philippe", "Nicolas", "Alexandre", "Thomas", "Kevin",
-    "Samuel", "Romain", "Julien", "Maxime", "Benoît",
-    "Christophe", "Stéphane", "Sébastien", "Olivier",
+    "Jean",
+    "Pierre",
+    "Michel",
+    "François",
+    "Laurent",
+    "Bruno",
+    "Philippe",
+    "Nicolas",
+    "Alexandre",
+    "Thomas",
+    "Kevin",
+    "Samuel",
+    "Romain",
+    "Julien",
+    "Maxime",
+    "Benoît",
+    "Christophe",
+    "Stéphane",
+    "Sébastien",
+    "Olivier",
 ];
 
 static FEMALE_NAMES: &[&str] = &[
-    "Marie", "Catherine", "Sophie", "Isabelle", "Nathalie",
-    "Christine", "Valérie", "Françoise", "Muriel", "Michèle",
-    "Patricia", "Anne", "Sandrine", "Céline", "Aurélie",
-    "Julie", "Emilie", "Laura", "Pauline", "Anna",
+    "Marie",
+    "Catherine",
+    "Sophie",
+    "Isabelle",
+    "Nathalie",
+    "Christine",
+    "Valérie",
+    "Françoise",
+    "Muriel",
+    "Michèle",
+    "Patricia",
+    "Anne",
+    "Sandrine",
+    "Céline",
+    "Aurélie",
+    "Julie",
+    "Emilie",
+    "Laura",
+    "Pauline",
+    "Anna",
 ];
 
 /// Replace names with random nickname variants (50%) or uppercase (50%).

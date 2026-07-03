@@ -216,7 +216,11 @@ mod tests {
 
     #[test]
     fn test_acronym() {
-        let arr = make_arr(&["Acme Corporation", "Single", "International Business Machines"]);
+        let arr = make_arr(&[
+            "Acme Corporation",
+            "Single",
+            "International Business Machines",
+        ]);
         let mut rng = test_rng();
         let result = apply_acronym(&*arr, &mut rng);
         let s = result.as_string::<i32>();

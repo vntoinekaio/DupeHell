@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use arrow::array::{Array, AsArray, StringArray};
+use std::collections::HashMap;
 
 /// Extract 7-digit numeric suffix from a master_id (e.g. "E00001-0000123" → 123).
 /// Returns None if the suffix is not 7 ASCII digits.
@@ -92,13 +92,16 @@ pub fn write_gt_ipc(
     use std::sync::Arc;
 
     let n = record_ids.len();
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("record_id", DataType::Utf8, false),
-        Field::new("master_id", DataType::Utf8, false),
-        Field::new("entity_type", DataType::Utf8, false),
-        Field::new("match_type", DataType::Utf8, false),
-        Field::new("difficulty", DataType::Utf8, false),
-    ]).with_metadata(metadata.clone()));
+    let schema = Arc::new(
+        Schema::new(vec![
+            Field::new("record_id", DataType::Utf8, false),
+            Field::new("master_id", DataType::Utf8, false),
+            Field::new("entity_type", DataType::Utf8, false),
+            Field::new("match_type", DataType::Utf8, false),
+            Field::new("difficulty", DataType::Utf8, false),
+        ])
+        .with_metadata(metadata.clone()),
+    );
 
     let mt_arr = StringArray::from(match_types.to_vec());
     let diff_arr = StringArray::from_iter_values(std::iter::repeat(difficulty).take(n));
@@ -116,9 +119,10 @@ pub fn write_gt_ipc(
     .map_err(|e| format!("build gt batch: {e}"))?;
 
     let file = std::fs::File::create(path).map_err(|e| format!("create {path}: {e}"))?;
-    let mut writer = FileWriter::try_new(file, &schema)
-        .map_err(|e| format!("ipc writer: {e}"))?;
-    writer.write(&batch).map_err(|e| format!("write gt ipc: {e}"))?;
+    let mut writer = FileWriter::try_new(file, &schema).map_err(|e| format!("ipc writer: {e}"))?;
+    writer
+        .write(&batch)
+        .map_err(|e| format!("write gt ipc: {e}"))?;
     writer.finish().map_err(|e| format!("finish gt ipc: {e}"))?;
     Ok(())
 }
@@ -140,13 +144,16 @@ pub fn write_gt_parquet(
     use std::sync::Arc;
 
     let n = record_ids.len();
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("record_id", DataType::Utf8, false),
-        Field::new("master_id", DataType::Utf8, false),
-        Field::new("entity_type", DataType::Utf8, false),
-        Field::new("match_type", DataType::Utf8, false),
-        Field::new("difficulty", DataType::Utf8, false),
-    ]).with_metadata(metadata.clone()));
+    let schema = Arc::new(
+        Schema::new(vec![
+            Field::new("record_id", DataType::Utf8, false),
+            Field::new("master_id", DataType::Utf8, false),
+            Field::new("entity_type", DataType::Utf8, false),
+            Field::new("match_type", DataType::Utf8, false),
+            Field::new("difficulty", DataType::Utf8, false),
+        ])
+        .with_metadata(metadata.clone()),
+    );
 
     let mt_arr = StringArray::from(match_types.to_vec());
     let diff_arr = StringArray::from_iter_values(std::iter::repeat(difficulty).take(n));
@@ -165,8 +172,13 @@ pub fn write_gt_parquet(
 
     let file = std::fs::File::create(path).map_err(|e| format!("create {path}: {e}"))?;
     let zstd = ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
-    let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata.iter()
-        .map(|(k, v)| parquet::file::metadata::KeyValue { key: k.clone(), value: Some(v.clone()) }).collect();
+    let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata
+        .iter()
+        .map(|(k, v)| parquet::file::metadata::KeyValue {
+            key: k.clone(),
+            value: Some(v.clone()),
+        })
+        .collect();
     let props = WriterProperties::builder()
         .set_compression(Compression::ZSTD(zstd))
         .set_data_page_size_limit(1_048_576)
@@ -184,12 +196,16 @@ mod tests {
     use super::*;
     use arrow::array::StringArray;
 
-
     #[test]
     fn test_compute_gt() {
         let rids = StringArray::from(vec!["R1", "R2", "R3", "R4", "R5", "R6"]);
         let mids = StringArray::from(vec![
-            "M-0000001", "M-0000001", "M-0000002", "HN-0000003", "HN-0000004", "M-0000005",
+            "M-0000001",
+            "M-0000001",
+            "M-0000002",
+            "HN-0000003",
+            "HN-0000004",
+            "M-0000005",
         ]);
         let ets = StringArray::from(vec![
             "person", "person", "person", "person", "person", "person",

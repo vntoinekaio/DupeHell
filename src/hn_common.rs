@@ -41,12 +41,24 @@ struct HnConfig {
     address_fields: Vec<String>,
 }
 
-fn default_f() -> String { "first_name".into() }
-fn default_l() -> String { "last_name".into() }
-fn default_d() -> String { "date_of_birth".into() }
-fn default_e() -> String { "email".into() }
-fn default_p() -> String { "phone".into() }
-fn default_s() -> String { "ssn".into() }
+fn default_f() -> String {
+    "first_name".into()
+}
+fn default_l() -> String {
+    "last_name".into()
+}
+fn default_d() -> String {
+    "date_of_birth".into()
+}
+fn default_e() -> String {
+    "email".into()
+}
+fn default_p() -> String {
+    "phone".into()
+}
+fn default_s() -> String {
+    "ssn".into()
+}
 
 /// Generate hard negatives from a pool of base records.
 ///
@@ -61,8 +73,8 @@ pub fn generate_hard_negatives(
     count: usize,
     seed: u64,
 ) -> Result<RecordBatch, String> {
-    let config: HnConfig = serde_json::from_str(config_json)
-        .map_err(|e| format!("HN config parse error: {e}"))?;
+    let config: HnConfig =
+        serde_json::from_str(config_json).map_err(|e| format!("HN config parse error: {e}"))?;
 
     let n_base = pool.num_rows();
     if n_base < 2 {
@@ -86,7 +98,9 @@ pub fn generate_hard_negatives(
     match config.pattern.as_str() {
         "same_field" => same_field(pool, &config, &idx_a, &idx_b, n),
         "mix_identifier" => mix_identifier(pool, &config, &idx_a, &idx_b, &mut rng, n),
-        "same_name_different_everything" => factory_same_name_diff(pool, &config, &idx_a, &idx_b, n),
+        "same_name_different_everything" => {
+            factory_same_name_diff(pool, &config, &idx_a, &idx_b, n)
+        }
         "same_email" => factory_same_email(pool, &config, &idx_a, &idx_b, n),
         "same_ssn" => factory_same_ssn(pool, &config, &idx_a, &idx_b, n),
         "same_phone" => factory_same_phone(pool, &config, &idx_a, &idx_b, n),
@@ -265,7 +279,12 @@ fn factory_same_name_dob(
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-fn col_take(pool: &RecordBatch, name: &str, indices: &[usize], _n: usize) -> Result<ArrayRef, String> {
+fn col_take(
+    pool: &RecordBatch,
+    name: &str,
+    indices: &[usize],
+    _n: usize,
+) -> Result<ArrayRef, String> {
     let idx_arr = UInt64Array::from_iter_values(indices.iter().copied().map(|i| i as u64));
     let col = pool
         .column_by_name(name)
@@ -321,7 +340,7 @@ impl Clone for HnConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::array::{StringArray, Int64Array};
+    use arrow::array::{Int64Array, StringArray};
 
     fn make_pool() -> RecordBatch {
         let schema = Arc::new(Schema::new(vec![
@@ -339,10 +358,30 @@ mod tests {
         let given_name = StringArray::from(vec!["Alice", "Bob", "Charlie", "Diana", "Eve"]);
         let family_name = StringArray::from(vec!["Smith", "Jones", "Brown", "Taylor", "Wilson"]);
         let email = StringArray::from(vec!["a@x.com", "b@x.com", "c@x.com", "d@x.com", "e@x.com"]);
-        let ssn = StringArray::from(vec!["111-11-1111", "222-22-2222", "333-33-3333", "444-44-4444", "555-55-5555"]);
-        let phone = StringArray::from(vec!["555-0101", "555-0102", "555-0103", "555-0104", "555-0105"]);
-        let birth_date = StringArray::from(vec!["1990-01-01", "1985-05-15", "2000-12-25", "1975-03-20", "1995-07-07"]);
-        let address_line1 = StringArray::from(vec!["1 Main St", "2 Oak Ave", "3 Pine Rd", "4 Elm Dr", "5 Maple Ln"]);
+        let ssn = StringArray::from(vec![
+            "111-11-1111",
+            "222-22-2222",
+            "333-33-3333",
+            "444-44-4444",
+            "555-55-5555",
+        ]);
+        let phone = StringArray::from(vec![
+            "555-0101", "555-0102", "555-0103", "555-0104", "555-0105",
+        ]);
+        let birth_date = StringArray::from(vec![
+            "1990-01-01",
+            "1985-05-15",
+            "2000-12-25",
+            "1975-03-20",
+            "1995-07-07",
+        ]);
+        let address_line1 = StringArray::from(vec![
+            "1 Main St",
+            "2 Oak Ave",
+            "3 Pine Rd",
+            "4 Elm Dr",
+            "5 Maple Ln",
+        ]);
         let postal_code = StringArray::from(vec!["10001", "10002", "10003", "10004", "10005"]);
         let city = StringArray::from(vec!["NYC", "LA", "Chicago", "Houston", "Phoenix"]);
         let age = Int64Array::from(vec![34, 39, 24, 49, 29]);
@@ -418,7 +457,8 @@ mod tests {
     #[test]
     fn test_same_ssn() {
         let pool = make_pool();
-        let config = r#"{"pattern":"same_ssn","ssn_col":"ssn","attr_fields":["given_name","family_name"]}"#;
+        let config =
+            r#"{"pattern":"same_ssn","ssn_col":"ssn","attr_fields":["given_name","family_name"]}"#;
         let rb = generate_hard_negatives(&pool, config, 2, 42).unwrap();
         assert_eq!(rb.num_rows(), 2);
     }
@@ -464,7 +504,8 @@ mod tests {
     #[test]
     fn test_pool_too_small() {
         let pool = make_pool();
-        let config = r#"{"pattern":"same_field","id_fields":["email"],"attr_fields":["given_name"]}"#;
+        let config =
+            r#"{"pattern":"same_field","id_fields":["email"],"attr_fields":["given_name"]}"#;
         let result = generate_hard_negatives(&pool, config, 0, 42);
         assert!(result.is_err());
     }
@@ -472,7 +513,8 @@ mod tests {
     #[test]
     fn test_unknown_pattern() {
         let pool = make_pool();
-        let config = r#"{"pattern":"nonexistent","id_fields":["email"],"attr_fields":["given_name"]}"#;
+        let config =
+            r#"{"pattern":"nonexistent","id_fields":["email"],"attr_fields":["given_name"]}"#;
         let result = generate_hard_negatives(&pool, config, 2, 42);
         assert!(result.is_err());
     }

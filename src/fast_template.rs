@@ -8,7 +8,10 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, StringBuilder};
 
-use crate::buf_gen::{buf_digits, buf_email, buf_medicare, buf_office_phone, buf_pan, buf_passport, buf_phone, buf_ssn, buf_ssn_last4, buf_acct_num, buf_branch, bytes_strings};
+use crate::buf_gen::{
+    buf_acct_num, buf_branch, buf_digits, buf_email, buf_medicare, buf_office_phone, buf_pan,
+    buf_passport, buf_phone, buf_ssn, buf_ssn_last4, bytes_strings,
+};
 use crate::context::Context;
 use crate::rng::Rng;
 
@@ -88,9 +91,13 @@ fn gen_branch(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_street(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
-    let streets = ctx.pool_store.get("street_names")
+    let streets = ctx
+        .pool_store
+        .get("street_names")
         .expect("pool 'street_names' not found");
-    let suffixes = ["St", "Ave", "Blvd", "Dr", "Ln", "Rd", "Way", "Ct", "Pl", "Cir"];
+    let suffixes = [
+        "St", "Ave", "Blvd", "Dr", "Ln", "Rd", "Way", "Ct", "Pl", "Cir",
+    ];
     build(n, 32, |buf| {
         let num = rng.next_usize(9900) + 100; // 100-9999
         write_zpad(buf, num, 4);
@@ -106,12 +113,18 @@ fn gen_street(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 fn gen_url(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let first = ctx.pool_store.get("first_name").unwrap();
     let last = ctx.pool_store.get("last_name").unwrap();
-    let names: Vec<&str> = first.iter().chain(last.iter()).map(|s| s.as_str()).collect();
+    let names: Vec<&str> = first
+        .iter()
+        .chain(last.iter())
+        .map(|s| s.as_str())
+        .collect();
     let tlds = [".com", ".org", ".net", ".io"];
     build(n, 28, |buf| {
         buf.extend_from_slice(b"www.");
         let name = names[rng.next_usize(names.len())].as_bytes();
-        for c in name { buf.push(c.to_ascii_lowercase()); }
+        for c in name {
+            buf.push(c.to_ascii_lowercase());
+        }
         let tld = tlds[rng.next_usize(tlds.len())];
         buf.extend_from_slice(tld.as_bytes());
     })
@@ -143,11 +156,17 @@ fn gen_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_linkedin(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let first = ctx.pool_store.get("first_name").unwrap();
     let last = ctx.pool_store.get("last_name").unwrap();
-    let names: Vec<&str> = first.iter().chain(last.iter()).map(|s| s.as_str()).collect();
+    let names: Vec<&str> = first
+        .iter()
+        .chain(last.iter())
+        .map(|s| s.as_str())
+        .collect();
     build(n, 48, |buf| {
         buf.extend_from_slice(b"https://linkedin.com/in/");
         let name = names[rng.next_usize(names.len())].as_bytes();
-        for c in name { buf.push(c.to_ascii_lowercase()); }
+        for c in name {
+            buf.push(c.to_ascii_lowercase());
+        }
         buf.push(b'-');
         let num = rng.next_usize(900) + 100;
         write_zpad(buf, num, 3);
@@ -165,8 +184,22 @@ fn gen_conf_code(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_acct_name(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let prefixes = ["Global", "Premier", "Advanced", "First", "United", "National", "Pacific", "Atlantic", "Summit", "Meridian"];
-    let suffixes = ["Solutions", "Group", "Partners", "Industries", "Enterprises", "Technologies", "Services", "Consulting", "Logistics", "Ventures"];
+    let prefixes = [
+        "Global", "Premier", "Advanced", "First", "United", "National", "Pacific", "Atlantic",
+        "Summit", "Meridian",
+    ];
+    let suffixes = [
+        "Solutions",
+        "Group",
+        "Partners",
+        "Industries",
+        "Enterprises",
+        "Technologies",
+        "Services",
+        "Consulting",
+        "Logistics",
+        "Ventures",
+    ];
     build(n, 24, |buf| {
         let p = prefixes[rng.next_usize(prefixes.len())];
         buf.extend_from_slice(p.as_bytes());
@@ -177,7 +210,9 @@ fn gen_acct_name(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_doc_num(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
-    let prefixes = ctx.pool_store.get("document_number_prefixes")
+    let prefixes = ctx
+        .pool_store
+        .get("document_number_prefixes")
         .expect("pool 'document_number_prefixes' not found");
     build(n, 12, |buf| {
         let p = prefixes[rng.next_usize(prefixes.len())].as_str();
@@ -210,9 +245,12 @@ fn gen_ip(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         let o2 = rng.next_usize(254) + 1;
         let o3 = rng.next_usize(254) + 1;
         let o4 = rng.next_usize(254) + 1;
-        write_zpad(buf, o1, 1); buf.push(b'.');
-        write_zpad(buf, o2, 1); buf.push(b'.');
-        write_zpad(buf, o3, 1); buf.push(b'.');
+        write_zpad(buf, o1, 1);
+        buf.push(b'.');
+        write_zpad(buf, o2, 1);
+        buf.push(b'.');
+        write_zpad(buf, o3, 1);
+        buf.push(b'.');
         write_zpad(buf, o4, 1);
     })
 }
@@ -220,7 +258,9 @@ fn gen_ip(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_barcode(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x424152);
     let mut nums = Vec::with_capacity(n);
-    for _ in 0..n { nums.push(rng.next_usize(9000000000000) as u64 + 1000000000000); }
+    for _ in 0..n {
+        nums.push(rng.next_usize(9000000000000) as u64 + 1000000000000);
+    }
     buf_digits(&nums, 14, Some(wm))
 }
 
@@ -235,14 +275,18 @@ fn gen_sku(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_cc(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let mut nums = Vec::with_capacity(n);
-    for _ in 0..n { nums.push(rng.next_usize(9000) as u64 + 1000); }
-    buf_digits(&nums, 4, None)}
+    for _ in 0..n {
+        nums.push(rng.next_usize(9000) as u64 + 1000);
+    }
+    buf_digits(&nums, 4, None)
+}
 
 fn gen_reg(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 10, |buf| {
         let l1 = b'A' + rng.next_usize(20) as u8;
         let l2 = b'A' + rng.next_usize(20) as u8;
-        buf.push(l1); buf.push(l2);
+        buf.push(l1);
+        buf.push(l2);
         buf.push(b'-');
         let num = rng.next_usize(90000) + 10000;
         write_zpad(buf, num, 5);
@@ -303,12 +347,17 @@ fn gen_inv_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_jersey(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let mut nums = Vec::with_capacity(n);
-    for _ in 0..n { nums.push(rng.next_usize(99) as u64); }
-    buf_digits(&nums, 2, None)}
+    for _ in 0..n {
+        nums.push(rng.next_usize(99) as u64);
+    }
+    buf_digits(&nums, 2, None)
+}
 
 fn gen_plate(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 8, |buf| {
-        for _ in 0..3 { buf.push(b'A' + rng.next_usize(26) as u8); }
+        for _ in 0..3 {
+            buf.push(b'A' + rng.next_usize(26) as u8);
+        }
         buf.push(b'-');
         let num = rng.next_usize(9900) + 100;
         write_zpad(buf, num, 4);
@@ -372,7 +421,9 @@ fn gen_tracking(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_scac(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 4, |buf| {
-        for _ in 0..4 { buf.push(b'A' + rng.next_usize(26) as u8); }
+        for _ in 0..4 {
+            buf.push(b'A' + rng.next_usize(26) as u8);
+        }
     })
 }
 
@@ -381,8 +432,10 @@ fn gen_apn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         let g1 = rng.next_usize(900) + 100;
         let g2 = rng.next_usize(9000) + 1000;
         let g3 = rng.next_usize(900) + 100;
-        write_zpad(buf, g1, 3); buf.push(b'-');
-        write_zpad(buf, g2, 4); buf.push(b'-');
+        write_zpad(buf, g1, 3);
+        buf.push(b'-');
+        write_zpad(buf, g2, 4);
+        buf.push(b'-');
         write_zpad(buf, g3, 3);
     })
 }
@@ -398,7 +451,9 @@ fn gen_mls(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_upc(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x555043);
     let mut nums = Vec::with_capacity(n);
-    for _ in 0..n { nums.push(rng.next_usize(900000000000) as u64 + 100000000000); }
+    for _ in 0..n {
+        nums.push(rng.next_usize(900000000000) as u64 + 100000000000);
+    }
     buf_digits(&nums, 12, Some(wm))
 }
 
@@ -426,10 +481,14 @@ fn gen_orcid(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 19, |buf| {
         buf.extend_from_slice(b"0000-");
         for _ in 0..3 {
-            for _ in 0..4 { buf.push(alnum[rng.next_usize(alnum.len())]); }
+            for _ in 0..4 {
+                buf.push(alnum[rng.next_usize(alnum.len())]);
+            }
             buf.push(b'-');
         }
-        for _ in 0..4 { buf.push(alnum[rng.next_usize(alnum.len())]); }
+        for _ in 0..4 {
+            buf.push(alnum[rng.next_usize(alnum.len())]);
+        }
     })
 }
 
@@ -451,9 +510,12 @@ fn gen_isbn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         let g4 = rng.next_usize(90000) + 10000;
         let g5 = rng.next_usize(9);
         buf.extend_from_slice(b"978-");
-        write_zpad(buf, g2, 2); buf.push(b'-');
-        write_zpad(buf, g3, 3); buf.push(b'-');
-        write_zpad(buf, g4, 5); buf.push(b'-');
+        write_zpad(buf, g2, 2);
+        buf.push(b'-');
+        write_zpad(buf, g3, 3);
+        buf.push(b'-');
+        write_zpad(buf, g4, 5);
+        buf.push(b'-');
         write_zpad(buf, g5, 1);
     })
 }
@@ -462,7 +524,8 @@ fn gen_issn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 9, |buf| {
         let g1 = rng.next_usize(9000) + 1000;
         let g2 = rng.next_usize(9000) + 1000;
-        write_zpad(buf, g1, 4); buf.push(b'-');
+        write_zpad(buf, g1, 4);
+        buf.push(b'-');
         write_zpad(buf, g2, 4);
     })
 }
@@ -472,7 +535,8 @@ fn gen_pages(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         let start = rng.next_usize(499) + 1;
         let span = rng.next_usize(27) + 3;
         let end = start + span;
-        write_zpad(buf, start, 1); buf.push(b'-');
+        write_zpad(buf, start, 1);
+        buf.push(b'-');
         write_zpad(buf, end, 1);
     })
 }
@@ -543,8 +607,10 @@ fn gen_duns(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         let g1 = rng.next_usize(90) + 10;
         let g2 = rng.next_usize(900) + 100;
         let g3 = rng.next_usize(9000) + 1000;
-        write_zpad(buf, g1, 2); buf.push(b'-');
-        write_zpad(buf, g2, 3); buf.push(b'-');
+        write_zpad(buf, g1, 2);
+        buf.push(b'-');
+        write_zpad(buf, g2, 3);
+        buf.push(b'-');
         write_zpad(buf, g3, 4);
     })
 }
@@ -552,7 +618,8 @@ fn gen_duns(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_season(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 9, |buf| {
         let y = rng.next_usize(5) + 2020;
-        write_zpad(buf, y, 4); buf.push(b'-');
+        write_zpad(buf, y, 4);
+        buf.push(b'-');
         write_zpad(buf, y + 1, 4);
     })
 }
@@ -569,76 +636,133 @@ fn gen_power(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_suffix(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["Jr.", "Sr.", "III", "II", "IV", "MD", "PhD", "Esq."];
     let mut builder = StringBuilder::with_capacity(n, 4);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_lead_source(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["website", "referral", "event", "cold_call", "email_campaign", "partner", "social_media", "webinar"];
+    let pool = [
+        "website",
+        "referral",
+        "event",
+        "cold_call",
+        "email_campaign",
+        "partner",
+        "social_media",
+        "webinar",
+    ];
     let mut builder = StringBuilder::with_capacity(n, 14);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_semester(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["Fall 2024", "Spring 2025", "Summer 2025", "Fall 2025", "Spring 2026"];
+    let pool = [
+        "Fall 2024",
+        "Spring 2025",
+        "Summer 2025",
+        "Fall 2025",
+        "Spring 2026",
+    ];
     let mut builder = StringBuilder::with_capacity(n, 11);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_grade(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F", "W", "I", "P"];
+    let pool = [
+        "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F", "W", "I", "P",
+    ];
     let mut builder = StringBuilder::with_capacity(n, 2);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_revenue_range(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["$0-$1M", "$1M-$10M", "$10M-$50M", "$50M-$100M", "$100M-$500M", "$500M-$1B", "$1B+"];
+    let pool = [
+        "$0-$1M",
+        "$1M-$10M",
+        "$10M-$50M",
+        "$50M-$100M",
+        "$100M-$500M",
+        "$500M-$1B",
+        "$1B+",
+    ];
     let mut builder = StringBuilder::with_capacity(n, 12);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_source_system(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["CRM", "ERP", "HRIS", "PORTAL", "LEGACY", "EXTERNAL"];
     let mut builder = StringBuilder::with_capacity(n, 8);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_os_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["iOS 17.4", "Android 14", "iOS 16.6", "Android 13", "HarmonyOS 4", "iPadOS 17"];
+    let pool = [
+        "iOS 17.4",
+        "Android 14",
+        "iOS 16.6",
+        "Android 13",
+        "HarmonyOS 4",
+        "iPadOS 17",
+    ];
     let mut builder = StringBuilder::with_capacity(n, 11);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_reviewer_notes(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = [
-        "Good performance this quarter", "Needs improvement in communication",
-        "Exceeds expectations", "Meets all targets", "Strong technical skills",
-        "Leadership potential noted", "Areas for growth identified",
-        "Consistent performer", "Above average contribution",
+        "Good performance this quarter",
+        "Needs improvement in communication",
+        "Exceeds expectations",
+        "Meets all targets",
+        "Strong technical skills",
+        "Leadership potential noted",
+        "Areas for growth identified",
+        "Consistent performer",
+        "Above average contribution",
         "Shows initiative and drive",
     ];
     let mut builder = StringBuilder::with_capacity(n, 38);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_currency(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "CNY"];
     let mut builder = StringBuilder::with_capacity(n, 3);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
 fn gen_address_type(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["shipping", "billing", "home", "work", "mailing"];
     let mut builder = StringBuilder::with_capacity(n, 8);
-    for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+    for _ in 0..n {
+        builder.append_value(pool[rng.next_usize(pool.len())]);
+    }
     Arc::new(builder.finish())
 }
 
@@ -658,7 +782,14 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
         m.insert(*k, gen_email);
     }
     // Phone
-    for k in &["phone_number", "mobile_phone", "home_phone", "prov_phone", "phone", "destination_number"] {
+    for k in &[
+        "phone_number",
+        "mobile_phone",
+        "home_phone",
+        "prov_phone",
+        "phone",
+        "destination_number",
+    ] {
         m.insert(*k, gen_phone);
     }
     // SSN / tax_id / national_id
@@ -684,9 +815,15 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     // Branch code
     m.insert("branch_code", gen_branch);
     // Street address
-    for k in &["street_address", "address_line1", "address",
-               "residential_address_line1", "registered_address_line1",
-               "shipping_address", "billing_address"] {
+    for k in &[
+        "street_address",
+        "address_line1",
+        "address",
+        "residential_address_line1",
+        "registered_address_line1",
+        "shipping_address",
+        "billing_address",
+    ] {
         m.insert(*k, gen_street);
     }
     // URL
@@ -712,7 +849,12 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     // NPI
     m.insert("npi", gen_npi);
     // License / bar number / driver license
-    for k in &["bar_number", "license_number", "drivers_license_number", "npn"] {
+    for k in &[
+        "bar_number",
+        "license_number",
+        "drivers_license_number",
+        "npn",
+    ] {
         m.insert(*k, gen_license);
     }
     // IP address
@@ -880,32 +1022,42 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     // Volume
     m.insert("volume", |n, rng, _| {
         let mut builder = StringBuilder::with_capacity(n, 2);
-        for _ in 0..n { builder.append_value(&(rng.next_usize(50) + 1).to_string()); }
+        for _ in 0..n {
+            builder.append_value(&(rng.next_usize(50) + 1).to_string());
+        }
         Arc::new(builder.finish())
     });
     // Issue
     m.insert("issue", |n, rng, _| {
         let mut builder = StringBuilder::with_capacity(n, 2);
-        for _ in 0..n { builder.append_value(&(rng.next_usize(12) + 1).to_string()); }
+        for _ in 0..n {
+            builder.append_value(&(rng.next_usize(12) + 1).to_string());
+        }
         Arc::new(builder.finish())
     });
     // Option1, Option2, Option3
     m.insert("option1", |n, rng, _| {
         let pool = ["Small", "Medium", "Large", "XL", "XXL"];
         let mut builder = StringBuilder::with_capacity(n, 5);
-        for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+        for _ in 0..n {
+            builder.append_value(pool[rng.next_usize(pool.len())]);
+        }
         Arc::new(builder.finish())
     });
     m.insert("option2", |n, rng, _| {
         let pool = ["Black", "White", "Red", "Blue", "Green", "Gray", "Navy"];
         let mut builder = StringBuilder::with_capacity(n, 5);
-        for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+        for _ in 0..n {
+            builder.append_value(pool[rng.next_usize(pool.len())]);
+        }
         Arc::new(builder.finish())
     });
     m.insert("option3", |n, rng, _| {
         let pool = ["Cotton", "Polyester", "Wool", "Linen", "Silk"];
         let mut builder = StringBuilder::with_capacity(n, 10);
-        for _ in 0..n { builder.append_value(pool[rng.next_usize(pool.len())]); }
+        for _ in 0..n {
+            builder.append_value(pool[rng.next_usize(pool.len())]);
+        }
         Arc::new(builder.finish())
     });
     m
@@ -918,8 +1070,8 @@ use std::sync::LazyLock;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::array::AsArray;
     use crate::context::Context;
+    use arrow::array::AsArray;
 
     fn test_ctx() -> Context {
         let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1018,8 +1170,13 @@ mod tests {
         for i in 0..5 {
             let v = s.value(i);
             assert!(v.starts_with("www."), "url[{i}] = {v:?}");
-            assert!(v.ends_with(".com") || v.ends_with(".org") || v.ends_with(".net") || v.ends_with(".io"),
-                    "url[{i}] = {v:?}");
+            assert!(
+                v.ends_with(".com")
+                    || v.ends_with(".org")
+                    || v.ends_with(".net")
+                    || v.ends_with(".io"),
+                "url[{i}] = {v:?}"
+            );
         }
     }
 

@@ -49,22 +49,6 @@ impl Rng {
     pub fn fork(&mut self) -> Self {
         Self::new(self.next_u64())
     }
-
-    /// Return a random `u32` in `lo..=hi` (inclusive).
-    pub fn gen_range(&mut self, lo: u32, hi: u32) -> u32 {
-        if lo >= hi {
-            return lo;
-        }
-        lo + (self.next_u64() as u32) % (hi - lo + 1)
-    }
-
-    /// Fill a slice with random usize indices.
-    pub fn random_indices(&mut self, n: usize, max: usize) -> Vec<usize> {
-        if max == 0 {
-            return vec![0; n];
-        }
-        (0..n).map(|_| self.next_usize(max)).collect()
-    }
 }
 
 #[cfg(test)]

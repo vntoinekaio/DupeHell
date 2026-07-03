@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 use arrow::array::{ArrayRef, StringArray};
 use arrow::datatypes::{DataType, Schema};
 use arrow::record_batch::RecordBatch;
 
-use crate::entity_gen;
 use crate::context::Context;
-use crate::pipeline::{self, PipelineConfig, IdPools};
+use crate::entity_gen;
+use crate::pipeline::{self, IdPools, PipelineConfig};
 
 const CANARY_COUNT: usize = 3;
 const CANARY_SECRET: &str = "DupeHell-CANARY-v0.4-educational-use-only-2026";
@@ -59,7 +59,8 @@ pub fn generate_all(
 
         // Override the email column (whichever name it has in this domain)
         let rb_schema = rb.schema();
-        let email_idx_opt = rb_schema.column_with_name("email_address")
+        let email_idx_opt = rb_schema
+            .column_with_name("email_address")
             .or_else(|| rb_schema.column_with_name("business_email"))
             .or_else(|| rb_schema.column_with_name("email"))
             .map(|(idx, _)| idx);
@@ -77,7 +78,10 @@ pub fn generate_all(
         }
 
         // Build col_lookup for alignment
-        let col_lookup: Vec<Option<usize>> = full_arc.fields().iter().skip(4)
+        let col_lookup: Vec<Option<usize>> = full_arc
+            .fields()
+            .iter()
+            .skip(4)
             .map(|f| rb.schema().column_with_name(f.name()).map(|(idx, _)| idx))
             .collect();
 
@@ -99,7 +103,8 @@ pub fn generate_all(
             null_cache,
         );
 
-        writer.write(&aligned)
+        writer
+            .write(&aligned)
             .map_err(|e| format!("write canary batch: {e}"))?;
 
         gt_record_id_arrs.push(aligned.column(0).clone());

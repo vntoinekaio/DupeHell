@@ -43,9 +43,20 @@ pub fn pool_values(pool_name: &str, n: usize, rng: &mut Rng, ctx: &Context) -> A
 /// Strip known prefixes from a column name (e.g. "pat_first_name" -> "first_name").
 pub fn strip_prefix(name: &str) -> String {
     let prefixes = [
-        "pat_", "prov_", "cur_", "alias_", "insured_", "residential_",
-        "registered_", "billing_", "shipping_", "default_", "agent_",
-        "mailing_", "personal_", "contact_",
+        "pat_",
+        "prov_",
+        "cur_",
+        "alias_",
+        "insured_",
+        "residential_",
+        "registered_",
+        "billing_",
+        "shipping_",
+        "default_",
+        "agent_",
+        "mailing_",
+        "personal_",
+        "contact_",
     ];
     let lower = name.to_lowercase().replace(' ', "_");
     for pfx in &prefixes {
@@ -204,7 +215,9 @@ mod tests {
     fn test_pool_values_lookup() {
         use crate::context::Context;
         let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap().join("dupehell/assets/pools");
+            .parent()
+            .unwrap()
+            .join("dupehell/assets/pools");
         let ctx = Context::new("kyc", pools_dir.to_str().unwrap()).unwrap();
         let mut rng = Rng::new(42);
         let arr = pool_values("first_name", 10, &mut rng, &ctx);
