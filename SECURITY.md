@@ -34,7 +34,7 @@ You can also contact the maintainers directly through GitHub.
 - Generation pipeline code (Python + Rust)
 - CLI argument handling
 - Pool data files
-- Dependencies (Polars, NumPy, PyArrow, Textual, etc.)
+- Dependencies (arrow-rs, clap, serde, etc.)
 
 ## Out of scope
 

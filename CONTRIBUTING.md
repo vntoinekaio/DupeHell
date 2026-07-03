@@ -1,100 +1,71 @@
-<!-- DupeHell -- MIT License . Educational Use Only -->
-<!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
+# Contributing to DupeHell2
 
-# Contributing
-
-## Setup
+## Quick Start
 
 ```bash
-git clone https://github.com/anomalyco/dupehell
-cd dupehell
-
-# Python
-pip install -e .
-
-# Rust (optional, for the core engine)
-cd dupehell-core
-pip install -e .    # maturin develop
-cd ..
+git clone https://github.com/anomalyco/dupehell2
+cd dupehell2
+cargo build --release
+cargo test
+./target/release/dupehell2 --domain kyc --size 1000 --seed 42
 ```
 
-## Tests
+## Architecture
 
-```bash
-# Python (1052 tests)
-python -m pytest tests/ -q --tb=short \
-  -k "not test_generator_pipeline" \
-  --deselect tests/test_generator.py::TestGenerate::test_domain_kyc_pipeline \
-  --deselect tests/test_generator.py::TestGenerate::test_generate_light \
-  --deselect tests/test_generator.py::TestGenerate::test_generate_deterministic \
-  --deselect tests/test_generator.py::TestGenerate::test_generate_cleanup
-
-# Rust (97 tests)
-cd dupehell-core && cargo test && cd ..
-
-# Smoke test
-dupehell generate --domain kyc --size 200 --verbose
-dupehell audit
-dupehell profile --domain kyc --size 10000
-```
-
-## Code structure
+DupeHell2 is a standalone Rust binary (no Python, no PyO3, no Polars) that generates synthetic datasets for record linkage benchmarking across 37 domains.
 
 ```
-dupehell/
-├── application/          # Pipeline core
-│   ├── generator.py      # generate() orchestrator
-│   ├── entity_generation.py  # Python column generation
-│   ├── ipc_sink.py       # IPC Feather → Parquet sink
-│   ├── pyarrow_sink.py   # numpy dict → Parquet sink
-│   ├── rust_fallback.py  # Transparent Rust/Python bridge
-│   ├── metrics.py        # Ground truth metrics
-│   └── validation.py     # Domain/pools/FK validation
-├── domain/schemas/       # 37 domain definitions
-├── domains/              # Per-domain noise/HN dispatchers
-├── noise/                # 8 Python noise modules
-├── ui/                   # Textual TUI wizard
-├── models.py             # Pydantic config models
-├── __main__.py           # CLI entry point
-└── yaml_io.py            # Config YAML/JSON I/O
-
-dupehell-core/
+dupehell2/
 ├── src/
-│   ├── lib.rs            # PyO3 entry points
-│   ├── context.rs        # PoolStore + Config
-│   ├── rng.rs            # PCG64 RNG
-│   ├── buf_gen.rs        # Buffer generators
-│   ├── fast_template.rs  # Template dispatch
-│   ├── pool_lookup.rs    # Pool lookups
-│   ├── column_gen.rs     # Column generation
-│   ├── entity_gen.rs     # Entity batch generation
-│   ├── ipc_sink.rs       # IPC FileWriter
-│   ├── noise/            # 8 noise modules
-│   └── hn_common.rs      # Hard negatives
-└── tests/                # Rust unit tests
+│   ├── main.rs           # CLI (clap), config builder
+│   ├── pipeline.rs       # Streaming per-batch per-entity pipeline
+│   ├── entity_gen.rs     # Entity generation (BATCH_SIZE=500K)
+│   ├── column_gen.rs     # Column value generation dispatch
+│   ├── fast_template.rs  # ~40 template functions (SSN, phone, email, …)
+│   ├── buf_gen.rs        # Byte-buffer generators (barcode, ICCID, …)
+│   ├── fk_remap.rs       # Foreign key remapping
+│   ├── hn_common.rs      # Hard negative generation
+│   ├── gt.rs             # Ground truth computation + IPC/Parquet write
+│   ├── ipc_sink.rs       # IPC file sink
+│   ├── sink.rs           # Standalone sink utilities
+│   ├── faker.rs          # Address/location generation
+│   ├── pool_lookup.rs    # Pool asset loading
+│   ├── rng.rs            # PRNG helpers
+│   ├── context.rs        # Runtime context (pools, schemas)
+│   └── noise/            # 9 noise modules
+│       ├── mod.rs
+│       ├── typos.rs
+│       ├── visual.rs
+│       ├── names.rs
+│       ├── dates.rs
+│       ├── identifiers.rs
+│       ├── addresses.rs
+│       ├── companies.rs
+│       └── extra.rs
+├── schemas/*.json        # 37 domain schemas
+├── assets/pools/         # 134 pool files (multi-lang)
+└── ROADMAP.md            # Perf optimisation tracking
 ```
 
-## Adding a domain
+## Testing
 
-1. Create `dupehell/domain/schemas/<name>.py` — define the `DomainPreset`
-2. Register in `domain/schemas/__init__.py`
-3. Define FK relations in `domain/schemas/registry.py`
-4. Add required pools in `assets/pools/`
-5. (Optional) Add noise/HN dispatchers in `dupehell/domains/`
-6. Test: `dupehell validate --domain <name> && dupehell audit --domain <name>`
+```bash
+cargo test          # 114 tests, ~30s
+```
 
-## Adding a noise type
+## Adding a new domain
 
-1. Python: add the function in `dupehell/noise/<module>.py`
-2. Rust: add in `dupehell-core/src/noise/<module>.rs`
-3. Register in the noise dispatch
-4. Unit tests + integration test
+1. Add `schemas/<name>.json` — define entities, columns, FK remaps, HN types
+2. (Optional) Add new pool files in `assets/pools/` if the domain needs new vocabulary
+3. Test: `cargo test && cargo run --release -- --domain <name> --size 200`
 
-## Principles
+## Output format
 
-- Data flows through numpy arrays in the Python pipeline
-- All sinks use Polars lazy (no `collect()` until finalization)
-- Rust is used for hot paths (generation, intensive noise)
-- Everything has a Python fallback if Rust is not available
-- `maintain_order=False` everywhere in sinks
-- Single `with_columns` for multiple column additions
+- Default: IPC (`*.ipc`) — dataset + ground truth
+- `--parquet` or `--output-format parquet` : Parquet ZSTD(3) — both dataset and GT
+
+## Performance
+
+Current benchmark (10M KYC medium) : **~660K rec/s**, **~4.5 GB RAM peak**
+
+Output via `sink_parquet` IPC→Parquet conversion (ZSTD level 3) at end of pipeline.
