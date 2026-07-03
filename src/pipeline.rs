@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayBuilder, ArrayRef, AsArray, StringBuilder, StringArray, UInt64Array, UInt64Builder};
+use arrow::array::{Array, ArrayBuilder, ArrayRef, AsArray, StringArray, UInt64Array, UInt64Builder};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use serde::Deserialize;
@@ -86,9 +86,9 @@ pub struct PipelineStats {
 
 // ── Pre-allocated ID pools ─────────────────────────────────────────────────
 
-struct IdPools {
-    record_ids: Vec<String>,
-    pad_7: Vec<String>,
+pub(crate) struct IdPools {
+    pub(crate) record_ids: Vec<String>,
+    pub(crate) pad_7: Vec<String>,
 }
 
 fn preallocate_ids(total: usize) -> IdPools {
@@ -713,6 +713,16 @@ pub fn run_pipeline(
     }
     let t2_elapsed = t2.elapsed().as_secs_f64();
 
+    // ── Canary records ────────────────────────────────────────────────────
+    {
+        let mut canary_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
+        crate::canary::generate_all(
+            ctx, config, &full_arc, &mut canary_null_cache,
+            &mut global_rid_offset, &ids, &mut writer,
+            &mut gt_record_id_arrs, &mut gt_entity_type_arrs, &mut gt_master_id_arrs,
+        )?;
+    }
+
     // ── Phase 3: Finalize + GT (use accumulated arrays) ────────────────
     let t3 = std::time::Instant::now();
     writer.finish().map_err(|e| format!("finish IPC writer: {e}"))?;
@@ -747,6 +757,7 @@ pub fn run_pipeline(
     let gt_ext = if config.output_format == "parquet" { "parquet" } else { "ipc" };
     let gt_path = format!("{}/{}_ground_truth.{}", output_dir, config.run_id, gt_ext);
 
+    let _gt_meta = build_metadata_map(config);
     let t_gt1 = std::time::Instant::now();
     if config.output_format == "parquet" {
         crate::gt::write_gt_parquet(
@@ -756,6 +767,7 @@ pub fn run_pipeline(
             &gt_match_types,
             config.difficulty.as_str(),
             &gt_path,
+            &_gt_meta,
         )?;
     } else {
         crate::gt::write_gt_ipc(
@@ -765,6 +777,7 @@ pub fn run_pipeline(
             &gt_match_types,
             config.difficulty.as_str(),
             &gt_path,
+            &_gt_meta,
         )?;
     }
     let _t_gt_write = t_gt1.elapsed().as_secs_f64();
@@ -796,9 +809,12 @@ pub fn run_pipeline(
             .map_err(|e| format!("create {parquet_path}: {e}"))?;
         let zstd_level = parquet::basic::ZstdLevel::try_new(3)
             .map_err(|e| format!("zstd: {e}"))?;
+        let meta_kv: Vec<parquet::file::metadata::KeyValue> = build_metadata_map(config)
+            .into_iter().map(|(k, v)| parquet::file::metadata::KeyValue { key: k, value: Some(v) }).collect();
         let props = parquet::file::properties::WriterProperties::builder()
             .set_compression(parquet::basic::Compression::ZSTD(zstd_level))
             .set_max_row_group_row_count(Some(usize::MAX / 2))
+            .set_key_value_metadata(Some(meta_kv))
             .build();
         let mut parquet_writer = parquet::arrow::ArrowWriter::try_new(
             parquet_file, batch.schema(), Some(props),
@@ -840,6 +856,27 @@ pub fn run_pipeline(
     })
 }
 
+// ── Metadata injection ──────────────────────────────────────────────────────
+
+fn build_metadata_map(config: &PipelineConfig) -> HashMap<String, String> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "unknown".into());
+    HashMap::from([
+        ("dupehell.generator".into(),  format!("DupeHell v{}", env!("CARGO_PKG_VERSION"))),
+        ("dupehell.provenance".into(), "dupehell-synthetic-data".into()),
+        ("dupehell.license".into(),    "MIT".into()),
+        ("dupehell.purpose".into(),    "Educational Use Only — Record Linkage Benchmarking".into()),
+        ("dupehell.url".into(),        "https://github.com/anomalyco/dupehell".into()),
+        ("dupehell.domain".into(),     config.domain.clone()),
+        ("dupehell.size".into(),       config.size.to_string()),
+        ("dupehell.seed".into(),       config.seed.to_string()),
+        ("dupehell.run_id".into(),     config.run_id.clone()),
+        ("dupehell.timestamp".into(),  ts),
+    ])
+}
+
 // ── Schema alignment ───────────────────────────────────────────────────────
 
 /// Build the union schema from all entity plans (all columns + metadata).
@@ -861,7 +898,7 @@ fn build_full_schema(config: &PipelineConfig) -> Schema {
         }
     }
     let fields: Vec<Field> = field_map.into_iter().map(|(n, dt)| Field::new(&n, dt, true)).collect();
-    Schema::new(fields)
+    Schema::new(fields).with_metadata(build_metadata_map(config))
 }
 
 /// Map a column's JSON type string to Arrow DataType.
@@ -876,7 +913,7 @@ fn col_type_from_request(v: &serde_json::Value) -> DataType {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-fn add_metadata_and_align(
+pub(crate) fn add_metadata_and_align(
     rb: &RecordBatch,
     domain: &str,
     entity_type: &str,

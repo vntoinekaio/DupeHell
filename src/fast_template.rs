@@ -47,44 +47,44 @@ where
 
 // ── Template generators ───────────────────────────────────────────────────
 
-fn gen_email(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_email(_n, rng)
+fn gen_email(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    buf_email(n, rng)
 }
 
-fn gen_phone(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_phone(_n, rng)
+fn gen_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_phone(n, rng, ctx)
 }
 
-fn gen_ssn(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_ssn(_n, rng)
+fn gen_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_ssn(n, rng, ctx)
 }
 
-fn gen_pan(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_pan(_n, rng)
+fn gen_pan(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_pan(n, rng, ctx)
 }
 
-fn gen_medicare(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_medicare(_n, rng)
+fn gen_medicare(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_medicare(n, rng, ctx)
 }
 
-fn gen_office_phone(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_office_phone(_n, rng)
+fn gen_office_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_office_phone(n, rng, ctx)
 }
 
-fn gen_passport(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_passport(_n, rng)
+fn gen_passport(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_passport(n, rng, ctx)
 }
 
-fn gen_ssn_last4(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_ssn_last4(_n, rng)
+fn gen_ssn_last4(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    buf_ssn_last4(n, rng)
 }
 
-fn gen_acct_num(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_acct_num(_n, rng)
+fn gen_acct_num(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_acct_num(n, rng, ctx)
 }
 
-fn gen_branch(_n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_branch(_n, rng)
+fn gen_branch(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    buf_branch(n, rng)
 }
 
 fn gen_street(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
@@ -217,10 +217,11 @@ fn gen_ip(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     })
 }
 
-fn gen_barcode(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+fn gen_barcode(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x424152);
     let mut nums = Vec::with_capacity(n);
     for _ in 0..n { nums.push(rng.next_usize(9000000000000) as u64 + 1000000000000); }
-    buf_digits(&nums, 14)
+    buf_digits(&nums, 14, Some(wm))
 }
 
 fn gen_sku(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
@@ -235,8 +236,7 @@ fn gen_sku(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_cc(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let mut nums = Vec::with_capacity(n);
     for _ in 0..n { nums.push(rng.next_usize(9000) as u64 + 1000); }
-    buf_digits(&nums, 4)
-}
+    buf_digits(&nums, 4, None)}
 
 fn gen_reg(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 10, |buf| {
@@ -304,8 +304,7 @@ fn gen_inv_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_jersey(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let mut nums = Vec::with_capacity(n);
     for _ in 0..n { nums.push(rng.next_usize(99) as u64); }
-    buf_digits(&nums, 2)
-}
+    buf_digits(&nums, 2, None)}
 
 fn gen_plate(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build(n, 8, |buf| {
@@ -335,12 +334,13 @@ fn gen_imsi(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     })
 }
 
-fn gen_iccid(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+fn gen_iccid(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x494343);
     let mut nums = Vec::with_capacity(n);
     for _ in 0..n {
         nums.push(rng.next_usize(900000000000000000) as u64 + 100000000000000000);
     }
-    buf_digits(&nums, 18)
+    buf_digits(&nums, 18, Some(wm))
 }
 
 fn gen_policy_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
@@ -395,10 +395,11 @@ fn gen_mls(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     })
 }
 
-fn gen_upc(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+fn gen_upc(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x555043);
     let mut nums = Vec::with_capacity(n);
     for _ in 0..n { nums.push(rng.next_usize(900000000000) as u64 + 100000000000); }
-    buf_digits(&nums, 12)
+    buf_digits(&nums, 12, Some(wm))
 }
 
 fn gen_case_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
