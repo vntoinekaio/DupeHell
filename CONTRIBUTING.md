@@ -12,13 +12,16 @@ cargo test
 
 ## Architecture
 
-DupeHell2 is a standalone Rust binary (no Python, no PyO3, no Polars) that generates synthetic datasets for record linkage benchmarking across 37 domains.
+DupeHell2 generates synthetic datasets for record linkage benchmarking across 41 domains. Available as a Rust CLI binary or a Python package (`pip install dupehell`).
 
 ```
 dupehell2/
 ├── src/
-│   ├── main.rs           # CLI (clap), config builder
+│   ├── lib.rs            # Library root + PyO3 bindings
+│   ├── main.rs           # CLI entry point (clap)
+│   ├── schema.rs         # Schema loading + pipeline config builder
 │   ├── pipeline.rs       # Streaming per-batch per-entity pipeline
+│   ├── context.rs        # Runtime context (pools, schemas, watermark)
 │   ├── entity_gen.rs     # Entity generation (BATCH_SIZE=500K)
 │   ├── column_gen.rs     # Column value generation dispatch
 │   ├── fast_template.rs  # ~40 template functions (SSN, phone, email, …)
@@ -26,12 +29,8 @@ dupehell2/
 │   ├── fk_remap.rs       # Foreign key remapping
 │   ├── hn_common.rs      # Hard negative generation
 │   ├── gt.rs             # Ground truth computation + IPC/Parquet write
-│   ├── ipc_sink.rs       # IPC file sink
-│   ├── sink.rs           # Standalone sink utilities
-│   ├── faker.rs          # Address/location generation
 │   ├── pool_lookup.rs    # Pool asset loading
 │   ├── rng.rs            # PRNG helpers
-│   ├── context.rs        # Runtime context (pools, schemas)
 │   └── noise/            # 9 noise modules
 │       ├── mod.rs
 │       ├── typos.rs
@@ -42,15 +41,16 @@ dupehell2/
 │       ├── addresses.rs
 │       ├── companies.rs
 │       └── extra.rs
-├── schemas/*.json        # 37 domain schemas
-├── assets/pools/         # 134 pool files (multi-lang)
+├── pyproject.toml        # Python packaging (maturin)
+├── schemas/*.json        # 41 domain schemas
+├── assets/pools/         # 132 pool files (multi-lang)
 └── ROADMAP.md            # Perf optimisation tracking
 ```
 
 ## Testing
 
 ```bash
-cargo test          # 114 tests, ~30s
+cargo test          # 110 tests, ~30s
 ```
 
 ## Adding a new domain
@@ -66,6 +66,4 @@ cargo test          # 114 tests, ~30s
 
 ## Performance
 
-Current benchmark (10M KYC medium) : **~660K rec/s**, **~4.5 GB RAM peak**
-
-Output via `sink_parquet` IPC→Parquet conversion (ZSTD level 3) at end of pipeline.
+See [BENCHMARK.md](BENCHMARK.md) for detailed metrics (up to 75M records, ~630K rec/s).

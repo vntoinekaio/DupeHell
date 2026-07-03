@@ -1,30 +1,27 @@
 # DupeHell2 — Watermarking & Provenance
 
-**Objectif :** Signer les datasets synthétiques pour revendiquer la provenance « DupeHell — Educational Use Only » de manière juridiquement défendable, sans télémétrie ni call home.
+**Purpose:** Sign synthetic datasets to claim "DupeHell — Educational Use Only" provenance in a legally defensible way, without telemetry or call-home.
 
-**Principe :** 3 couches indépendantes, de la plus visible à la plus indétectable. Chaque couche ajoute une preuve de provenance supplémentaire.
+**Principle:** 3 independent layers, from most visible to most undetectable. Each layer adds an additional proof of provenance.
 
 ---
 
-## Couche 1 — Métadonnées de fichier (schema-level KV)
+## Layer 1 — File Metadata (schema-level KV)
 
-**Statut :** ❌ Non implémenté (le code mort `inject_parquet_metadata` dans `sink.rs:110` n'est pas appelé)
+**Status:** ✅ Implemented
 
-### Travail
+Key-value pairs are injected into the Arrow IPC schema and Parquet metadata via `build_metadata_map()`.
 
-Injecter des paires clé-valeur dans le schema Arrow IPC et les métadonnées Parquet.
+### Injection points
 
-### Fichiers modifiés
+| File | Line | Mechanism |
+|---|---|---|
+| `src/pipeline.rs` | 1018 | `build_full_schema()` → `.with_metadata(build_metadata_map(config))` |
+| `src/pipeline.rs` | 394-395 | IPC FileWriter uses `full_arc` → metadata injected automatically |
+| `src/pipeline.rs` | 898-908 | IPC→Parquet conversion → `set_key_value_metadata(meta_kv)` |
+| `src/gt.rs` | 102, 154 | GT schema → `.with_metadata(metadata.clone())` |
 
-| Fichier | Modification |
-|---|---|
-| `src/pipeline.rs:851-875` | `build_full_schema()` → ajouter `.with_metadata(meta_map)` |
-| `src/pipeline.rs:388-391` | IPC FileWriter utilise `full_arc` → metadata injectée automatiquement |
-| `src/pipeline.rs:795-810` | IPC→Parquet conversion → ajouter `set_key_value_metadata(meta_kv)` dans WriterProperties |
-| `src/gt.rs:93-113` | `write_gt_ipc()` → schema avec metadata |
-| `src/gt.rs:140-168` | `write_gt_parquet()` → schema avec metadata |
-
-### Métadonnées injectées
+### Injected metadata
 
 ```rust
 HashMap::from([
@@ -41,7 +38,7 @@ HashMap::from([
 ])
 ```
 
-### Vérification
+### Verification
 
 ```bash
 # IPC
@@ -51,33 +48,33 @@ python -c "import pyarrow as pa; f=pa.ipc.open_file('dataset.ipc'); print(f.sche
 python -c "import pyarrow.parquet as pq; print(pq.read_schema('dataset.parquet').metadata)"
 ```
 
-### Robustesse
+### Robustness
 
-**Faible.** Quiconque ré-exporte via Pandas/PyArrow perd les métadonnées. Couche de bonne foi uniquement.
+**Low.** Anyone re-exporting via Pandas/PyArrow loses the metadata. Good-faith layer only.
 
 ---
 
-## Couche 2 — Canary records
+## Layer 2 — Canary records
 
-**Statut :** ❌ Non implémenté
+**Status:** ✅ Implemented
 
-### Principe
+### Principle
 
-Injecter N lignes factices (`CANARY_COUNT = 3` par défaut) par entité dans le dataset. Ces lignes ont des valeurs déterministes impossibles à générer accidentellement, incluant une signature cryptographique. La signature lie le domaine, la taille, la seed et un secret.
+Inject N dummy rows (`CANARY_COUNT = 3` default) per entity into the dataset. These rows have deterministic values impossible to generate accidentally, including a cryptographic signature. The signature binds the domain, size, seed, and a secret.
 
-### Cryptographie
+### Cryptography
 
-- Nouvelle dépendance : `sha2 = "0.10"` dans `Cargo.toml`
-- Secret : `CANARY_SECRET = sha256("DupeHell-CANARY-v0.4-educational-use-only-2026")`
-- Signature pour un run : `sig = sha256(CANARY_SECRET + domain + size.to_string() + seed.to_string())[:16 hex chars]`
+- New dependency: `sha2 = "0.10"` in `Cargo.toml`
+- Secret: `CANARY_SECRET = sha256("DupeHell-CANARY-v0.4-educational-use-only-2026")`
+- Signature for a run: `sig = sha256(CANARY_SECRET + domain + size.to_string() + seed.to_string())[:16 hex chars]`
 
-### Schéma des canaries
+### Canary schema
 
-Pour chaque entité, injecter `CANARY_COUNT` lignes avec :
+For each entity, inject `CANARY_COUNT` rows with:
 
-| Champ | Valeur |
+| Field | Value |
 |---|---|
-| `record_id` | `"CANARY-{i}-{sig[:8]}"` (i = index de la canarie) |
+| `record_id` | `"CANARY-{i}-{sig[:8]}"` (i = canary index) |
 | `domain` | `config.domain` |
 | `entity_type` | `plan.name` |
 | `master_id` | `"CANARY-MASTER-{sig}"` |
@@ -87,27 +84,27 @@ Pour chaque entité, injecter `CANARY_COUNT` lignes avec :
 | `dob` | `"2000-01-01"` |
 | `ssn` | `"000-00-{sig[:4]}"` |
 | `phone` | `"+1-000-000-{sig[:4]}"` |
-| *Tous les autres champs* | `NULL` ou valeur par défaut |
+| *All other fields* | `NULL` or default |
 
-Les canaries sont alignées sur le schema complet via `add_metadata_and_align` → colonnes manquantes en NULL.
+Canaries are aligned with the full schema via `add_metadata_and_align` → missing columns as NULL.
 
-### Point d'injection
+### Injection point
 
-Dans `src/pipeline.rs`, après la boucle d'entité (Phase 1) et avant Phase 2 (HN) :
+In `src/pipeline.rs`, after the entity loop (Phase 1) and before Phase 2 (HN):
 
-1. Construire un `RecordBatch` avec `CANARY_COUNT` lignes par entité
-2. Passer par `add_metadata_and_align` pour l'alignement de schema
-3. `writer.write(&canary_rb)` — écriture dans le flux IPC
-4. Les canaries ne participent pas à GT (elles auront `match_type = singleton`)
+1. Build a `RecordBatch` with `CANARY_COUNT` rows per entity
+2. Pass through `add_metadata_and_align` for schema alignment
+3. `writer.write(&canary_rb)` — write to the IPC stream
+4. Canaries do not participate in GT (they get `match_type = singleton`)
 
 ### Exclusions
 
-- Les canaries NE doivent PAS être dans les pools FK (pas de FK vers elles)
-- Les canaries NE doivent PAS être dans les pools HN
-- Les canaries n'ont pas de duplicates
-- GT les traite comme des singletons naturels (master_id unique)
+- Canaries MUST NOT be in FK pools (no FK references to them)
+- Canaries MUST NOT be in HN pools
+- Canaries have no duplicates
+- GT treats them as natural singletons (unique master_id)
 
-### Vérification
+### Verification
 
 ```bash
 dupehell2 verify --dataset kyc_*.ipc
@@ -115,44 +112,44 @@ dupehell2 verify --dataset kyc_*.ipc
 # → ✓ Signature valid: sig=4a1f... matches computed hash
 ```
 
-Algorithme de vérification :
-1. Lire le fichier (IPC ou Parquet)
-2. Filtrer les lignes où `email` se termine par `@canary.dupehell.data`
-3. Extraire `sig` du prefix email
-4. Recalculer `sha256(CANARY_SECRET + domain + size + seed)` à partir des données du schema
-5. Comparer les 16 premiers hex chars
-6. Vérifier `first_name == "DupeHellCanary"` et `last_name` pattern
+Verification algorithm:
+1. Read the file (IPC or Parquet)
+2. Filter rows where `email` ends with `@canary.dupehell.data`
+3. Extract `sig` from the email prefix
+4. Recompute `sha256(CANARY_SECRET + domain + size + seed)` from schema data
+5. Compare first 16 hex chars
+6. Verify `first_name == "DupeHellCanary"` and `last_name` pattern
 
-### Robustesse
+### Robustness
 
-**Moyenne.** Survit à tout format (CSV, Parquet, IPC, base SQL). Un attaquant qui connaît le pattern peut supprimer les lignes. Mais prouvable en cas de copie brute.
+**Medium.** Survives any format (CSV, Parquet, IPC, SQL database). An attacker who knows the pattern can remove rows. But provable on raw copies.
 
 ---
 
-## Couche 3 — Tatouage numérique dans les identifiants
+## Layer 3 — Numeric watermark in identifiers
 
-**Statut :** ❌ Non implémenté
+**Status:** ✅ Implemented
 
-### Principe
+### Principle
 
-Encoder un watermark dans les **1-3 derniers digits** des identifiants numériques générés (SSN, phone, PAN, account_number, etc.). Ces digits sont actuellement purement aléatoires — on remplace les N derniers par un hash déterministe. L'altération est inférieure à 0.1% par champ.
+Encode a watermark into the **last 1–3 digits** of generated numeric identifiers (SSN, phone, PAN, account_number, etc.). These digits are currently purely random — we replace the last N with a deterministic hash. The alteration is below 0.1% per field.
 
-### Champs tatoués
+### Watermarked fields
 
-| Générateur | Fichier | Ligne | Position watermark |
+| Generator | File | Line | Watermark position |
 |---|---|---|---|
-| `gen_ssn` | `buf_gen.rs` | 110-127 | 3 derniers digits |
-| `gen_phone` | `buf_gen.rs` | 88-107 | 3 derniers digits |
-| `gen_pan` | `buf_gen.rs` | 144-163 | 2 derniers digits |
-| `gen_medicare` | `buf_gen.rs` | 166-184 | 2 derniers digits |
-| `gen_office_phone` | `buf_gen.rs` | 187-212 | 3 derniers digits |
-| `gen_passport` | `buf_gen.rs` | 215-228 | 2 derniers digits |
-| `gen_acct_num` | `buf_gen.rs` | 243-251 | 2 derniers digits |
-| `gen_barcode` | `fast_template.rs` | 220-224 | 3 derniers digits (via `buf_digits`) |
-| `gen_iccid` | `fast_template.rs` | 338-344 | 3 derniers digits (via `buf_digits`) |
-| `gen_upc` | `fast_template.rs` | 398-402 | 2 derniers digits (via `buf_digits`) |
+| `gen_ssn` | `buf_gen.rs` | 110-127 | last 3 digits |
+| `gen_phone` | `buf_gen.rs` | 88-107 | last 3 digits |
+| `gen_pan` | `buf_gen.rs` | 144-163 | last 2 digits |
+| `gen_medicare` | `buf_gen.rs` | 166-184 | last 2 digits |
+| `gen_office_phone` | `buf_gen.rs` | 187-212 | last 3 digits |
+| `gen_passport` | `buf_gen.rs` | 215-228 | last 2 digits |
+| `gen_acct_num` | `buf_gen.rs` | 243-251 | last 2 digits |
+| `gen_barcode` | `fast_template.rs` | 220-224 | last 3 digits (via `buf_digits`) |
+| `gen_iccid` | `fast_template.rs` | 338-344 | last 3 digits (via `buf_digits`) |
+| `gen_upc` | `fast_template.rs` | 398-402 | last 2 digits (via `buf_digits`) |
 
-### Algorithme
+### Algorithm
 
 ```rust
 fn watermark_value(raw_value: u64, width: usize, col_seed: u64, config: &PipelineConfig) -> u64 {
@@ -168,40 +165,30 @@ fn compute_watermark(config: &PipelineConfig, col_seed: u64) -> u64 {
         WATERMARK_SECRET, config.domain, config.size, config.seed, col_seed
     );
     let hash = sha256(input.as_bytes());
-    // Take first 8 bytes as u64
     u64::from_le_bytes(hash[..8].try_into().unwrap())
 }
 ```
 
-Le `col_seed` est un per-générateur constant (ex: `42` pour SSN, `137` pour phone, etc.) → chaque type de colonne reçoit un watermark différent, rendant la corrélation entre colonnes impossible.
+The `col_seed` is a per-generator constant (e.g. `42` for SSN, `137` for phone, etc.) → each column type receives a different watermark, making cross-column correlation impossible.
 
-### Fonctions modifiées
+### Modified functions
 
-- **`buf_gen.rs`** : Ajouter une fonction utilitaire `watermark_last_digits(value: u64, width: usize, col_tag: u64, ctx: &WatermarkCtx) -> u64` appelée par chaque générateur avant `buf_digits`
-- **`fast_template.rs`** : Même principe pour les templates qui utilisent `buf_digits` (barcode, ICCID, UPC)
-- **`pipeline.rs`** : Construire `WatermarkCtx { domain, size, seed, secret }` et le passer via `Context` ou directement dans `PipelineConfig`
-- **`context.rs`** : Optionnel — stocker `WatermarkCtx` dans `Context`
+- **`context.rs`**: Stores `watermark_map` (HashMap<col_tag, masked_value>) computed via `enable_watermark()`
+- **`buf_gen.rs`**: 10 generators call `ctx.watermark_3digits(tag)` or `ctx.watermark_2digits(tag)` before `buf_digits`
+- **`fast_template.rs`**: 3 templates (barcode, ICCID, UPC) use `ctx.watermark_3digits(tag)` via `buf_digits`
 
-### Passage du watermark context
+### Watermark context passing
 
-Deux options :
+`WatermarkCtx` is stored in `Context` at startup (`ctx.enable_watermark(domain, size, seed)`) and accessible from all generators via `&Context`.
 
-**Option A — Via PipelineConfig (recommandé) :**
-- Ajouter `watermark_secret: String` optionnelle dans `PipelineConfig`
-- Le watermark est calculé dans `run_pipeline()` et passé aux générateurs via un `&WatermarkCtx` dans les appels
-
-**Option B — Via Context global :**
-- Stocker dans `Context` au chargement
-- Accessible depuis `fast_template.rs` et `buf_gen.rs`
-
-### Vérification
+### Verification
 
 ```rust
 fn verify_watermark(rb: &RecordBatch, domain: &str, size: usize, seed: u64) -> bool {
     for col_idx in WATERMARKED_COLUMNS {
         let col = rb.column(col_idx);
-        // Extraire les N derniers digits de chaque valeur
-        // Vérifier sha256(secret + domain + size + seed + col_seed)
+        // Extract last N digits from each value
+        // Verify sha256(secret + domain + size + seed + col_seed)
     }
 }
 ```
@@ -211,34 +198,34 @@ dupehell2 verify --dataset kyc_*.parquet
 # → ✓ Numeric watermark verified: 10/10 columns match
 ```
 
-### Robustesse
+### Robustness
 
-**Élevée.** Impossible à supprimer sans modifier les données elles-mêmes. Une transformation qui préserve les valeurs (copie, conversion de format) conserve le watermark. Seule une altération intentionnelle des données (regénération des identifiants) le détruit.
+**High.** Impossible to remove without modifying the data itself. Any transformation that preserves values (copy, format conversion) retains the watermark. Only intentional data alteration (regenerating identifiers) destroys it.
 
 ---
 
-## Tableau récapitulatif
+## Summary table
 
-| Couche | Effort | Robustesse | Survit à CSV ? | Survit à ré-export ? | Preuve légale |
+| Layer | Effort | Robustness | Survives CSV? | Survives re-export? | Legal proof |
 |---|---|---|---|---|---|
-| 1 — Metadata | 10 min | ❌ Très faible | Non | Non | Aucune (bonne foi) |
-| 2 — Canary | 30 min | ✅ Moyenne | Oui | Non (si lignes supprimées) | ✅ Possible (copie brute) |
-| 3 — Numérique | 1-2h | ✅✅ Haute | Oui | Oui (valeurs inchangées) | ✅✅ Forte (altération nécessaire) |
-| **2+3 combiné** | **~2h** | **✅✅ Très haute** | **Oui** | **Oui** | **✅✅✅ Très forte** |
+| 1 — Metadata | 10 min | ❌ Very low | No | No | None (good faith) |
+| 2 — Canary | 30 min | ✅ Medium | Yes | No (if rows removed) | ✅ Possible (raw copy) |
+| 3 — Numeric | 1-2h | ✅✅ High | Yes | Yes (values unchanged) | ✅✅ Strong (alteration needed) |
+| **2+3 combined** | **~2h** | **✅✅ Very high** | **Yes** | **Yes** | **✅✅✅ Very strong** |
 
-## Dépendance à ajouter
+## Dependency
 
 ```toml
 sha2 = "0.10"
 ```
 
-## Commande de vérification
+## Verification command
 
 ```bash
 dupehell2 verify --dataset <path.ipc|path.parquet>
 ```
 
-Nouveau subcommand clap dans `src/main.rs` :
+New clap subcommand in `src/main.rs`:
 ```rust
 #[derive(Subcommand)]
 enum Commands {
@@ -253,8 +240,8 @@ struct VerifyArgs {
 }
 ```
 
-## Ordre d'implémentation
+## Implementation order
 
-1. **Couche 1** (métadonnées) — 10 min, precondition pour les autres
-2. **Couche 2** (canaries) — 30 min, ajoute `sha2`, `verify` subcommand, logique d'injection + vérification
-3. **Couche 3** (tatouage numérique) — 1-2h, modification des 10 générateurs, vérification étendue
+1. **Layer 1** (metadata) — 10 min, prerequisite for others
+2. **Layer 2** (canaries) — 30 min, adds `sha2`, `verify` subcommand, injection + verification logic
+3. **Layer 3** (numeric watermark) — 1-2h, modification of 10 generators, extended verification

@@ -72,22 +72,22 @@ Each run produces:
 
 ## Performance
 
-Domaine **kyc**, difficulté **medium**, single-thread :
+Domain **kyc**, difficulty **medium**, single-thread:
 
-| Taille | Records | Temps | rec/s |
+| Size | Records | Time | rec/s |
 |---|---|---|---|
-| 100 K | 101 506 | 2,6 s | 38 K |
-| 1 M | 1 015 006 | 3,9 s | 261 K |
-| 10 M | 10 150 006 | 17,3 s | 586 K |
-| 50 M | 50 750 006 | 74,5 s | 681 K |
-| 75 M | 76 125 006 | 121,1 s | 628 K |
+| 100 K | 101 506 | 2.6 s | 38 K |
+| 1 M | 1 015 006 | 3.9 s | 261 K |
+| 10 M | 10 150 006 | 17.3 s | 586 K |
+| 50 M | 50 750 006 | 74.5 s | 681 K |
+| 75 M | 76 125 006 | 121.1 s | 628 K |
 
-(Voir [BENCHMARK.md](BENCHMARK.md) pour le détail complet.)
+(See [BENCHMARK.md](BENCHMARK.md) for full details.)
 
 ## Architecture
 
 ```
-lib.rs / main.rs → Context (141 pools) → PipelineConfig → run_pipeline()
+lib.rs / main.rs → Context (132 pools) → PipelineConfig → run_pipeline()
                                                               │
                      ┌────────────────────────────────────────┼────────────────────┐
                      ▼                                        ▼                    ▼
