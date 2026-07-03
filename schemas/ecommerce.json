@@ -1,0 +1,363 @@
+{
+  "domain": "ecommerce",
+  "entities": [
+    {
+      "name": "customer",
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date",
+          "null_rate_default": 0.75
+        },
+        {
+          "name": "gender",
+          "type": "string"
+        },
+        {
+          "name": "default_address_id",
+          "type": "string"
+        },
+        {
+          "name": "customer_group",
+          "type": "string"
+        },
+        {
+          "name": "loyalty_id",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime"
+        },
+        {
+          "name": "accepts_marketing",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "address",
+      "columns": [
+        {
+          "name": "address_id",
+          "type": "string"
+        },
+        {
+          "name": "customer_id",
+          "type": "string"
+        },
+        {
+          "name": "address_type",
+          "type": "string"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "address_line2",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "order",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "string"
+        },
+        {
+          "name": "customer_id",
+          "type": "string"
+        },
+        {
+          "name": "order_number",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "billing_address_id",
+          "type": "string"
+        },
+        {
+          "name": "shipping_address_id",
+          "type": "string"
+        },
+        {
+          "name": "currency",
+          "type": "string"
+        },
+        {
+          "name": "subtotal_price",
+          "type": "float"
+        },
+        {
+          "name": "total_price",
+          "type": "float"
+        },
+        {
+          "name": "total_tax",
+          "type": "float"
+        },
+        {
+          "name": "shipping_price",
+          "type": "float"
+        },
+        {
+          "name": "discount_amount",
+          "type": "float"
+        },
+        {
+          "name": "financial_status",
+          "type": "string"
+        },
+        {
+          "name": "fulfillment_status",
+          "type": "string"
+        },
+        {
+          "name": "payment_method",
+          "type": "string"
+        },
+        {
+          "name": "cc_last_four",
+          "type": "string"
+        },
+        {
+          "name": "ip_address",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "order_line_item",
+      "columns": [
+        {
+          "name": "order_line_id",
+          "type": "string"
+        },
+        {
+          "name": "order_id",
+          "type": "string"
+        },
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "variant_id",
+          "type": "string"
+        },
+        {
+          "name": "sku",
+          "type": "string"
+        },
+        {
+          "name": "product_name",
+          "type": "string"
+        },
+        {
+          "name": "variant_title",
+          "type": "string"
+        },
+        {
+          "name": "quantity",
+          "type": "int"
+        },
+        {
+          "name": "unit_price",
+          "type": "float"
+        },
+        {
+          "name": "total_price",
+          "type": "float"
+        },
+        {
+          "name": "discount_amount",
+          "type": "float"
+        },
+        {
+          "name": "is_refunded",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "product",
+      "columns": [
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "product_name",
+          "type": "string"
+        },
+        {
+          "name": "product_type",
+          "type": "string"
+        },
+        {
+          "name": "vendor",
+          "type": "string"
+        },
+        {
+          "name": "published_at",
+          "type": "datetime"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "product_variant",
+      "columns": [
+        {
+          "name": "variant_id",
+          "type": "string"
+        },
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "sku",
+          "type": "string"
+        },
+        {
+          "name": "option1",
+          "type": "string"
+        },
+        {
+          "name": "option2",
+          "type": "string"
+        },
+        {
+          "name": "option3",
+          "type": "string"
+        },
+        {
+          "name": "price",
+          "type": "float"
+        },
+        {
+          "name": "inventory_quantity",
+          "type": "int"
+        },
+        {
+          "name": "barcode",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_email_diff_name",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\", \"date_of_birth\"]}"
+    },
+    {
+      "name": "same_loyalty_id_diff_customer",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"loyalty_id\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"phone\"]}"
+    },
+    {
+      "name": "similar_sku_one_char",
+      "entity_type": "product_variant",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"sku\", \"attr_fields\": [\"price\", \"barcode\"]}"
+    },
+    {
+      "name": "same_email_guest_checkout",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\", \"date_of_birth\"]}"
+    },
+    {
+      "name": "same_cc_last4_diff_order",
+      "entity_type": "order",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"cc_last_four\"], \"attr_fields\": [\"email\", \"order_number\", \"total_price\"]}"
+    },
+    {
+      "name": "same_name_diff_everything",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"email\", \"phone\", \"date_of_birth\", \"loyalty_id\"]}"
+    }
+  ]
+}

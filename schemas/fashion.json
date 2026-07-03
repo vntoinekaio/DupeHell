@@ -1,0 +1,201 @@
+{
+  "domain": "fashion",
+  "entities": [
+    {
+      "name": "brand",
+      "columns": [
+        {
+          "name": "brand_id",
+          "type": "string"
+        },
+        {
+          "name": "brand_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "brand_type",
+          "type": "string",
+          "pool_name": "fashion_category"
+        },
+        {
+          "name": "founded_year",
+          "type": "int"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "parent_company",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "collection",
+      "columns": [
+        {
+          "name": "collection_id",
+          "type": "string"
+        },
+        {
+          "name": "brand_id",
+          "type": "string"
+        },
+        {
+          "name": "collection_name",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "season",
+          "type": "string",
+          "pool_name": "fashion_category"
+        },
+        {
+          "name": "year",
+          "type": "int"
+        },
+        {
+          "name": "launch_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "product",
+      "columns": [
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "collection_id",
+          "type": "string"
+        },
+        {
+          "name": "product_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "pool_name": "fashion_category"
+        },
+        {
+          "name": "sku",
+          "type": "string"
+        },
+        {
+          "name": "retail_price",
+          "type": "float"
+        },
+        {
+          "name": "material",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "color",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "size",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "supplier",
+      "columns": [
+        {
+          "name": "supplier_id",
+          "type": "string"
+        },
+        {
+          "name": "brand_id",
+          "type": "string"
+        },
+        {
+          "name": "supplier_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "supplier_type",
+          "type": "string",
+          "pool_name": "fashion_category"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "audit_score",
+          "type": "int"
+        },
+        {
+          "name": "contract_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_brand_name_diff_parent",
+      "entity_type": "brand",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"brand_name\"], \"attr_fields\": [\"brand_type\", \"parent_company\", \"founded_year\"]}"
+    },
+    {
+      "name": "same_collection_name_same_season",
+      "entity_type": "collection",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"collection_name\", \"season\"], \"attr_fields\": [\"year\", \"launch_date\"]}"
+    },
+    {
+      "name": "same_sku_diff_product",
+      "entity_type": "product",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"sku\"], \"attr_fields\": [\"product_name\", \"category\", \"retail_price\"]}"
+    },
+    {
+      "name": "same_name_diff_color",
+      "entity_type": "product",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"product_name\"], \"attr_fields\": [\"category\", \"sku\", \"retail_price\", \"color\"]}"
+    },
+    {
+      "name": "same_supplier_same_brand",
+      "entity_type": "supplier",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"supplier_name\", \"brand_id\"], \"attr_fields\": [\"supplier_type\", \"country_code\", \"audit_score\"]}"
+    },
+    {
+      "name": "same_country_same_type",
+      "entity_type": "supplier",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"country_code\", \"supplier_type\"], \"attr_fields\": [\"supplier_name\", \"audit_score\"]}"
+    }
+  ]
+}

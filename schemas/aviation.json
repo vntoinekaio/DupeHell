@@ -1,0 +1,206 @@
+{
+  "domain": "aviation",
+  "entities": [
+    {
+      "name": "airline",
+      "columns": [
+        {
+          "name": "airline_id",
+          "type": "string"
+        },
+        {
+          "name": "airline_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "iata_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "fleet_count",
+          "type": "int"
+        },
+        {
+          "name": "alliance",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "aircraft",
+      "columns": [
+        {
+          "name": "aircraft_id",
+          "type": "string"
+        },
+        {
+          "name": "airline_id",
+          "type": "string"
+        },
+        {
+          "name": "tail_number",
+          "type": "string"
+        },
+        {
+          "name": "aircraft_type",
+          "type": "string",
+          "pool_name": "aircraft_type"
+        },
+        {
+          "name": "manufacturer",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "manufacture_year",
+          "type": "int"
+        },
+        {
+          "name": "seat_capacity",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "flight",
+      "columns": [
+        {
+          "name": "flight_id",
+          "type": "string"
+        },
+        {
+          "name": "airline_id",
+          "type": "string"
+        },
+        {
+          "name": "aircraft_id",
+          "type": "string"
+        },
+        {
+          "name": "flight_number",
+          "type": "string"
+        },
+        {
+          "name": "origin_airport",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "destination_airport",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "departure_time",
+          "type": "datetime"
+        },
+        {
+          "name": "arrival_time",
+          "type": "datetime"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "passenger",
+      "columns": [
+        {
+          "name": "passenger_id",
+          "type": "string"
+        },
+        {
+          "name": "flight_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "seat_number",
+          "type": "string"
+        },
+        {
+          "name": "booking_reference",
+          "type": "string"
+        },
+        {
+          "name": "frequent_flyer",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "fare_class",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_iata_diff_name",
+      "entity_type": "airline",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"iata_code\"], \"attr_fields\": [\"airline_name\", \"country_code\", \"fleet_count\"]}"
+    },
+    {
+      "name": "same_tail_number_diff_airline",
+      "entity_type": "aircraft",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"tail_number\"], \"attr_fields\": [\"aircraft_type\", \"manufacturer\", \"manufacture_year\"]}"
+    },
+    {
+      "name": "same_flight_number_same_route",
+      "entity_type": "flight",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"flight_number\", \"origin_airport\", \"destination_airport\"], \"attr_fields\": [\"departure_time\", \"arrival_time\", \"status\"]}"
+    },
+    {
+      "name": "same_booking_reference_diff_passenger",
+      "entity_type": "passenger",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"booking_reference\"], \"attr_fields\": [\"first_name\", \"last_name\", \"seat_number\"]}"
+    },
+    {
+      "name": "same_name_same_flight",
+      "entity_type": "passenger",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"first_name\", \"last_name\", \"flight_id\"], \"attr_fields\": [\"seat_number\", \"booking_reference\", \"fare_class\"]}"
+    },
+    {
+      "name": "same_frequent_flyer_diff_name",
+      "entity_type": "passenger",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"frequent_flyer\"], \"attr_fields\": [\"first_name\", \"last_name\", \"fare_class\"]}"
+    }
+  ]
+}

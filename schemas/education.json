@@ -1,0 +1,222 @@
+{
+  "domain": "education",
+  "entities": [
+    {
+      "name": "student",
+      "columns": [
+        {
+          "name": "student_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "national_student_id",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "previous_institution",
+          "type": "string",
+          "null_rate_default": 0.7
+        },
+        {
+          "name": "personal_email",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "enrollment_status",
+          "type": "string"
+        },
+        {
+          "name": "gpa",
+          "type": "float",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "faculty",
+      "columns": [
+        {
+          "name": "faculty_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "department",
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "office_phone",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "hire_date",
+          "type": "date"
+        },
+        {
+          "name": "is_tenured",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "course",
+      "columns": [
+        {
+          "name": "course_id",
+          "type": "string"
+        },
+        {
+          "name": "course_name",
+          "type": "string"
+        },
+        {
+          "name": "faculty_id",
+          "type": "string"
+        },
+        {
+          "name": "credits",
+          "type": "int"
+        },
+        {
+          "name": "semester",
+          "type": "string"
+        },
+        {
+          "name": "max_enrollment",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "enrollment",
+      "columns": [
+        {
+          "name": "enrollment_id",
+          "type": "string"
+        },
+        {
+          "name": "student_id",
+          "type": "string"
+        },
+        {
+          "name": "course_id",
+          "type": "string"
+        },
+        {
+          "name": "enrollment_date",
+          "type": "date"
+        },
+        {
+          "name": "grade",
+          "type": "string"
+        },
+        {
+          "name": "is_dropped",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_email_diff_student",
+      "entity_type": "student",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\", \"date_of_birth\"]}"
+    },
+    {
+      "name": "same_name_diff_id",
+      "entity_type": "student",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"email\", \"date_of_birth\", \"student_id\"]}"
+    },
+    {
+      "name": "twin_same_dob_lastname",
+      "entity_type": "student",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"date_of_birth\", \"last_name\"], \"attr_fields\": [\"first_name\", \"email\", \"student_id\"]}"
+    },
+    {
+      "name": "student_id_collision_merger",
+      "entity_type": "student",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"student_id\"], \"attr_fields\": [\"first_name\", \"last_name\", \"date_of_birth\", \"email\"]}"
+    },
+    {
+      "name": "same_faculty_email_diff_name",
+      "entity_type": "faculty",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"department\"]}"
+    }
+  ]
+}

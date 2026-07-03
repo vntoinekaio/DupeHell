@@ -1,0 +1,241 @@
+{
+  "domain": "manufacturing",
+  "entities": [
+    {
+      "name": "supplier_part",
+      "columns": [
+        {
+          "name": "part_id",
+          "type": "string"
+        },
+        {
+          "name": "part_number",
+          "type": "string"
+        },
+        {
+          "name": "part_name",
+          "type": "string",
+          "pool_name": "industrial_part_name"
+        },
+        {
+          "name": "supplier",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "unit_cost",
+          "type": "float"
+        },
+        {
+          "name": "lead_time_days",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "product_bom",
+      "columns": [
+        {
+          "name": "bom_id",
+          "type": "string"
+        },
+        {
+          "name": "product_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "version",
+          "type": "string"
+        },
+        {
+          "name": "component_count",
+          "type": "int"
+        },
+        {
+          "name": "notes",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "manufacturing_order",
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "string"
+        },
+        {
+          "name": "bom_id",
+          "type": "string"
+        },
+        {
+          "name": "order_number",
+          "type": "string"
+        },
+        {
+          "name": "quantity",
+          "type": "int"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "null_rate_default": 0.2,
+          "conditions": [
+            {
+              "depends_on": "status",
+              "op": "eq",
+              "value": "closed",
+              "action": "set_value"
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "batch",
+      "columns": [
+        {
+          "name": "batch_id",
+          "type": "string"
+        },
+        {
+          "name": "order_id",
+          "type": "string"
+        },
+        {
+          "name": "batch_number",
+          "type": "string"
+        },
+        {
+          "name": "production_line",
+          "type": "string",
+          "pool_name": "production_line"
+        },
+        {
+          "name": "start_date",
+          "type": "datetime"
+        },
+        {
+          "name": "quantity_produced",
+          "type": "int"
+        },
+        {
+          "name": "quantity_defective",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "quality_control",
+      "columns": [
+        {
+          "name": "qc_id",
+          "type": "string"
+        },
+        {
+          "name": "batch_id",
+          "type": "string"
+        },
+        {
+          "name": "test_type",
+          "type": "string",
+          "pool_name": "test_type"
+        },
+        {
+          "name": "result",
+          "type": "string",
+          "pool_name": "qc_result"
+        },
+        {
+          "name": "operator",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "test_date",
+          "type": "date"
+        },
+        {
+          "name": "notes",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_part_number_diff_supplier",
+      "entity_type": "supplier_part",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"part_number\"], \"attr_fields\": [\"supplier\", \"part_name\", \"unit_cost\", \"lead_time_days\"]}"
+    },
+    {
+      "name": "same_part_name_diff_part_number",
+      "entity_type": "supplier_part",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"part_name\"], \"attr_fields\": [\"part_number\", \"supplier\", \"unit_cost\"]}"
+    },
+    {
+      "name": "same_product_diff_version",
+      "entity_type": "product_bom",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"product_name\"], \"attr_fields\": [\"version\", \"component_count\", \"notes\"]}"
+    },
+    {
+      "name": "same_order_number_diff_bom",
+      "entity_type": "manufacturing_order",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"order_number\"], \"attr_fields\": [\"bom_id\", \"quantity\", \"start_date\", \"status\"]}"
+    },
+    {
+      "name": "same_start_date_same_line",
+      "entity_type": "batch",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"start_date\", \"production_line\"], \"attr_fields\": [\"batch_number\", \"order_id\", \"quantity_produced\", \"quantity_defective\"]}"
+    },
+    {
+      "name": "same_test_type_same_batch",
+      "entity_type": "quality_control",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"test_type\", \"batch_id\"], \"attr_fields\": [\"result\", \"operator\", \"test_date\", \"notes\"]}"
+    },
+    {
+      "name": "same_operator_same_date",
+      "entity_type": "quality_control",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"operator\", \"test_date\"], \"attr_fields\": [\"batch_id\", \"test_type\", \"result\", \"notes\"]}"
+    }
+  ]
+}

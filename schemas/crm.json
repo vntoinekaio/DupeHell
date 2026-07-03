@@ -1,0 +1,237 @@
+{
+  "domain": "crm",
+  "entities": [
+    {
+      "name": "contact",
+      "columns": [
+        {
+          "name": "contact_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "job_title",
+          "type": "string"
+        },
+        {
+          "name": "company_name",
+          "type": "string",
+          "null_rate_default": 0.05
+        },
+        {
+          "name": "account_id",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "linkedin_url",
+          "type": "string",
+          "null_rate_default": 0.7
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "lead_source",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "account",
+      "columns": [
+        {
+          "name": "account_id",
+          "type": "string"
+        },
+        {
+          "name": "account_name",
+          "type": "string"
+        },
+        {
+          "name": "duns_number",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "domain",
+          "type": "string",
+          "pool_name": "domain",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "industry",
+          "type": "string"
+        },
+        {
+          "name": "employee_count",
+          "type": "int",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "revenue_range",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "website",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "lead",
+      "columns": [
+        {
+          "name": "lead_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.25
+        },
+        {
+          "name": "company_name",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "lead_status",
+          "type": "string"
+        },
+        {
+          "name": "lead_score",
+          "type": "int",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "campaign_id",
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "type": "datetime"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_email_diff_company",
+      "entity_type": "contact",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\", \"company_name\"]}"
+    },
+    {
+      "name": "same_phone_diff_name",
+      "entity_type": "contact",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"phone\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"company_name\"]}"
+    },
+    {
+      "name": "same_phone_diff_company",
+      "entity_type": "contact",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"phone\"], \"attr_fields\": [\"company_name\", \"first_name\", \"last_name\", \"email\", \"job_title\"]}"
+    },
+    {
+      "name": "similar_company_name_diff_duns",
+      "entity_type": "account",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"account_name\", \"attr_fields\": [\"duns_number\", \"domain\", \"industry\"]}"
+    },
+    {
+      "name": "similar_domain_one_typo",
+      "entity_type": "account",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"domain\", \"attr_fields\": [\"account_name\", \"duns_number\", \"industry\"]}"
+    },
+    {
+      "name": "same_address_diff_account",
+      "entity_type": "account",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"address_line1\", \"city\", \"postal_code\"], \"attr_fields\": [\"account_name\", \"domain\", \"industry\"]}"
+    },
+    {
+      "name": "same_email_lead_contact",
+      "entity_type": "lead",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\", \"company_name\"]}"
+    }
+  ]
+}

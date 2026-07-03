@@ -1,0 +1,287 @@
+{
+  "domain": "healthcare",
+  "entities": [
+    {
+      "name": "patient",
+      "columns": [
+        {
+          "name": "enterprise_patient_id",
+          "type": "string"
+        },
+        {
+          "name": "pat_mrn_id",
+          "type": "string"
+        },
+        {
+          "name": "pat_first_name",
+          "type": "string"
+        },
+        {
+          "name": "pat_last_name",
+          "type": "string"
+        },
+        {
+          "name": "pat_suffix",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "alias_first_name",
+          "type": "string",
+          "null_rate_default": 0.9
+        },
+        {
+          "name": "alias_last_name",
+          "type": "string",
+          "null_rate_default": 0.9
+        },
+        {
+          "name": "birth_date",
+          "type": "date"
+        },
+        {
+          "name": "gender_code",
+          "type": "string"
+        },
+        {
+          "name": "ssn",
+          "type": "string",
+          "null_rate_default": 0.7
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "zip_code",
+          "type": "string"
+        },
+        {
+          "name": "home_phone",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "language",
+          "type": "string"
+        },
+        {
+          "name": "medicare_num",
+          "type": "string",
+          "null_rate_default": 0.9
+        },
+        {
+          "name": "medicaid_num",
+          "type": "string",
+          "null_rate_default": 0.9
+        },
+        {
+          "name": "cur_pcp_prov_id",
+          "type": "string"
+        },
+        {
+          "name": "death_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "provider",
+      "columns": [
+        {
+          "name": "provider_id",
+          "type": "string"
+        },
+        {
+          "name": "npi",
+          "type": "string"
+        },
+        {
+          "name": "prov_first_name",
+          "type": "string"
+        },
+        {
+          "name": "prov_last_name",
+          "type": "string"
+        },
+        {
+          "name": "specialty",
+          "type": "string"
+        },
+        {
+          "name": "license_number",
+          "type": "string"
+        },
+        {
+          "name": "prov_phone",
+          "type": "string"
+        },
+        {
+          "name": "prov_email",
+          "type": "string"
+        },
+        {
+          "name": "facility_id",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "encounter",
+      "columns": [
+        {
+          "name": "encounter_id",
+          "type": "string"
+        },
+        {
+          "name": "patient_id",
+          "type": "string"
+        },
+        {
+          "name": "provider_id",
+          "type": "string"
+        },
+        {
+          "name": "contact_date",
+          "type": "datetime"
+        },
+        {
+          "name": "department_id",
+          "type": "string"
+        },
+        {
+          "name": "fin_class",
+          "type": "string"
+        },
+        {
+          "name": "diagnosis_code",
+          "type": "string",
+          "pool_name": "icd10_codes"
+        },
+        {
+          "name": "procedure_code",
+          "type": "string",
+          "pool_name": "cpt_codes"
+        },
+        {
+          "name": "admission_time",
+          "type": "datetime"
+        },
+        {
+          "name": "discharge_time",
+          "type": "datetime"
+        },
+        {
+          "name": "encounter_type",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "coverage",
+      "columns": [
+        {
+          "name": "coverage_id",
+          "type": "string"
+        },
+        {
+          "name": "patient_id",
+          "type": "string"
+        },
+        {
+          "name": "insurance_plan_name",
+          "type": "string"
+        },
+        {
+          "name": "insurance_id",
+          "type": "string"
+        },
+        {
+          "name": "group_number",
+          "type": "string"
+        },
+        {
+          "name": "member_id",
+          "type": "string"
+        },
+        {
+          "name": "coverage_start_date",
+          "type": "date"
+        },
+        {
+          "name": "coverage_end_date",
+          "type": "date"
+        },
+        {
+          "name": "payer_name",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_dob",
+      "entity_type": "patient",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"pat_first_name\", \"last_name_col\": \"pat_last_name\", \"attr_fields\": [\"birth_date\", \"ssn\", \"address_line1\", \"medicare_num\"]}"
+    },
+    {
+      "name": "same_medicare_diff_patient",
+      "entity_type": "patient",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"medicare_num\"], \"attr_fields\": [\"pat_first_name\", \"pat_last_name\", \"birth_date\", \"ssn\", \"address_line1\"]}"
+    },
+    {
+      "name": "similar_ssn_one_typo",
+      "entity_type": "patient",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"ssn\", \"attr_fields\": [\"pat_first_name\", \"pat_last_name\", \"birth_date\"]}"
+    },
+    {
+      "name": "same_name_address_diff_mrn",
+      "entity_type": "patient",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"pat_first_name\", \"pat_last_name\", \"address_line1\"], \"attr_fields\": [\"birth_date\", \"ssn\", \"pat_mrn_id\"]}"
+    },
+    {
+      "name": "same_dob_postal_diff_name",
+      "entity_type": "patient",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"birth_date\", \"zip_code\"], \"attr_fields\": [\"pat_first_name\", \"pat_last_name\", \"address_line1\"]}"
+    },
+    {
+      "name": "similar_npi_one_digit",
+      "entity_type": "provider",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"npi\", \"attr_fields\": [\"prov_first_name\", \"prov_last_name\", \"specialty\"]}"
+    }
+  ]
+}

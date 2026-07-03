@@ -1,0 +1,243 @@
+{
+  "domain": "hospitality",
+  "entities": [
+    {
+      "name": "guest",
+      "columns": [
+        {
+          "name": "guest_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "company_name",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "nationality",
+          "type": "string"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "passport_number",
+          "type": "string",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "preferred_language",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "hotel_property",
+      "columns": [
+        {
+          "name": "hotel_id",
+          "type": "string"
+        },
+        {
+          "name": "hotel_name",
+          "type": "string"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "star_rating",
+          "type": "int"
+        },
+        {
+          "name": "total_rooms",
+          "type": "int"
+        },
+        {
+          "name": "chain_name",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "booking",
+      "columns": [
+        {
+          "name": "booking_id",
+          "type": "string"
+        },
+        {
+          "name": "guest_id",
+          "type": "string"
+        },
+        {
+          "name": "hotel_id",
+          "type": "string"
+        },
+        {
+          "name": "confirmation_code",
+          "type": "string"
+        },
+        {
+          "name": "ota_booking_id",
+          "type": "string",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "check_in_date",
+          "type": "date"
+        },
+        {
+          "name": "check_out_date",
+          "type": "date"
+        },
+        {
+          "name": "room_type",
+          "type": "string"
+        },
+        {
+          "name": "total_charge",
+          "type": "float"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "is_direct_booking",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "loyalty_account",
+      "columns": [
+        {
+          "name": "loyalty_id",
+          "type": "string"
+        },
+        {
+          "name": "guest_id",
+          "type": "string"
+        },
+        {
+          "name": "tier",
+          "type": "string"
+        },
+        {
+          "name": "points_balance",
+          "type": "int"
+        },
+        {
+          "name": "lifetime_stays",
+          "type": "int"
+        },
+        {
+          "name": "member_since",
+          "type": "date"
+        },
+        {
+          "name": "is_active",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_email_diff_guest",
+      "entity_type": "guest",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\", \"passport_number\"]}"
+    },
+    {
+      "name": "same_confirmation_diff_booking",
+      "entity_type": "booking",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"confirmation_code\"], \"attr_fields\": [\"check_in_date\", \"check_out_date\", \"hotel_id\"]}"
+    },
+    {
+      "name": "same_guest_different_loyalty_account",
+      "entity_type": "loyalty_account",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"guest_id\"], \"attr_fields\": [\"tier\", \"points_balance\", \"member_since\", \"source_system\"]}"
+    },
+    {
+      "name": "same_passport_diff_name",
+      "entity_type": "guest",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"passport_number\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\"]}"
+    }
+  ]
+}

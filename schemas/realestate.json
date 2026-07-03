@@ -1,0 +1,278 @@
+{
+  "domain": "realestate",
+  "entities": [
+    {
+      "name": "property",
+      "columns": [
+        {
+          "name": "property_id",
+          "type": "string"
+        },
+        {
+          "name": "parcel_number",
+          "type": "string",
+          "null_rate_default": 0.03
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "address_line2",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "property_type",
+          "type": "string"
+        },
+        {
+          "name": "square_feet",
+          "type": "int"
+        },
+        {
+          "name": "bedrooms",
+          "type": "int"
+        },
+        {
+          "name": "bathrooms",
+          "type": "float"
+        },
+        {
+          "name": "year_built",
+          "type": "int"
+        },
+        {
+          "name": "lot_size_sqft",
+          "type": "int",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "latitude",
+          "type": "float",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "longitude",
+          "type": "float",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "assessed_value",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "property_owner",
+      "columns": [
+        {
+          "name": "owner_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.25
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "mailing_address",
+          "type": "string"
+        },
+        {
+          "name": "mailing_city",
+          "type": "string"
+        },
+        {
+          "name": "mailing_state",
+          "type": "string"
+        },
+        {
+          "name": "mailing_zip",
+          "type": "string"
+        },
+        {
+          "name": "owner_type",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "property_ownership",
+      "columns": [
+        {
+          "name": "ownership_id",
+          "type": "string"
+        },
+        {
+          "name": "property_id",
+          "type": "string"
+        },
+        {
+          "name": "owner_id",
+          "type": "string"
+        },
+        {
+          "name": "ownership_percentage",
+          "type": "float"
+        },
+        {
+          "name": "acquisition_date",
+          "type": "date"
+        },
+        {
+          "name": "is_primary_residence",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "listing",
+      "columns": [
+        {
+          "name": "listing_id",
+          "type": "string"
+        },
+        {
+          "name": "property_id",
+          "type": "string"
+        },
+        {
+          "name": "mls_number",
+          "type": "string",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "listing_price",
+          "type": "float"
+        },
+        {
+          "name": "listing_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "agent_id",
+          "type": "string"
+        },
+        {
+          "name": "days_on_market",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "sale_transaction",
+      "columns": [
+        {
+          "name": "sale_id",
+          "type": "string"
+        },
+        {
+          "name": "listing_id",
+          "type": "string"
+        },
+        {
+          "name": "buyer_id",
+          "type": "string"
+        },
+        {
+          "name": "seller_id",
+          "type": "string"
+        },
+        {
+          "name": "sale_price",
+          "type": "float"
+        },
+        {
+          "name": "sale_date",
+          "type": "date"
+        },
+        {
+          "name": "mortgage_amount",
+          "type": "float",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_parcel_diff_address",
+      "entity_type": "property",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"parcel_number\"], \"attr_fields\": [\"address_line1\", \"city\", \"property_type\"]}"
+    },
+    {
+      "name": "same_address_diff_parcel",
+      "entity_type": "property",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"address_line1\", \"postal_code\", \"city\"], \"attr_fields\": [\"parcel_number\", \"property_type\"]}"
+    },
+    {
+      "name": "same_owner_property_multi_listing",
+      "entity_type": "listing",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"property_id\"], \"attr_fields\": [\"listing_price\", \"status\", \"agent_id\"]}"
+    },
+    {
+      "name": "same_address_diff_type",
+      "entity_type": "property",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"address_line1\", \"postal_code\"], \"attr_fields\": [\"property_type\", \"city\"]}"
+    },
+    {
+      "name": "same_email_diff_owner",
+      "entity_type": "property_owner",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\"]}"
+    }
+  ]
+}

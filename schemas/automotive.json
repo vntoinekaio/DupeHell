@@ -1,0 +1,227 @@
+{
+  "domain": "automotive",
+  "entities": [
+    {
+      "name": "vehicle",
+      "columns": [
+        {
+          "name": "vehicle_id",
+          "type": "string"
+        },
+        {
+          "name": "vin",
+          "type": "string"
+        },
+        {
+          "name": "make",
+          "type": "string",
+          "pool_name": "vehicle_make"
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "pool_name": "vehicle_model"
+        },
+        {
+          "name": "year",
+          "type": "int"
+        },
+        {
+          "name": "license_plate",
+          "type": "string"
+        },
+        {
+          "name": "color",
+          "type": "string",
+          "pool_name": "color"
+        },
+        {
+          "name": "mileage",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "vehicle_owner",
+      "columns": [
+        {
+          "name": "owner_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "vehicle_id",
+          "type": "string"
+        },
+        {
+          "name": "purchase_date",
+          "type": "date"
+        },
+        {
+          "name": "ownership_duration",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "service_record",
+      "columns": [
+        {
+          "name": "service_id",
+          "type": "string"
+        },
+        {
+          "name": "vehicle_id",
+          "type": "string"
+        },
+        {
+          "name": "service_date",
+          "type": "date"
+        },
+        {
+          "name": "service_type",
+          "type": "string",
+          "pool_name": "service_type"
+        },
+        {
+          "name": "garage_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "mileage_at_service",
+          "type": "int"
+        },
+        {
+          "name": "total_cost",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "part_replacement",
+      "columns": [
+        {
+          "name": "replacement_id",
+          "type": "string"
+        },
+        {
+          "name": "service_id",
+          "type": "string"
+        },
+        {
+          "name": "part_name",
+          "type": "string",
+          "pool_name": "auto_part_category"
+        },
+        {
+          "name": "quantity",
+          "type": "int"
+        },
+        {
+          "name": "unit_price",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "accident_claim",
+      "columns": [
+        {
+          "name": "claim_id",
+          "type": "string"
+        },
+        {
+          "name": "vehicle_id",
+          "type": "string"
+        },
+        {
+          "name": "owner_id",
+          "type": "string"
+        },
+        {
+          "name": "accident_date",
+          "type": "date"
+        },
+        {
+          "name": "claim_type",
+          "type": "string",
+          "pool_name": "claim_type"
+        },
+        {
+          "name": "claim_amount",
+          "type": "float"
+        },
+        {
+          "name": "liability",
+          "type": "string",
+          "pool_name": "liability"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_vin_diff_plate",
+      "entity_type": "vehicle",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"vin\"], \"attr_fields\": [\"license_plate\", \"make\", \"model\", \"year\"]}"
+    },
+    {
+      "name": "same_plate_diff_vin",
+      "entity_type": "vehicle",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"license_plate\"], \"attr_fields\": [\"vin\", \"make\", \"model\", \"color\"]}"
+    },
+    {
+      "name": "same_owner_same_vehicle",
+      "entity_type": "vehicle_owner",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"first_name\", \"last_name\", \"vehicle_id\"], \"attr_fields\": [\"purchase_date\", \"ownership_duration\"]}"
+    },
+    {
+      "name": "same_service_same_date",
+      "entity_type": "service_record",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"service_type\", \"service_date\", \"vehicle_id\"], \"attr_fields\": [\"garage_name\", \"mileage_at_service\", \"total_cost\"]}"
+    },
+    {
+      "name": "same_part_same_service",
+      "entity_type": "part_replacement",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"part_name\", \"service_id\"], \"attr_fields\": [\"quantity\", \"unit_price\"]}"
+    },
+    {
+      "name": "same_claim_same_vehicle",
+      "entity_type": "accident_claim",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"accident_date\", \"vehicle_id\"], \"attr_fields\": [\"owner_id\", \"claim_type\", \"claim_amount\", \"liability\"]}"
+    }
+  ]
+}

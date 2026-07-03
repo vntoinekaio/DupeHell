@@ -1,0 +1,249 @@
+{
+  "domain": "media",
+  "entities": [
+    {
+      "name": "author",
+      "columns": [
+        {
+          "name": "author_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "orcid",
+          "type": "string"
+        },
+        {
+          "name": "affiliation",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "h_index",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "publisher",
+      "columns": [
+        {
+          "name": "publisher_id",
+          "type": "string"
+        },
+        {
+          "name": "publisher_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "issn",
+          "type": "string"
+        },
+        {
+          "name": "country",
+          "type": "string",
+          "pool_name": "country_code"
+        },
+        {
+          "name": "year_founded",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "publication",
+      "columns": [
+        {
+          "name": "publication_id",
+          "type": "string"
+        },
+        {
+          "name": "publisher_id",
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "isbn",
+          "type": "string"
+        },
+        {
+          "name": "publication_type",
+          "type": "string",
+          "pool_name": "publication_type"
+        },
+        {
+          "name": "publication_date",
+          "type": "date"
+        },
+        {
+          "name": "language",
+          "type": "string",
+          "pool_name": "language"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "article",
+      "columns": [
+        {
+          "name": "article_id",
+          "type": "string"
+        },
+        {
+          "name": "publication_id",
+          "type": "string"
+        },
+        {
+          "name": "author_id",
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "doi",
+          "type": "string"
+        },
+        {
+          "name": "pages",
+          "type": "string"
+        },
+        {
+          "name": "publication_date",
+          "type": "date"
+        },
+        {
+          "name": "volume",
+          "type": "string"
+        },
+        {
+          "name": "issue",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "review",
+      "columns": [
+        {
+          "name": "review_id",
+          "type": "string"
+        },
+        {
+          "name": "article_id",
+          "type": "string"
+        },
+        {
+          "name": "reviewer_id",
+          "type": "string"
+        },
+        {
+          "name": "review_date",
+          "type": "date"
+        },
+        {
+          "name": "recommendation",
+          "type": "string",
+          "pool_name": "recommendation"
+        },
+        {
+          "name": "comments",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_orcid_diff_name",
+      "entity_type": "author",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"orcid\"], \"attr_fields\": [\"first_name\", \"last_name\", \"affiliation\", \"email\"]}"
+    },
+    {
+      "name": "same_email_diff_author",
+      "entity_type": "author",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"orcid\", \"affiliation\"]}"
+    },
+    {
+      "name": "same_name_diff_affiliation",
+      "entity_type": "author",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"affiliation\", \"orcid\", \"email\", \"h_index\"]}"
+    },
+    {
+      "name": "same_issn_diff_publisher",
+      "entity_type": "publisher",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"issn\"], \"attr_fields\": [\"publisher_name\", \"country\", \"year_founded\"]}"
+    },
+    {
+      "name": "same_isbn_diff_title",
+      "entity_type": "publication",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"isbn\"], \"attr_fields\": [\"title\", \"publication_type\", \"publication_date\", \"publisher_id\"]}"
+    },
+    {
+      "name": "same_title_diff_date",
+      "entity_type": "article",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"title\"], \"attr_fields\": [\"publication_date\", \"author_id\", \"doi\", \"pages\"]}"
+    },
+    {
+      "name": "same_doi_diff_publication",
+      "entity_type": "article",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"doi\"], \"attr_fields\": [\"publication_id\", \"title\", \"author_id\", \"pages\"]}"
+    },
+    {
+      "name": "same_reviewer_same_article",
+      "entity_type": "review",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"reviewer_id\", \"article_id\"], \"attr_fields\": [\"review_date\", \"recommendation\", \"comments\"]}"
+    },
+    {
+      "name": "same_affiliation_diff_name",
+      "entity_type": "author",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"first_name\", \"attr_fields\": [\"last_name\", \"affiliation\", \"orcid\", \"email\"]}"
+    }
+  ]
+}

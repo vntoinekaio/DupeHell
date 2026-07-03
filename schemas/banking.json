@@ -1,0 +1,201 @@
+{
+  "domain": "banking",
+  "entities": [
+    {
+      "name": "account_holder",
+      "columns": [
+        {
+          "name": "holder_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "middle_initial",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "ssn",
+          "type": "string",
+          "null_rate_default": 0.05
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "citizenship",
+          "type": "string",
+          "null_rate_default": 0.05
+        },
+        {
+          "name": "occupation",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "account",
+      "columns": [
+        {
+          "name": "account_id",
+          "type": "string"
+        },
+        {
+          "name": "holder_id",
+          "type": "string"
+        },
+        {
+          "name": "account_number",
+          "type": "string"
+        },
+        {
+          "name": "routing_number",
+          "type": "string"
+        },
+        {
+          "name": "account_type",
+          "type": "string"
+        },
+        {
+          "name": "account_status",
+          "type": "string"
+        },
+        {
+          "name": "current_balance",
+          "type": "float"
+        },
+        {
+          "name": "open_date",
+          "type": "date"
+        },
+        {
+          "name": "branch_code",
+          "type": "string"
+        },
+        {
+          "name": "is_joint",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "transaction",
+      "columns": [
+        {
+          "name": "transaction_id",
+          "type": "string"
+        },
+        {
+          "name": "account_id",
+          "type": "string"
+        },
+        {
+          "name": "amount",
+          "type": "float"
+        },
+        {
+          "name": "transaction_type",
+          "type": "string"
+        },
+        {
+          "name": "transaction_date",
+          "type": "datetime"
+        },
+        {
+          "name": "merchant_name",
+          "type": "string"
+        },
+        {
+          "name": "merchant_category",
+          "type": "string"
+        },
+        {
+          "name": "is_international",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_ssn_diff_name",
+      "entity_type": "account_holder",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"ssn\"], \"attr_fields\": [\"first_name\", \"last_name\", \"date_of_birth\", \"email\"]}"
+    },
+    {
+      "name": "same_email_diff_holder",
+      "entity_type": "account_holder",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"ssn\", \"phone\"]}"
+    },
+    {
+      "name": "same_phone_diff_address",
+      "entity_type": "account_holder",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"phone\"], \"attr_fields\": [\"first_name\", \"last_name\", \"address_line1\", \"city\"]}"
+    },
+    {
+      "name": "similar_account_number_one_digit",
+      "entity_type": "account",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"account_number\", \"attr_fields\": [\"account_type\", \"current_balance\"]}"
+    },
+    {
+      "name": "same_name_diff_dob",
+      "entity_type": "account_holder",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"date_of_birth\", \"ssn\", \"email\", \"phone\"]}"
+    },
+    {
+      "name": "similar_ssn_last4_dob",
+      "entity_type": "account_holder",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"ssn\", \"attr_fields\": [\"first_name\", \"last_name\", \"date_of_birth\"]}"
+    }
+  ]
+}

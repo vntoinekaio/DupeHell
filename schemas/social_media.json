@@ -1,0 +1,219 @@
+{
+  "domain": "social_media",
+  "entities": [
+    {
+      "name": "user",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "name": "username",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "registration_date",
+          "type": "datetime"
+        },
+        {
+          "name": "is_verified",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "profile",
+      "columns": [
+        {
+          "name": "profile_id",
+          "type": "string"
+        },
+        {
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "name": "bio",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "location",
+          "type": "string",
+          "pool_name": "city",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "website_url",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "avatar_url",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "post",
+      "columns": [
+        {
+          "name": "post_id",
+          "type": "string"
+        },
+        {
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "name": "post_text",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "post_date",
+          "type": "datetime"
+        },
+        {
+          "name": "platform",
+          "type": "string",
+          "pool_name": "platform"
+        },
+        {
+          "name": "has_media",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "engagement",
+      "columns": [
+        {
+          "name": "engagement_id",
+          "type": "string"
+        },
+        {
+          "name": "post_id",
+          "type": "string"
+        },
+        {
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "name": "engagement_type",
+          "type": "string",
+          "pool_name": "engagement_type"
+        },
+        {
+          "name": "engagement_date",
+          "type": "datetime"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "connection",
+      "columns": [
+        {
+          "name": "connection_id",
+          "type": "string"
+        },
+        {
+          "name": "user_id",
+          "type": "string"
+        },
+        {
+          "name": "connected_user_id",
+          "type": "string"
+        },
+        {
+          "name": "connection_type",
+          "type": "string",
+          "pool_name": "connection_type"
+        },
+        {
+          "name": "connection_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_email_diff_username",
+      "entity_type": "user",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"username\", \"first_name\", \"last_name\", \"registration_date\"]}"
+    },
+    {
+      "name": "same_username_diff_email",
+      "entity_type": "user",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"username\"], \"attr_fields\": [\"email\", \"first_name\", \"last_name\", \"is_verified\"]}"
+    },
+    {
+      "name": "same_name_diff_user",
+      "entity_type": "user",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"email\", \"username\", \"registration_date\"]}"
+    },
+    {
+      "name": "same_post_same_date",
+      "entity_type": "post",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"post_text\", \"post_date\"], \"attr_fields\": [\"user_id\", \"platform\", \"has_media\"]}"
+    },
+    {
+      "name": "same_user_same_post",
+      "entity_type": "engagement",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"user_id\", \"post_id\"], \"attr_fields\": [\"engagement_type\", \"engagement_date\"]}"
+    },
+    {
+      "name": "same_connection_type_same_date",
+      "entity_type": "connection",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"connection_type\", \"connection_date\"], \"attr_fields\": [\"user_id\", \"connected_user_id\"]}"
+    },
+    {
+      "name": "same_profile_diff_location",
+      "entity_type": "profile",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"location\", \"attr_fields\": [\"bio\", \"website_url\", \"avatar_url\"]}"
+    }
+  ]
+}

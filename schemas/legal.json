@@ -1,0 +1,376 @@
+{
+  "domain": "legal",
+  "entities": [
+    {
+      "name": "client",
+      "columns": [
+        {
+          "name": "client_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "middle_name",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "ssn",
+          "type": "string",
+          "null_rate_default": 0.05
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "client_type",
+          "type": "string",
+          "pool_name": "owner_type"
+        },
+        {
+          "name": "employer",
+          "type": "string",
+          "pool_name": "company",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "lawyer",
+      "columns": [
+        {
+          "name": "lawyer_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "bar_number",
+          "type": "string"
+        },
+        {
+          "name": "bar_admission_year",
+          "type": "int"
+        },
+        {
+          "name": "practice_area",
+          "type": "string",
+          "pool_name": "practice_area_legal"
+        },
+        {
+          "name": "law_firm",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.05
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "case",
+      "columns": [
+        {
+          "name": "case_id",
+          "type": "string"
+        },
+        {
+          "name": "client_id",
+          "type": "string"
+        },
+        {
+          "name": "assigned_lawyer_id",
+          "type": "string"
+        },
+        {
+          "name": "case_number",
+          "type": "string"
+        },
+        {
+          "name": "court",
+          "type": "string",
+          "pool_name": "court_name"
+        },
+        {
+          "name": "jurisdiction",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "case_type",
+          "type": "string",
+          "pool_name": "case_category"
+        },
+        {
+          "name": "practice_area",
+          "type": "string",
+          "pool_name": "practice_area_legal"
+        },
+        {
+          "name": "filing_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "case_document",
+      "columns": [
+        {
+          "name": "document_id",
+          "type": "string"
+        },
+        {
+          "name": "case_id",
+          "type": "string"
+        },
+        {
+          "name": "lawyer_id",
+          "type": "string"
+        },
+        {
+          "name": "document_type",
+          "type": "string",
+          "pool_name": "document_type"
+        },
+        {
+          "name": "document_number",
+          "type": "string"
+        },
+        {
+          "name": "filing_date",
+          "type": "datetime"
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "is_confidential",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "hearing",
+      "columns": [
+        {
+          "name": "hearing_id",
+          "type": "string"
+        },
+        {
+          "name": "case_id",
+          "type": "string"
+        },
+        {
+          "name": "hearing_date",
+          "type": "datetime"
+        },
+        {
+          "name": "hearing_type",
+          "type": "string",
+          "pool_name": "hearing_type"
+        },
+        {
+          "name": "court_room",
+          "type": "string"
+        },
+        {
+          "name": "judge_name",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "outcome",
+          "type": "string",
+          "pool_name": "hearing_outcome",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "billing_entry",
+      "columns": [
+        {
+          "name": "billing_id",
+          "type": "string"
+        },
+        {
+          "name": "case_id",
+          "type": "string"
+        },
+        {
+          "name": "lawyer_id",
+          "type": "string"
+        },
+        {
+          "name": "hours",
+          "type": "float"
+        },
+        {
+          "name": "rate",
+          "type": "float"
+        },
+        {
+          "name": "amount",
+          "type": "float"
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "billing_date",
+          "type": "date"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "pool_name": "billing_category"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_ssn_diff_name",
+      "entity_type": "client",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"ssn\"], \"attr_fields\": [\"first_name\", \"last_name\", \"date_of_birth\", \"email\"]}"
+    },
+    {
+      "name": "same_email_diff_client",
+      "entity_type": "client",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"ssn\", \"phone\"]}"
+    },
+    {
+      "name": "same_phone_diff_client",
+      "entity_type": "client",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"phone\"], \"attr_fields\": [\"first_name\", \"last_name\", \"ssn\", \"city\"]}"
+    },
+    {
+      "name": "same_name_diff_dob",
+      "entity_type": "client",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"date_of_birth\", \"ssn\", \"email\", \"phone\"]}"
+    },
+    {
+      "name": "same_case_number_diff_court",
+      "entity_type": "case",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"case_number\"], \"attr_fields\": [\"court\", \"jurisdiction\", \"filing_date\", \"case_type\"]}"
+    },
+    {
+      "name": "same_lawyer_same_client_diff_case",
+      "entity_type": "case",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"client_id\", \"assigned_lawyer_id\"], \"attr_fields\": [\"case_number\", \"filing_date\", \"court\", \"case_type\"]}"
+    },
+    {
+      "name": "same_bar_number_diff_name",
+      "entity_type": "lawyer",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"bar_number\"], \"attr_fields\": [\"first_name\", \"last_name\", \"law_firm\", \"practice_area\"]}"
+    },
+    {
+      "name": "same_lawyer_firm_diff_name",
+      "entity_type": "lawyer",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"first_name\", \"attr_fields\": [\"last_name\", \"law_firm\", \"bar_number\", \"practice_area\"]}"
+    },
+    {
+      "name": "same_court_same_date",
+      "entity_type": "hearing",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"hearing_date\", \"hearing_type\"], \"attr_fields\": [\"case_id\", \"judge_name\", \"court_room\", \"outcome\"]}"
+    },
+    {
+      "name": "same_document_type_same_case",
+      "entity_type": "case_document",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"document_type\", \"case_id\"], \"attr_fields\": [\"document_number\", \"filing_date\", \"description\", \"lawyer_id\"]}"
+    },
+    {
+      "name": "same_lawyer_same_case_diff_category",
+      "entity_type": "billing_entry",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"lawyer_id\", \"case_id\"], \"attr_fields\": [\"category\", \"billing_date\", \"hours\", \"description\"]}"
+    }
+  ]
+}

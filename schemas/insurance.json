@@ -1,0 +1,277 @@
+{
+  "domain": "insurance",
+  "entities": [
+    {
+      "name": "policy_holder",
+      "columns": [
+        {
+          "name": "holder_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "drivers_license_number",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "ssn",
+          "type": "string",
+          "null_rate_default": 0.08
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "occupation",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "policy",
+      "columns": [
+        {
+          "name": "policy_id",
+          "type": "string"
+        },
+        {
+          "name": "holder_id",
+          "type": "string"
+        },
+        {
+          "name": "agent_id",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "policy_number",
+          "type": "string"
+        },
+        {
+          "name": "policy_type",
+          "type": "string"
+        },
+        {
+          "name": "vin",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "insured_address_line1",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "premium_amount",
+          "type": "float"
+        },
+        {
+          "name": "coverage_limit",
+          "type": "float"
+        },
+        {
+          "name": "deductible",
+          "type": "float"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "conditions": [
+            {
+              "depends_on": "status",
+              "op": "eq",
+              "value": "active",
+              "action": "set_value"
+            },
+            {
+              "depends_on": "status",
+              "op": "in",
+              "value": [
+                "lapsed",
+                "cancelled"
+              ],
+              "action": "set_value"
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "is_auto_renew",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "claim",
+      "columns": [
+        {
+          "name": "claim_id",
+          "type": "string"
+        },
+        {
+          "name": "policy_id",
+          "type": "string"
+        },
+        {
+          "name": "claim_date",
+          "type": "date"
+        },
+        {
+          "name": "claim_amount",
+          "type": "float"
+        },
+        {
+          "name": "settlement_amount",
+          "type": "float"
+        },
+        {
+          "name": "claim_type",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "is_fraud_flag",
+          "type": "boolean"
+        },
+        {
+          "name": "adjuster_id",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "agent",
+      "columns": [
+        {
+          "name": "agent_id",
+          "type": "string"
+        },
+        {
+          "name": "agent_first_name",
+          "type": "string"
+        },
+        {
+          "name": "agent_last_name",
+          "type": "string"
+        },
+        {
+          "name": "npn",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "license_number",
+          "type": "string"
+        },
+        {
+          "name": "agency_name",
+          "type": "string"
+        },
+        {
+          "name": "agent_email",
+          "type": "string"
+        },
+        {
+          "name": "agent_phone",
+          "type": "string"
+        },
+        {
+          "name": "commission_rate",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_ssn_diff_holder",
+      "entity_type": "policy_holder",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"ssn\"], \"attr_fields\": [\"first_name\", \"last_name\", \"date_of_birth\", \"email\"]}"
+    },
+    {
+      "name": "same_address_diff_holder",
+      "entity_type": "policy_holder",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"address_line1\", \"postal_code\"], \"attr_fields\": [\"first_name\", \"last_name\", \"phone\"]}"
+    },
+    {
+      "name": "same_vin_diff_policy",
+      "entity_type": "policy",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"vin\"], \"attr_fields\": [\"policy_type\", \"holder_id\", \"premium_amount\"]}"
+    },
+    {
+      "name": "same_claim_details_diff_policy",
+      "entity_type": "claim",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"claim_amount\", \"claim_type\"], \"attr_fields\": [\"policy_id\", \"status\", \"adjuster_id\"]}"
+    },
+    {
+      "name": "similar_license_one_char",
+      "entity_type": "agent",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"license_number\", \"attr_fields\": [\"agency_name\", \"agent_email\"]}"
+    }
+  ]
+}

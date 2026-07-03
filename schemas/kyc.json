@@ -1,0 +1,211 @@
+{
+  "domain": "kyc",
+  "entities": [
+    {
+      "name": "natural_person",
+      "columns": [
+        {
+          "name": "party_id",
+          "type": "string"
+        },
+        {
+          "name": "given_name",
+          "type": "string"
+        },
+        {
+          "name": "family_name",
+          "type": "string"
+        },
+        {
+          "name": "middle_name",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "birth_date",
+          "type": "date"
+        },
+        {
+          "name": "birth_place",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "nationality",
+          "type": "string"
+        },
+        {
+          "name": "email_address",
+          "type": "string",
+          "null_rate_default": 0.8
+        },
+        {
+          "name": "mobile_phone",
+          "type": "string",
+          "null_rate_default": 0.9
+        },
+        {
+          "name": "personal_administrative_number",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "tax_id",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "residential_address_line1",
+          "type": "string"
+        },
+        {
+          "name": "residential_city",
+          "type": "string"
+        },
+        {
+          "name": "residential_postal_code",
+          "type": "string"
+        },
+        {
+          "name": "residential_state",
+          "type": "string"
+        },
+        {
+          "name": "residential_country",
+          "type": "string"
+        },
+        {
+          "name": "occupation",
+          "type": "string"
+        },
+        {
+          "name": "pep_flag",
+          "type": "boolean"
+        },
+        {
+          "name": "sanctions_hit",
+          "type": "boolean"
+        },
+        {
+          "name": "risk_score",
+          "type": "string"
+        },
+        {
+          "name": "document_type",
+          "type": "string"
+        },
+        {
+          "name": "document_number",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "legal_entity",
+      "columns": [
+        {
+          "name": "legal_entity_id",
+          "type": "string"
+        },
+        {
+          "name": "legal_name",
+          "type": "string"
+        },
+        {
+          "name": "trading_name",
+          "type": "string"
+        },
+        {
+          "name": "registration_number",
+          "type": "string",
+          "null_rate_default": 0.8
+        },
+        {
+          "name": "tax_id",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "legal_form",
+          "type": "string"
+        },
+        {
+          "name": "date_of_incorporation",
+          "type": "date"
+        },
+        {
+          "name": "registered_address_line1",
+          "type": "string"
+        },
+        {
+          "name": "registered_city",
+          "type": "string"
+        },
+        {
+          "name": "registered_country",
+          "type": "string"
+        },
+        {
+          "name": "industry_code",
+          "type": "string"
+        },
+        {
+          "name": "website",
+          "type": "string"
+        },
+        {
+          "name": "business_email",
+          "type": "string",
+          "null_rate_default": 0.8
+        },
+        {
+          "name": "phone_number",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "is_sanctioned",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_firstname_birthyear_city",
+      "entity_type": "natural_person",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"given_name\", \"birth_date\", \"residential_city\"], \"attr_fields\": [\"family_name\", \"residential_address_line1\"]}"
+    },
+    {
+      "name": "similar_nationalid_one_typo",
+      "entity_type": "natural_person",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"personal_administrative_number\", \"attr_fields\": [\"given_name\", \"family_name\", \"birth_date\"]}"
+    },
+    {
+      "name": "same_company_different_address",
+      "entity_type": "legal_entity",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"legal_name\", \"trading_name\"], \"attr_fields\": [\"registered_address_line1\", \"registered_city\"]}"
+    },
+    {
+      "name": "same_dob_postal_diff_name",
+      "entity_type": "natural_person",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"birth_date\", \"residential_postal_code\"], \"attr_fields\": [\"given_name\", \"family_name\", \"residential_address_line1\"]}"
+    },
+    {
+      "name": "same_name_diff_everything",
+      "entity_type": "natural_person",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"given_name\", \"last_name_col\": \"family_name\", \"attr_fields\": [\"birth_date\", \"residential_postal_code\", \"residential_address_line1\"]}"
+    }
+  ]
+}

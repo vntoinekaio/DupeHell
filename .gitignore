@@ -1,0 +1,6 @@
+/target
+*.ipc
+*.parquet
+__pycache__/
+*.pyc
+.DS_Store

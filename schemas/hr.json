@@ -1,0 +1,235 @@
+{
+  "domain": "hr",
+  "entities": [
+    {
+      "name": "employee",
+      "columns": [
+        {
+          "name": "employee_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "personal_email",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "ssn",
+          "type": "string",
+          "null_rate_default": 0.03
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "job_title",
+          "type": "string"
+        },
+        {
+          "name": "department_id",
+          "type": "string"
+        },
+        {
+          "name": "salary",
+          "type": "float",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "hire_date",
+          "type": "date"
+        },
+        {
+          "name": "employee_type",
+          "type": "string"
+        },
+        {
+          "name": "work_location",
+          "type": "string"
+        },
+        {
+          "name": "is_active",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "department",
+      "columns": [
+        {
+          "name": "department_id",
+          "type": "string"
+        },
+        {
+          "name": "department_name",
+          "type": "string"
+        },
+        {
+          "name": "cost_center",
+          "type": "string"
+        },
+        {
+          "name": "head_count",
+          "type": "int"
+        },
+        {
+          "name": "budget",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "payroll_record",
+      "columns": [
+        {
+          "name": "payroll_id",
+          "type": "string"
+        },
+        {
+          "name": "employee_id",
+          "type": "string"
+        },
+        {
+          "name": "pay_period_start",
+          "type": "date"
+        },
+        {
+          "name": "pay_period_end",
+          "type": "date"
+        },
+        {
+          "name": "gross_pay",
+          "type": "float"
+        },
+        {
+          "name": "net_pay",
+          "type": "float"
+        },
+        {
+          "name": "deductions",
+          "type": "float"
+        },
+        {
+          "name": "hours_worked",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "performance_review",
+      "columns": [
+        {
+          "name": "review_id",
+          "type": "string"
+        },
+        {
+          "name": "employee_id",
+          "type": "string"
+        },
+        {
+          "name": "review_date",
+          "type": "date"
+        },
+        {
+          "name": "rating",
+          "type": "int"
+        },
+        {
+          "name": "reviewer_notes",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "is_promoted",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_ssn_diff_employee",
+      "entity_type": "employee",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"ssn\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"date_of_birth\"]}"
+    },
+    {
+      "name": "same_email_diff_employee",
+      "entity_type": "employee",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"employee_id\"]}"
+    },
+    {
+      "name": "same_department_diff_cost_center",
+      "entity_type": "department",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"department_name\"], \"attr_fields\": [\"cost_center\", \"budget\"]}"
+    },
+    {
+      "name": "same_ssn_name_after_marriage",
+      "entity_type": "employee",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"ssn\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"date_of_birth\"]}"
+    },
+    {
+      "name": "same_email_legacy_current",
+      "entity_type": "employee",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"employee_id\", \"ssn\"]}"
+    },
+    {
+      "name": "same_name_dob_temp_to_perm",
+      "entity_type": "employee",
+      "config_json": "{\"pattern\": \"same_name_dob\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"dob_col\": \"date_of_birth\", \"attr_fields\": [\"employee_id\", \"email\", \"ssn\"]}"
+    }
+  ]
+}

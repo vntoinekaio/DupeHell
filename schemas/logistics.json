@@ -1,0 +1,208 @@
+{
+  "domain": "logistics",
+  "entities": [
+    {
+      "name": "carrier",
+      "columns": [
+        {
+          "name": "carrier_id",
+          "type": "string"
+        },
+        {
+          "name": "carrier_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "contact_email",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "contact_phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "fleet_size",
+          "type": "int"
+        },
+        {
+          "name": "service_area",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "shipment",
+      "columns": [
+        {
+          "name": "shipment_id",
+          "type": "string"
+        },
+        {
+          "name": "carrier_id",
+          "type": "string"
+        },
+        {
+          "name": "tracking_number",
+          "type": "string"
+        },
+        {
+          "name": "origin_city",
+          "type": "string"
+        },
+        {
+          "name": "destination_city",
+          "type": "string"
+        },
+        {
+          "name": "ship_date",
+          "type": "date"
+        },
+        {
+          "name": "estimated_delivery",
+          "type": "date"
+        },
+        {
+          "name": "service_level",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "weight_kg",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "package",
+      "columns": [
+        {
+          "name": "package_id",
+          "type": "string"
+        },
+        {
+          "name": "shipment_id",
+          "type": "string"
+        },
+        {
+          "name": "package_barcode",
+          "type": "string"
+        },
+        {
+          "name": "length_cm",
+          "type": "float"
+        },
+        {
+          "name": "width_cm",
+          "type": "float"
+        },
+        {
+          "name": "height_cm",
+          "type": "float"
+        },
+        {
+          "name": "declared_value",
+          "type": "float"
+        },
+        {
+          "name": "packaging_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "delivery",
+      "columns": [
+        {
+          "name": "delivery_id",
+          "type": "string"
+        },
+        {
+          "name": "shipment_id",
+          "type": "string"
+        },
+        {
+          "name": "delivery_date",
+          "type": "datetime"
+        },
+        {
+          "name": "recipient_name",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "signature_required",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "delivery_status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "notes",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_tracking_number_diff_carrier",
+      "entity_type": "shipment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"tracking_number\"], \"attr_fields\": [\"origin_city\", \"destination_city\", \"ship_date\"]}"
+    },
+    {
+      "name": "same_origin_destination_same_date",
+      "entity_type": "shipment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"origin_city\", \"destination_city\", \"ship_date\"], \"attr_fields\": [\"tracking_number\", \"service_level\", \"weight_kg\"]}"
+    },
+    {
+      "name": "same_barcode_diff_shipment",
+      "entity_type": "package",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"package_barcode\"], \"attr_fields\": [\"length_cm\", \"width_cm\", \"declared_value\"]}"
+    },
+    {
+      "name": "same_delivery_date_same_shipment",
+      "entity_type": "delivery",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"delivery_date\", \"shipment_id\"], \"attr_fields\": [\"recipient_name\", \"delivery_status\"]}"
+    },
+    {
+      "name": "same_recipient_same_date",
+      "entity_type": "delivery",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"recipient_name\", \"delivery_date\"], \"attr_fields\": [\"delivery_status\", \"signature_required\"]}"
+    }
+  ]
+}

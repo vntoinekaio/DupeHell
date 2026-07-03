@@ -1,0 +1,203 @@
+{
+  "domain": "construction",
+  "entities": [
+    {
+      "name": "project",
+      "columns": [
+        {
+          "name": "project_id",
+          "type": "string"
+        },
+        {
+          "name": "project_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "construction_type",
+          "type": "string",
+          "pool_name": "construction_type"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "budget",
+          "type": "float"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "contractor",
+      "columns": [
+        {
+          "name": "contractor_id",
+          "type": "string"
+        },
+        {
+          "name": "contractor_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "specialty",
+          "type": "string",
+          "pool_name": "construction_type"
+        },
+        {
+          "name": "license_number",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "years_in_business",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "permit",
+      "columns": [
+        {
+          "name": "permit_id",
+          "type": "string"
+        },
+        {
+          "name": "project_id",
+          "type": "string"
+        },
+        {
+          "name": "permit_number",
+          "type": "string"
+        },
+        {
+          "name": "permit_type",
+          "type": "string",
+          "pool_name": "construction_type"
+        },
+        {
+          "name": "issue_date",
+          "type": "date"
+        },
+        {
+          "name": "expiry_date",
+          "type": "date"
+        },
+        {
+          "name": "fee",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "inspection",
+      "columns": [
+        {
+          "name": "inspection_id",
+          "type": "string"
+        },
+        {
+          "name": "permit_id",
+          "type": "string"
+        },
+        {
+          "name": "inspection_date",
+          "type": "date"
+        },
+        {
+          "name": "inspector_name",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "result",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "notes",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_project_name_diff_address",
+      "entity_type": "project",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"project_name\"], \"attr_fields\": [\"address_line1\", \"city\", \"state_code\", \"budget\"]}"
+    },
+    {
+      "name": "same_license_number_diff_contractor",
+      "entity_type": "contractor",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"license_number\"], \"attr_fields\": [\"contractor_name\", \"specialty\", \"city\"]}"
+    },
+    {
+      "name": "same_permit_number_diff_project",
+      "entity_type": "permit",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"permit_number\"], \"attr_fields\": [\"permit_type\", \"issue_date\", \"fee\"]}"
+    },
+    {
+      "name": "same_inspector_same_date",
+      "entity_type": "inspection",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"inspector_name\", \"inspection_date\"], \"attr_fields\": [\"result\", \"notes\"]}"
+    },
+    {
+      "name": "same_project_same_inspector",
+      "entity_type": "inspection",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"permit_id\", \"inspector_name\"], \"attr_fields\": [\"inspection_date\", \"result\"]}"
+    }
+  ]
+}

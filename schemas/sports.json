@@ -1,0 +1,346 @@
+{
+  "domain": "sports",
+  "entities": [
+    {
+      "name": "athlete",
+      "columns": [
+        {
+          "name": "athlete_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "nationality",
+          "type": "string",
+          "pool_name": "country_code"
+        },
+        {
+          "name": "height_cm",
+          "type": "int"
+        },
+        {
+          "name": "weight_kg",
+          "type": "int"
+        },
+        {
+          "name": "position",
+          "type": "string",
+          "pool_name": "position"
+        },
+        {
+          "name": "sport",
+          "type": "string",
+          "pool_name": "sport_type"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "team",
+      "columns": [
+        {
+          "name": "team_id",
+          "type": "string"
+        },
+        {
+          "name": "team_name",
+          "type": "string",
+          "pool_name": "team_name"
+        },
+        {
+          "name": "league",
+          "type": "string",
+          "pool_name": "league"
+        },
+        {
+          "name": "country",
+          "type": "string",
+          "pool_name": "country_code"
+        },
+        {
+          "name": "founded_year",
+          "type": "int"
+        },
+        {
+          "name": "home_stadium",
+          "type": "string",
+          "pool_name": "venue_name"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "contract",
+      "columns": [
+        {
+          "name": "contract_id",
+          "type": "string"
+        },
+        {
+          "name": "athlete_id",
+          "type": "string"
+        },
+        {
+          "name": "team_id",
+          "type": "string"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "salary",
+          "type": "float",
+          "conditions": [
+            {
+              "depends_on": "contract_type",
+              "op": "in",
+              "value": [
+                "Rookie",
+                "Two-Way"
+              ],
+              "action": "set_value"
+            }
+          ]
+        },
+        {
+          "name": "contract_type",
+          "type": "string",
+          "pool_name": "contract_type"
+        },
+        {
+          "name": "jersey_number",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "competition",
+      "columns": [
+        {
+          "name": "competition_id",
+          "type": "string"
+        },
+        {
+          "name": "competition_name",
+          "type": "string",
+          "pool_name": "competition_name"
+        },
+        {
+          "name": "sport",
+          "type": "string",
+          "pool_name": "sport_type"
+        },
+        {
+          "name": "season",
+          "type": "string"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "pool_name": "product_category"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "game",
+      "columns": [
+        {
+          "name": "game_id",
+          "type": "string"
+        },
+        {
+          "name": "competition_id",
+          "type": "string"
+        },
+        {
+          "name": "home_team_id",
+          "type": "string"
+        },
+        {
+          "name": "away_team_id",
+          "type": "string"
+        },
+        {
+          "name": "game_date",
+          "type": "datetime"
+        },
+        {
+          "name": "home_score",
+          "type": "int"
+        },
+        {
+          "name": "away_score",
+          "type": "int"
+        },
+        {
+          "name": "venue",
+          "type": "string",
+          "pool_name": "venue_name"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "game_stat",
+      "columns": [
+        {
+          "name": "stat_id",
+          "type": "string"
+        },
+        {
+          "name": "game_id",
+          "type": "string"
+        },
+        {
+          "name": "athlete_id",
+          "type": "string"
+        },
+        {
+          "name": "minutes_played",
+          "type": "int"
+        },
+        {
+          "name": "points_scored",
+          "type": "int"
+        },
+        {
+          "name": "assists",
+          "type": "int"
+        },
+        {
+          "name": "rebounds",
+          "type": "int"
+        },
+        {
+          "name": "fouls",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "transfer",
+      "columns": [
+        {
+          "name": "transfer_id",
+          "type": "string"
+        },
+        {
+          "name": "athlete_id",
+          "type": "string"
+        },
+        {
+          "name": "from_team_id",
+          "type": "string"
+        },
+        {
+          "name": "to_team_id",
+          "type": "string"
+        },
+        {
+          "name": "transfer_date",
+          "type": "date"
+        },
+        {
+          "name": "transfer_fee",
+          "type": "float"
+        },
+        {
+          "name": "transfer_type",
+          "type": "string",
+          "pool_name": "transfer_type"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_dob",
+      "entity_type": "athlete",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"date_of_birth\", \"nationality\", \"height_cm\", \"weight_kg\"]}"
+    },
+    {
+      "name": "same_name_same_sport",
+      "entity_type": "athlete",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"first_name\", \"last_name\", \"sport\"], \"attr_fields\": [\"date_of_birth\", \"nationality\", \"position\", \"height_cm\"]}"
+    },
+    {
+      "name": "same_team_diff_league",
+      "entity_type": "team",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"team_name\"], \"attr_fields\": [\"league\", \"country\", \"founded_year\", \"home_stadium\"]}"
+    },
+    {
+      "name": "same_athlete_same_team_overlap",
+      "entity_type": "contract",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"athlete_id\", \"team_id\"], \"attr_fields\": [\"start_date\", \"end_date\", \"salary\", \"contract_type\"]}"
+    },
+    {
+      "name": "same_competition_same_season",
+      "entity_type": "competition",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"competition_name\", \"season\"], \"attr_fields\": [\"sport\", \"category\"]}"
+    },
+    {
+      "name": "same_home_away_same_date",
+      "entity_type": "game",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"home_team_id\", \"away_team_id\", \"game_date\"], \"attr_fields\": [\"home_score\", \"away_score\", \"venue\", \"competition_id\"]}"
+    },
+    {
+      "name": "same_game_same_athlete",
+      "entity_type": "game_stat",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"game_id\", \"athlete_id\"], \"attr_fields\": [\"minutes_played\", \"points_scored\", \"assists\", \"rebounds\"]}"
+    },
+    {
+      "name": "same_athlete_same_date",
+      "entity_type": "transfer",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"athlete_id\", \"transfer_date\"], \"attr_fields\": [\"from_team_id\", \"to_team_id\", \"transfer_fee\", \"transfer_type\"]}"
+    }
+  ]
+}

@@ -1,0 +1,231 @@
+{
+  "domain": "gaming",
+  "entities": [
+    {
+      "name": "player",
+      "columns": [
+        {
+          "name": "player_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "username",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "join_date",
+          "type": "date"
+        },
+        {
+          "name": "last_login",
+          "type": "datetime"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "game_account",
+      "columns": [
+        {
+          "name": "account_id",
+          "type": "string"
+        },
+        {
+          "name": "player_id",
+          "type": "string"
+        },
+        {
+          "name": "game_title",
+          "type": "string",
+          "pool_name": "game_title"
+        },
+        {
+          "name": "game_genre",
+          "type": "string",
+          "pool_name": "game_genre"
+        },
+        {
+          "name": "character_name",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "player_role",
+          "type": "string",
+          "pool_name": "player_role"
+        },
+        {
+          "name": "level",
+          "type": "int"
+        },
+        {
+          "name": "hours_played",
+          "type": "float"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "match_session",
+      "columns": [
+        {
+          "name": "match_id",
+          "type": "string"
+        },
+        {
+          "name": "account_id",
+          "type": "string"
+        },
+        {
+          "name": "match_type",
+          "type": "string",
+          "pool_name": "event_type"
+        },
+        {
+          "name": "match_date",
+          "type": "datetime"
+        },
+        {
+          "name": "duration_minutes",
+          "type": "int"
+        },
+        {
+          "name": "score",
+          "type": "int"
+        },
+        {
+          "name": "rank",
+          "type": "string",
+          "pool_name": "player_role"
+        },
+        {
+          "name": "outcome",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "item_purchase",
+      "columns": [
+        {
+          "name": "purchase_id",
+          "type": "string"
+        },
+        {
+          "name": "account_id",
+          "type": "string"
+        },
+        {
+          "name": "item_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "item_category",
+          "type": "string",
+          "pool_name": "game_genre"
+        },
+        {
+          "name": "purchase_date",
+          "type": "datetime"
+        },
+        {
+          "name": "amount",
+          "type": "float"
+        },
+        {
+          "name": "payment_method",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_username",
+      "entity_type": "player",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"username\", \"email\", \"city\", \"country_code\"]}"
+    },
+    {
+      "name": "same_username_diff_player",
+      "entity_type": "player",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"username\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"city\"]}"
+    },
+    {
+      "name": "same_game_title_diff_character",
+      "entity_type": "game_account",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"game_title\", \"player_id\"], \"attr_fields\": [\"character_name\", \"player_role\", \"level\", \"hours_played\"]}"
+    },
+    {
+      "name": "same_character_name_diff_game",
+      "entity_type": "game_account",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"character_name\"], \"attr_fields\": [\"game_title\", \"game_genre\", \"player_role\", \"level\"]}"
+    },
+    {
+      "name": "same_match_type_same_date",
+      "entity_type": "match_session",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"match_type\", \"match_date\"], \"attr_fields\": [\"duration_minutes\", \"score\", \"outcome\"]}"
+    },
+    {
+      "name": "same_item_name_diff_account",
+      "entity_type": "item_purchase",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"item_name\"], \"attr_fields\": [\"item_category\", \"purchase_date\", \"amount\"]}"
+    },
+    {
+      "name": "same_amount_same_item",
+      "entity_type": "item_purchase",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"item_name\", \"amount\"], \"attr_fields\": [\"purchase_date\", \"payment_method\"]}"
+    }
+  ]
+}

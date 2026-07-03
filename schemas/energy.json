@@ -1,0 +1,262 @@
+{
+  "domain": "energy",
+  "entities": [
+    {
+      "name": "utility_customer",
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "company_name",
+          "type": "string",
+          "pool_name": "company",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "contract_type",
+          "type": "string",
+          "pool_name": "contract_type"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "service_point",
+      "columns": [
+        {
+          "name": "service_point_id",
+          "type": "string"
+        },
+        {
+          "name": "customer_id",
+          "type": "string"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "meter_type",
+          "type": "string",
+          "pool_name": "utility_meter_type"
+        },
+        {
+          "name": "contracted_power",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "meter",
+      "columns": [
+        {
+          "name": "meter_id",
+          "type": "string"
+        },
+        {
+          "name": "service_point_id",
+          "type": "string"
+        },
+        {
+          "name": "meter_serial",
+          "type": "string"
+        },
+        {
+          "name": "meter_type",
+          "type": "string",
+          "pool_name": "meter_technology"
+        },
+        {
+          "name": "calibration_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "meter_reading",
+      "columns": [
+        {
+          "name": "reading_id",
+          "type": "string"
+        },
+        {
+          "name": "meter_id",
+          "type": "string"
+        },
+        {
+          "name": "reading_date",
+          "type": "datetime"
+        },
+        {
+          "name": "index_value",
+          "type": "float"
+        },
+        {
+          "name": "consumption_kwh",
+          "type": "float"
+        },
+        {
+          "name": "reading_type",
+          "type": "string",
+          "pool_name": "reading_type"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "invoice",
+      "columns": [
+        {
+          "name": "invoice_id",
+          "type": "string"
+        },
+        {
+          "name": "service_point_id",
+          "type": "string"
+        },
+        {
+          "name": "invoice_number",
+          "type": "string"
+        },
+        {
+          "name": "period_start",
+          "type": "date"
+        },
+        {
+          "name": "period_end",
+          "type": "date"
+        },
+        {
+          "name": "consumption",
+          "type": "float"
+        },
+        {
+          "name": "amount",
+          "type": "float"
+        },
+        {
+          "name": "due_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_address",
+      "entity_type": "utility_customer",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"address_line1\", \"city\", \"phone\", \"email\"]}"
+    },
+    {
+      "name": "same_phone_diff_customer",
+      "entity_type": "utility_customer",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"phone\"], \"attr_fields\": [\"first_name\", \"last_name\", \"address_line1\", \"city\"]}"
+    },
+    {
+      "name": "same_address_diff_customer",
+      "entity_type": "service_point",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"address_line1\", \"city\"], \"attr_fields\": [\"customer_id\", \"meter_type\", \"contracted_power\"]}"
+    },
+    {
+      "name": "same_serial_diff_service_point",
+      "entity_type": "meter",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"meter_serial\"], \"attr_fields\": [\"service_point_id\", \"meter_type\", \"calibration_date\"]}"
+    },
+    {
+      "name": "same_date_diff_consumption",
+      "entity_type": "meter_reading",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"reading_date\"], \"attr_fields\": [\"meter_id\", \"index_value\", \"consumption_kwh\", \"reading_type\"]}"
+    },
+    {
+      "name": "same_invoice_number_diff_service_point",
+      "entity_type": "invoice",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"invoice_number\"], \"attr_fields\": [\"service_point_id\", \"amount\", \"period_start\", \"period_end\"]}"
+    },
+    {
+      "name": "same_period_same_consumption",
+      "entity_type": "invoice",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"period_start\", \"period_end\"], \"attr_fields\": [\"service_point_id\", \"consumption\", \"amount\", \"invoice_number\"]}"
+    }
+  ]
+}

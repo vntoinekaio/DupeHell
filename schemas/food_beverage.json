@@ -1,0 +1,206 @@
+{
+  "domain": "food_beverage",
+  "entities": [
+    {
+      "name": "restaurant",
+      "columns": [
+        {
+          "name": "restaurant_id",
+          "type": "string"
+        },
+        {
+          "name": "restaurant_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "cuisine_type",
+          "type": "string",
+          "pool_name": "cuisine_type"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "capacity",
+          "type": "int"
+        },
+        {
+          "name": "license_number",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "menu_item",
+      "columns": [
+        {
+          "name": "item_id",
+          "type": "string"
+        },
+        {
+          "name": "restaurant_id",
+          "type": "string"
+        },
+        {
+          "name": "item_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "price",
+          "type": "float"
+        },
+        {
+          "name": "is_special",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "inspection",
+      "columns": [
+        {
+          "name": "inspection_id",
+          "type": "string"
+        },
+        {
+          "name": "restaurant_id",
+          "type": "string"
+        },
+        {
+          "name": "inspection_date",
+          "type": "date"
+        },
+        {
+          "name": "inspector",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "score",
+          "type": "int"
+        },
+        {
+          "name": "grade",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "violations",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "notes",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "supplier",
+      "columns": [
+        {
+          "name": "supplier_id",
+          "type": "string"
+        },
+        {
+          "name": "restaurant_id",
+          "type": "string"
+        },
+        {
+          "name": "supplier_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "product_type",
+          "type": "string",
+          "pool_name": "cuisine_type"
+        },
+        {
+          "name": "contract_start",
+          "type": "date"
+        },
+        {
+          "name": "contract_end",
+          "type": "date",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_cuisine",
+      "entity_type": "restaurant",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"restaurant_name\"], \"attr_fields\": [\"cuisine_type\", \"address_line1\", \"city\"]}"
+    },
+    {
+      "name": "same_license_diff_address",
+      "entity_type": "restaurant",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"license_number\"], \"attr_fields\": [\"restaurant_name\", \"address_line1\", \"city\", \"state_code\"]}"
+    },
+    {
+      "name": "same_item_name_diff_restaurant",
+      "entity_type": "menu_item",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"item_name\"], \"attr_fields\": [\"category\", \"price\", \"is_special\"]}"
+    },
+    {
+      "name": "same_inspector_same_date",
+      "entity_type": "inspection",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"inspector\", \"inspection_date\"], \"attr_fields\": [\"score\", \"grade\", \"violations\"]}"
+    },
+    {
+      "name": "same_supplier_same_restaurant",
+      "entity_type": "supplier",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"supplier_name\", \"restaurant_id\"], \"attr_fields\": [\"product_type\", \"contract_start\", \"contract_end\"]}"
+    },
+    {
+      "name": "same_product_type_diff_supplier",
+      "entity_type": "supplier",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"product_type\", \"restaurant_id\"], \"attr_fields\": [\"supplier_name\", \"contract_start\"]}"
+    }
+  ]
+}

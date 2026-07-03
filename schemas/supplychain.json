@@ -1,0 +1,240 @@
+{
+  "domain": "supplychain",
+  "entities": [
+    {
+      "name": "warehouse",
+      "columns": [
+        {
+          "name": "warehouse_id",
+          "type": "string"
+        },
+        {
+          "name": "warehouse_name",
+          "type": "string"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "storage_capacity_sqft",
+          "type": "int"
+        },
+        {
+          "name": "is_active",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "inventory_item",
+      "columns": [
+        {
+          "name": "inventory_id",
+          "type": "string"
+        },
+        {
+          "name": "warehouse_id",
+          "type": "string"
+        },
+        {
+          "name": "sku",
+          "type": "string"
+        },
+        {
+          "name": "product_name",
+          "type": "string"
+        },
+        {
+          "name": "upc",
+          "type": "string"
+        },
+        {
+          "name": "quantity_on_hand",
+          "type": "int"
+        },
+        {
+          "name": "unit_cost",
+          "type": "float"
+        },
+        {
+          "name": "reorder_point",
+          "type": "int"
+        },
+        {
+          "name": "lot_number",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "expiration_date",
+          "type": "date"
+        },
+        {
+          "name": "category",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "shipment",
+      "columns": [
+        {
+          "name": "shipment_id",
+          "type": "string"
+        },
+        {
+          "name": "from_warehouse_id",
+          "type": "string"
+        },
+        {
+          "name": "to_warehouse_id",
+          "type": "string"
+        },
+        {
+          "name": "bol_number",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "po_number",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "tracking_number",
+          "type": "string"
+        },
+        {
+          "name": "ship_date",
+          "type": "date"
+        },
+        {
+          "name": "delivery_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "total_weight_kg",
+          "type": "float"
+        },
+        {
+          "name": "item_count",
+          "type": "int"
+        },
+        {
+          "name": "shipping_cost",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "carrier",
+      "columns": [
+        {
+          "name": "carrier_id",
+          "type": "string"
+        },
+        {
+          "name": "carrier_name",
+          "type": "string"
+        },
+        {
+          "name": "carrier_type",
+          "type": "string"
+        },
+        {
+          "name": "scac_code",
+          "type": "string"
+        },
+        {
+          "name": "contact_email",
+          "type": "string"
+        },
+        {
+          "name": "contact_phone",
+          "type": "string"
+        },
+        {
+          "name": "on_time_rate",
+          "type": "float"
+        },
+        {
+          "name": "is_preferred",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_tracking_number_diff_route",
+      "entity_type": "shipment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"tracking_number\"], \"attr_fields\": [\"from_warehouse_id\", \"to_warehouse_id\", \"status\"]}"
+    },
+    {
+      "name": "same_sku_diff_warehouse",
+      "entity_type": "inventory_item",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"sku\"], \"attr_fields\": [\"warehouse_id\", \"product_name\", \"quantity_on_hand\"]}"
+    },
+    {
+      "name": "same_po_number_diff_supplier",
+      "entity_type": "shipment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"po_number\"], \"attr_fields\": [\"from_warehouse_id\", \"to_warehouse_id\", \"ship_date\", \"status\"]}"
+    },
+    {
+      "name": "similar_bol_number_typo",
+      "entity_type": "shipment",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"bol_number\", \"attr_fields\": [\"tracking_number\", \"from_warehouse_id\", \"status\"]}"
+    },
+    {
+      "name": "same_scac_diff_name",
+      "entity_type": "carrier",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"scac_code\"], \"attr_fields\": [\"carrier_name\", \"carrier_type\"]}"
+    },
+    {
+      "name": "same_upc_diff_sku",
+      "entity_type": "inventory_item",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"upc\", \"attr_fields\": [\"sku\", \"product_name\"]}"
+    }
+  ]
+}
