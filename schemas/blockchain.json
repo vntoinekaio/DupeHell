@@ -1,0 +1,130 @@
+{
+  "domain": "blockchain",
+  "entities": [
+    {
+      "name": "wallet",
+      "columns": [
+        { "name": "wallet_id", "type": "string" },
+        { "name": "wallet_address", "type": "string" },
+        { "name": "owner_name", "type": "string" },
+        { "name": "owner_email", "type": "string", "null_rate_default": 0.3 },
+        { "name": "wallet_type", "type": "string", "pool_name": "account_type" },
+        { "name": "network", "type": "string", "pool_name": "line_type" },
+        { "name": "balance", "type": "float" },
+        { "name": "created_date", "type": "date" },
+        { "name": "last_active", "type": "datetime" },
+        { "name": "status", "type": "string", "pool_name": "status_active" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "blockchain_transaction",
+      "columns": [
+        { "name": "tx_id", "type": "string" },
+        { "name": "from_wallet", "type": "string" },
+        { "name": "to_wallet", "type": "string" },
+        { "name": "amount", "type": "float" },
+        { "name": "token_id", "type": "string", "null_rate_default": 0.4 },
+        { "name": "fee", "type": "float" },
+        { "name": "gas_price", "type": "float" },
+        { "name": "block_number", "type": "int" },
+        { "name": "tx_date", "type": "datetime" },
+        { "name": "status", "type": "string", "pool_name": "status_active" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "from_wallet", "target_entity": "wallet" },
+        { "source_col": "to_wallet", "target_entity": "wallet" }
+      ]
+    },
+    {
+      "name": "exchange",
+      "columns": [
+        { "name": "exchange_id", "type": "string" },
+        { "name": "exchange_name", "type": "string", "pool_name": "company" },
+        { "name": "website", "type": "string" },
+        { "name": "wallet_id", "type": "string" },
+        { "name": "trading_volume_24h", "type": "float" },
+        { "name": "num_listings", "type": "int" },
+        { "name": "founding_date", "type": "date" },
+        { "name": "headquarters_city", "type": "string", "pool_name": "city" },
+        { "name": "regulatory_status", "type": "string", "pool_name": "status_active" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "wallet_id", "target_entity": "wallet" }
+      ]
+    },
+    {
+      "name": "token",
+      "columns": [
+        { "name": "token_id", "type": "string" },
+        { "name": "token_name", "type": "string", "pool_name": "product_names" },
+        { "name": "token_symbol", "type": "string" },
+        { "name": "total_supply", "type": "float" },
+        { "name": "decimals", "type": "int" },
+        { "name": "token_standard", "type": "string", "pool_name": "word" },
+        { "name": "launch_date", "type": "date" },
+        { "name": "contract_address", "type": "string" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "smart_contract",
+      "columns": [
+        { "name": "contract_id", "type": "string" },
+        { "name": "contract_name", "type": "string", "pool_name": "product_names" },
+        { "name": "wallet_id", "type": "string" },
+        { "name": "contract_address", "type": "string" },
+        { "name": "language", "type": "string", "pool_name": "language" },
+        { "name": "deployment_date", "type": "date" },
+        { "name": "gas_used", "type": "float" },
+        { "name": "num_transactions", "type": "int" },
+        { "name": "verified", "type": "boolean" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "wallet_id", "target_entity": "wallet" }
+      ]
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_address_diff_owner",
+      "entity_type": "wallet",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"wallet_address\"], \"attr_fields\": [\"owner_name\", \"owner_email\", \"wallet_type\", \"network\", \"balance\"]}"
+    },
+    {
+      "name": "same_owner_diff_wallet",
+      "entity_type": "wallet",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"owner_name\"], \"attr_fields\": [\"wallet_address\", \"wallet_type\", \"balance\", \"network\", \"created_date\"]}"
+    },
+    {
+      "name": "same_amount_same_block_diff_wallet",
+      "entity_type": "blockchain_transaction",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"amount\", \"block_number\"], \"attr_fields\": [\"from_wallet\", \"to_wallet\", \"fee\", \"gas_price\", \"tx_date\"]}"
+    },
+    {
+      "name": "same_from_wallet_same_date",
+      "entity_type": "blockchain_transaction",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"from_wallet\", \"tx_date\"], \"attr_fields\": [\"to_wallet\", \"amount\", \"fee\", \"gas_price\", \"status\"]}"
+    },
+    {
+      "name": "same_exchange_name_diff_location",
+      "entity_type": "exchange",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"exchange_name\"], \"attr_fields\": [\"website\", \"trading_volume_24h\", \"headquarters_city\", \"regulatory_status\"]}"
+    },
+    {
+      "name": "same_token_symbol_diff_name",
+      "entity_type": "token",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"token_symbol\"], \"attr_fields\": [\"token_name\", \"total_supply\", \"decimals\", \"token_standard\", \"contract_address\"]}"
+    },
+    {
+      "name": "same_contract_name_diff_wallet",
+      "entity_type": "smart_contract",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"contract_name\"], \"attr_fields\": [\"wallet_id\", \"contract_address\", \"language\", \"deployment_date\", \"gas_used\"]}"
+    }
+  ]
+}
