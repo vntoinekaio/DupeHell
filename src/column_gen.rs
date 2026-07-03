@@ -300,14 +300,14 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
 
     // Stage 2: Stripped prefix + template
     let stripped = strip_prefix(&col.name);
-    if stripped != norm_name {
-        if let Some(template) = get_template(&stripped) {
-            let arr = template(n, rng, ctx);
-            if col.nullable && col.null_rate > 0.0 {
-                return apply_null_rate(&*arr, col.null_rate, rng);
-            }
-            return arr;
+    if stripped != norm_name
+        && let Some(template) = get_template(&stripped)
+    {
+        let arr = template(n, rng, ctx);
+        if col.nullable && col.null_rate > 0.0 {
+            return apply_null_rate(&*arr, col.null_rate, rng);
         }
+        return arr;
     }
 
     // Stage 3: Generic _id fallback

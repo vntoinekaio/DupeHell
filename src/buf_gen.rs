@@ -57,13 +57,13 @@ pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> Ar
             s[j] = b'0' + (val % 10) as u8;
             val /= 10;
         }
-        if let Some(wm) = watermark_mask {
-            if width >= 3 {
-                let start = width - 3;
-                s[start] = b'0' + ((wm / 100) % 10) as u8;
-                s[start + 1] = b'0' + ((wm / 10) % 10) as u8;
-                s[start + 2] = b'0' + (wm % 10) as u8;
-            }
+        if let Some(wm) = watermark_mask
+            && width >= 3
+        {
+            let start = width - 3;
+            s[start] = b'0' + ((wm / 100) % 10) as u8;
+            s[start + 1] = b'0' + ((wm / 10) % 10) as u8;
+            s[start + 2] = b'0' + (wm % 10) as u8;
         }
         builder.append_value(unsafe { std::str::from_utf8_unchecked(&s) });
     }
@@ -86,7 +86,7 @@ pub fn bytes_strings(chars: &[u8], n: usize, length: usize, rng: &mut Rng) -> Ar
 }
 
 /// Replace the last `n_digits` bytes of `buf` with the given value (0-padded).
-fn watermark_buf(buf: &mut Vec<u8>, n_digits: usize, value: u64) {
+fn watermark_buf(buf: &mut [u8], n_digits: usize, value: u64) {
     let start = buf.len() - n_digits;
     let mut v = value;
     for j in (0..n_digits).rev() {

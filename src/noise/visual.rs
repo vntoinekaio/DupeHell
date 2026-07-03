@@ -73,16 +73,16 @@ pub fn apply_homoglyph(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, 2) {
+        match get_chars(src, i, 2) {
             Some(mut chars) => {
-                for j in 0..n_ops[i].min(2) {
-                    let pos = positions[i][j] % chars.len();
+                for &p in positions[i].iter().take(n_ops[i].min(2)) {
+                    let pos = p % chars.len();
                     if let Some(alternatives) = HOMOGLYPHS.get(&chars[pos]) {
                         let idx = rng2.next_usize(alternatives.len());
                         chars[pos] = alternatives[idx];
                     }
                 }
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {
@@ -118,14 +118,14 @@ pub fn apply_unicode_pollution(arr: &dyn arrow::array::Array, rng: &mut Rng) -> 
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, MIN_LEN_UNICODE) {
+        match get_chars(src, i, MIN_LEN_UNICODE) {
             Some(mut chars) => {
                 for j in 0..n_ops[i].min(3) {
                     let pos = positions[i][j] % (chars.len() + 1);
                     let zc = ZERO_WIDTH_CHARS[zw_idx[i][j] % ZERO_WIDTH_CHARS.len()];
                     chars.insert(pos, zc);
                 }
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {
@@ -154,15 +154,15 @@ pub fn apply_ocr_errors(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRe
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, 1) {
+        match get_chars(src, i, 1) {
             Some(mut chars) => {
-                for j in 0..n_ops[i].min(3) {
-                    let pos = positions[i][j] % chars.len();
+                for &p in positions[i].iter().take(n_ops[i].min(3)) {
+                    let pos = p % chars.len();
                     if let Some(&replacement) = OCR_REPLACEMENTS.get(&chars[pos]) {
                         chars[pos] = replacement;
                     }
                 }
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {
@@ -187,17 +187,16 @@ pub fn apply_case_swap(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let r_vals: Vec<f64> = (0..n).map(|_| rng2.next_f64()).collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
+    for (i, &r) in r_vals.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
             continue;
         }
         let s = src.value(i);
-        let r = r_vals[i];
         if r < 0.33 {
-            builder.append_value(&s.to_uppercase());
+            builder.append_value(s.to_uppercase());
         } else if r < 0.66 {
-            builder.append_value(&s.to_lowercase());
+            builder.append_value(s.to_lowercase());
         } else {
             let chars: Vec<char> = s.chars().collect();
             let mut result = String::with_capacity(chars.len());
@@ -224,7 +223,7 @@ pub fn apply_char_dropout(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Array
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, MIN_LEN_DROPOUT) {
+        match get_chars(src, i, MIN_LEN_DROPOUT) {
             Some(mut chars) => {
                 let max_remove = (chars.len() / 4).max(2);
                 let n_to_remove = rng2.next_usize(max_remove) + 1;
@@ -234,7 +233,7 @@ pub fn apply_char_dropout(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Array
                         chars.remove(p);
                     }
                 }
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {

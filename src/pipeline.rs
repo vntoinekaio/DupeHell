@@ -486,13 +486,13 @@ pub fn run_pipeline(
             };
 
             // Extract FK identifiers for this entity's pool
-            if let Some(ref id_col) = plan.identifier_col {
-                if let Some(col) = rb.column_by_name(id_col) {
-                    let s = col.as_string::<i32>();
-                    for i in 0..s.len() {
-                        if !s.is_null(i) {
-                            fk_builder.append_value(s.value(i));
-                        }
+            if let Some(ref id_col) = plan.identifier_col
+                && let Some(col) = rb.column_by_name(id_col)
+            {
+                let s = col.as_string::<i32>();
+                for i in 0..s.len() {
+                    if !s.is_null(i) {
+                        fk_builder.append_value(s.value(i));
                     }
                 }
             }
@@ -557,8 +557,10 @@ pub fn run_pipeline(
         }
 
         // Save FK pool for cross-entity remapping
-        if plan.identifier_col.is_some() && fk_builder.len() > 0 {
-            let id_col = plan.identifier_col.as_ref().unwrap();
+        if let Some(id_col) = &plan.identifier_col {
+            if fk_builder.len() == 0 {
+                continue;
+            }
             let schema = Arc::new(Schema::new(vec![Field::new(id_col, DataType::Utf8, true)]));
             let arr = Arc::new(fk_builder.finish()) as ArrayRef;
             if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr]) {
@@ -590,111 +592,109 @@ pub fn run_pipeline(
 
         // ── Dups (use last_batch) ──────────────────────────────────────────
         let has_dups: bool = plan.noise_types.iter().any(|n| n.count > 0);
-        if has_dups {
-            if let Some((ref last_rb, last_n)) = last_batch {
-                let t_d0 = std::time::Instant::now();
-                let mut dup_batches: Vec<RecordBatch> = Vec::new();
-                let mut dup_mids_buf: Vec<String> = Vec::new();
-                let mids_ref = master_id_pool.get(&plan.name).unwrap();
+        if has_dups && let Some((ref last_rb, last_n)) = last_batch {
+            let t_d0 = std::time::Instant::now();
+            let mut dup_batches: Vec<RecordBatch> = Vec::new();
+            let mut dup_mids_buf: Vec<String> = Vec::new();
+            let mids_ref = master_id_pool.get(&plan.name).unwrap();
 
-                // Pre-generate indices + parallel noise (Phase 13c)
-                let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan
-                    .noise_types
-                    .iter()
-                    .filter(|n| n.count > 0)
-                    .map(|n| {
-                        let mut b = UInt64Builder::with_capacity(n.count);
-                        for _ in 0..n.count {
-                            b.append_value(batch_rng.next_usize(last_n) as u64);
-                        }
-                        (
-                            b.finish(),
-                            batch_rng.next_u64(),
-                            n.noise_type.as_str(),
-                            n.columns.as_slice(),
-                            n.count,
-                        )
-                    })
-                    .collect();
-
-                let mut results: Vec<Result<(RecordBatch, Vec<String>), String>> =
-                    Vec::with_capacity(ndata.len());
-                std::thread::scope(|s| {
-                    let mut handles = Vec::with_capacity(ndata.len());
-                    for (indices, seed, ntype, cols, cnt) in &ndata {
-                        let rb = last_rb.clone();
-                        let idxs = indices.clone();
-                        let cols_v: Vec<String> = cols.to_vec();
-                        let mslice: &[String] = mids_ref.as_slice();
-                        handles.push(s.spawn(move || {
-                            let dup = pick_rows(&rb, &idxs)?;
-                            let mut rng = Rng::new(*seed);
-                            let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng)?;
-                            let mut mb = Vec::with_capacity(*cnt);
-                            for j in 0..*cnt {
-                                mb.push(mslice[idxs.value(j) as usize % mslice.len()].clone());
-                            }
-                            Ok((noisy, mb))
-                        }));
+            // Pre-generate indices + parallel noise (Phase 13c)
+            let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan
+                .noise_types
+                .iter()
+                .filter(|n| n.count > 0)
+                .map(|n| {
+                    let mut b = UInt64Builder::with_capacity(n.count);
+                    for _ in 0..n.count {
+                        b.append_value(batch_rng.next_usize(last_n) as u64);
                     }
-                    for h in handles {
-                        results.push(h.join().unwrap());
-                    }
-                });
-                for res in results {
-                    let (rb, mb) = res?;
-                    dup_batches.push(rb);
-                    dup_mids_buf.extend(mb);
-                }
-                _t_dup += t_d0.elapsed().as_secs_f64();
+                    (
+                        b.finish(),
+                        batch_rng.next_u64(),
+                        n.noise_type.as_str(),
+                        n.columns.as_slice(),
+                        n.count,
+                    )
+                })
+                .collect();
 
-                // Write dups
-                if !dup_batches.is_empty() {
-                    let dup_total = dup_mids_buf.len();
-                    let dup_rids: &[String] =
-                        &ids.record_ids[global_rid_offset..global_rid_offset + dup_total];
-
-                    let concated = if dup_batches.len() == 1 {
-                        dup_batches.into_iter().next().unwrap()
-                    } else {
-                        let schema = dup_batches[0].schema();
-                        let n_fields = dup_batches[0].num_columns();
-                        let mut concat_arrays = Vec::with_capacity(n_fields);
-                        for i in 0..n_fields {
-                            let refs: Vec<&dyn Array> =
-                                dup_batches.iter().map(|b| b.column(i).as_ref()).collect();
-                            concat_arrays.push(
-                                arrow::compute::concat(&refs)
-                                    .map_err(|e| format!("concat dup col {i}: {e}"))?,
-                            );
+            let mut results: Vec<Result<(RecordBatch, Vec<String>), String>> =
+                Vec::with_capacity(ndata.len());
+            std::thread::scope(|s| {
+                let mut handles = Vec::with_capacity(ndata.len());
+                for (indices, seed, ntype, cols, cnt) in &ndata {
+                    let rb = last_rb.clone();
+                    let idxs = indices.clone();
+                    let cols_v: Vec<String> = cols.to_vec();
+                    let mslice: &[String] = mids_ref.as_slice();
+                    handles.push(s.spawn(move || {
+                        let dup = pick_rows(&rb, &idxs)?;
+                        let mut rng = Rng::new(*seed);
+                        let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng)?;
+                        let mut mb = Vec::with_capacity(*cnt);
+                        for j in 0..*cnt {
+                            mb.push(mslice[idxs.value(j) as usize % mslice.len()].clone());
                         }
-                        RecordBatch::try_new(schema, concat_arrays)
-                            .map_err(|e| format!("concat dups: {e}"))?
-                    };
-
-                    let dup_rb_full = add_metadata_and_align(
-                        &concated,
-                        &config.domain,
-                        &plan.name,
-                        dup_rids,
-                        &dup_mids_buf,
-                        &full_arc,
-                        col_lookup.as_ref().unwrap(),
-                        &mut null_cache,
-                    );
-
-                    let t_wd = std::time::Instant::now();
-                    writer
-                        .write(&dup_rb_full)
-                        .map_err(|e| format!("write dups: {e}"))?;
-                    _t_write += t_wd.elapsed().as_secs_f64();
-                    _write_calls += 1;
-
-                    gt_record_id_arrs.push(dup_rb_full.column(0).clone());
-                    gt_entity_type_arrs.push(dup_rb_full.column(2).clone());
-                    gt_master_id_arrs.push(dup_rb_full.column(3).clone());
-                    global_rid_offset += dup_total;
+                        Ok((noisy, mb))
+                    }));
                 }
+                for h in handles {
+                    results.push(h.join().unwrap());
+                }
+            });
+            for res in results {
+                let (rb, mb) = res?;
+                dup_batches.push(rb);
+                dup_mids_buf.extend(mb);
+            }
+            _t_dup += t_d0.elapsed().as_secs_f64();
+
+            // Write dups
+            if !dup_batches.is_empty() {
+                let dup_total = dup_mids_buf.len();
+                let dup_rids: &[String] =
+                    &ids.record_ids[global_rid_offset..global_rid_offset + dup_total];
+
+                let concated = if dup_batches.len() == 1 {
+                    dup_batches.into_iter().next().unwrap()
+                } else {
+                    let schema = dup_batches[0].schema();
+                    let n_fields = dup_batches[0].num_columns();
+                    let mut concat_arrays = Vec::with_capacity(n_fields);
+                    for i in 0..n_fields {
+                        let refs: Vec<&dyn Array> =
+                            dup_batches.iter().map(|b| b.column(i).as_ref()).collect();
+                        concat_arrays.push(
+                            arrow::compute::concat(&refs)
+                                .map_err(|e| format!("concat dup col {i}: {e}"))?,
+                        );
+                    }
+                    RecordBatch::try_new(schema, concat_arrays)
+                        .map_err(|e| format!("concat dups: {e}"))?
+                };
+
+                let dup_rb_full = add_metadata_and_align(
+                    &concated,
+                    &config.domain,
+                    &plan.name,
+                    dup_rids,
+                    &dup_mids_buf,
+                    &full_arc,
+                    col_lookup.as_ref().unwrap(),
+                    &mut null_cache,
+                );
+
+                let t_wd = std::time::Instant::now();
+                writer
+                    .write(&dup_rb_full)
+                    .map_err(|e| format!("write dups: {e}"))?;
+                _t_write += t_wd.elapsed().as_secs_f64();
+                _write_calls += 1;
+
+                gt_record_id_arrs.push(dup_rb_full.column(0).clone());
+                gt_entity_type_arrs.push(dup_rb_full.column(2).clone());
+                gt_master_id_arrs.push(dup_rb_full.column(3).clone());
+                global_rid_offset += dup_total;
             }
         }
     }
@@ -721,7 +721,7 @@ pub fn run_pipeline(
         }
 
         let hn_rb = crate::hn_common::generate_hard_negatives(
-            &pool_rb,
+            pool_rb,
             &hn_cfg.config_json,
             n_hn_max,
             config.seed.wrapping_add(200),
@@ -1024,12 +1024,14 @@ fn col_type_from_request(v: &serde_json::Value) -> DataType {
         Some("int") => DataType::Int64,
         Some("float") => DataType::Float64,
         Some("boolean") => DataType::Boolean,
-        Some("date") | Some("datetime") | _ => DataType::Utf8,
+        Some("date") | Some("datetime") => DataType::Utf8,
+        _ => DataType::Utf8,
     }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn add_metadata_and_align(
     rb: &RecordBatch,
     domain: &str,
@@ -1041,12 +1043,13 @@ pub(crate) fn add_metadata_and_align(
     null_cache: &mut HashMap<(DataType, usize), ArrayRef>,
 ) -> RecordBatch {
     let n = rb.num_rows();
-    let domain_arr = Arc::new(StringArray::from_iter_values(
-        std::iter::repeat(domain).take(n),
-    )) as ArrayRef;
-    let et_arr = Arc::new(StringArray::from_iter_values(
-        std::iter::repeat(entity_type).take(n),
-    )) as ArrayRef;
+    let domain_arr = Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
+        domain, n,
+    ))) as ArrayRef;
+    let et_arr = Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
+        entity_type,
+        n,
+    ))) as ArrayRef;
     let rid_arr = Arc::new(StringArray::from_iter_values(
         record_ids.iter().map(|s| s.as_str()),
     )) as ArrayRef;

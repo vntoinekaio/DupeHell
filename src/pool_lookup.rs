@@ -60,8 +60,8 @@ pub fn strip_prefix(name: &str) -> String {
     ];
     let lower = name.to_lowercase().replace(' ', "_");
     for pfx in &prefixes {
-        if lower.starts_with(pfx) {
-            return lower[pfx.len()..].to_string();
+        if let Some(stripped) = lower.strip_prefix(pfx) {
+            return stripped.to_string();
         }
     }
     lower

@@ -136,10 +136,10 @@ fn apply_column_conditions(
                     }
                 }
                 "set_pool" => {
-                    if let Some(ref av) = cond.action_value {
-                        if let Some(pool_name) = av.as_str() {
-                            apply_action_set_pool(batch, &col.name, &mask, pool_name, n, ctx, rng);
-                        }
+                    if let Some(ref av) = cond.action_value
+                        && let Some(pool_name) = av.as_str()
+                    {
+                        apply_action_set_pool(batch, &col.name, &mask, pool_name, n, ctx, rng);
                     }
                 }
                 _ => {}
@@ -152,9 +152,7 @@ fn build_condition_mask(dep: &ArrayRef, cond: &ColCondition, n: usize) -> Vec<bo
     match cond.op.as_str() {
         "eq" | "in" => {
             let vals = match &cond.value {
-                serde_json::Value::Array(arr) => {
-                    arr.iter().map(|v| val_to_string(v)).collect::<Vec<_>>()
-                }
+                serde_json::Value::Array(arr) => arr.iter().map(val_to_string).collect::<Vec<_>>(),
                 v => vec![val_to_string(v)],
             };
             let dep_str = array_to_strings(dep, n);
@@ -164,9 +162,7 @@ fn build_condition_mask(dep: &ArrayRef, cond: &ColCondition, n: usize) -> Vec<bo
         }
         "ne" | "not_in" => {
             let vals = match &cond.value {
-                serde_json::Value::Array(arr) => {
-                    arr.iter().map(|v| val_to_string(v)).collect::<Vec<_>>()
-                }
+                serde_json::Value::Array(arr) => arr.iter().map(val_to_string).collect::<Vec<_>>(),
                 v => vec![val_to_string(v)],
             };
             let dep_str = array_to_strings(dep, n);
@@ -235,8 +231,8 @@ fn apply_action_set_null(
         use arrow::array::Int64Array;
         let src = arr.as_any().downcast_ref::<Int64Array>().unwrap();
         let mut builder = arrow::array::Int64Builder::with_capacity(n);
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_null();
             } else {
                 builder.append_value(src.value(i));
@@ -247,8 +243,8 @@ fn apply_action_set_null(
         use arrow::array::Float64Array;
         let src = arr.as_any().downcast_ref::<Float64Array>().unwrap();
         let mut builder = arrow::array::Float64Builder::with_capacity(n);
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_null();
             } else {
                 builder.append_value(src.value(i));
@@ -259,8 +255,8 @@ fn apply_action_set_null(
         use arrow::array::BooleanArray;
         let src = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
         let mut builder = arrow::array::BooleanBuilder::with_capacity(n);
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_null();
             } else {
                 builder.append_value(src.value(i));
@@ -270,8 +266,8 @@ fn apply_action_set_null(
     } else {
         let mut builder = StringBuilder::with_capacity(n, 16);
         let src = arr.as_string::<i32>();
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_null();
             } else {
                 builder.append_value(src.value(i));
@@ -296,8 +292,8 @@ fn apply_action_set_value(
         let src = arr.as_any().downcast_ref::<Int64Array>().unwrap();
         let parsed: i64 = new_val_str.parse().unwrap_or(0);
         let mut builder = arrow::array::Int64Builder::with_capacity(n);
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_value(parsed);
             } else {
                 builder.append_value(src.value(i));
@@ -309,8 +305,8 @@ fn apply_action_set_value(
         let src = arr.as_any().downcast_ref::<Float64Array>().unwrap();
         let parsed: f64 = new_val_str.parse().unwrap_or(0.0);
         let mut builder = arrow::array::Float64Builder::with_capacity(n);
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_value(parsed);
             } else {
                 builder.append_value(src.value(i));
@@ -322,8 +318,8 @@ fn apply_action_set_value(
         let src = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
         let parsed: bool = new_val_str.parse().unwrap_or(false);
         let mut builder = arrow::array::BooleanBuilder::with_capacity(n);
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_value(parsed);
             } else {
                 builder.append_value(src.value(i));
@@ -333,8 +329,8 @@ fn apply_action_set_value(
     } else {
         let mut builder = StringBuilder::with_capacity(n, 16);
         let src = arr.as_string::<i32>();
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 builder.append_value(&new_val_str);
             } else {
                 builder.append_value(src.value(i));
@@ -371,8 +367,8 @@ fn apply_action_set_pool(
         let src = arr.as_any().downcast_ref::<Int64Array>().unwrap();
         let mut builder = arrow::array::Int64Builder::with_capacity(n);
         let mut pool_idx = 0;
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 if pool_idx < pool_strs.len() {
                     let parsed: i64 = pool_strs[pool_idx].parse().unwrap_or(0);
                     builder.append_value(parsed);
@@ -390,8 +386,8 @@ fn apply_action_set_pool(
         let src = arr.as_any().downcast_ref::<Float64Array>().unwrap();
         let mut builder = arrow::array::Float64Builder::with_capacity(n);
         let mut pool_idx = 0;
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 if pool_idx < pool_strs.len() {
                     let parsed: f64 = pool_strs[pool_idx].parse().unwrap_or(0.0);
                     builder.append_value(parsed);
@@ -408,8 +404,8 @@ fn apply_action_set_pool(
         let mut builder = StringBuilder::with_capacity(n, 16);
         let src = arr.as_string::<i32>();
         let mut pool_idx = 0;
-        for i in 0..n {
-            if mask[i] {
+        for (i, &m) in mask.iter().enumerate().take(n) {
+            if m {
                 if pool_idx < pool_strs.len() {
                     builder.append_value(&pool_strs[pool_idx]);
                     pool_idx += 1;
@@ -469,7 +465,7 @@ pub fn generate_entity_batch(ctx: &Context, request_json: &str) -> Result<Record
     let mut fields: Vec<Field> = Vec::with_capacity(col_count);
     let mut batch_map: HashMap<String, ArrayRef> = HashMap::new();
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(col_count);
-    for ((name, arr), (_, dt, nullable)) in results.drain(..).zip(field_infos.into_iter()) {
+    for ((name, arr), (_, dt, nullable)) in results.drain(..).zip(field_infos) {
         fields.push(Field::new(&name, dt, nullable));
         batch_map.insert(name.clone(), arr.clone());
         arrays.push(arr);

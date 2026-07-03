@@ -293,6 +293,7 @@ fn col_take(
 }
 
 /// Interleave two equal-length arrays 50/50 based on random bits.
+#[allow(clippy::if_same_then_else)]
 fn mix_arrays(a: &ArrayRef, b: &ArrayRef, rng: &mut Rng) -> ArrayRef {
     let n = a.len();
     if a.data_type() != &DataType::Utf8 {

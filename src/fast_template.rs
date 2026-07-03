@@ -839,7 +839,8 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     // Middle initial
     m.insert("middle_initial", gen_mid_init);
     // Confirmation code
-    for k in &["confirmation_code"] {
+    {
+        let k = &"confirmation_code";
         m.insert(*k, gen_conf_code);
     }
     // Account name
@@ -872,7 +873,8 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     // Variant title
     m.insert("variant_title", gen_variant);
     // Order number
-    for k in &["order_number"] {
+    {
+        let k = &"order_number";
         m.insert(*k, gen_order_num);
     }
     // VIN
@@ -884,27 +886,33 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
         m.insert(*k, gen_serial);
     }
     // Invoice number
-    for k in &["invoice_number"] {
+    {
+        let k = &"invoice_number";
         m.insert(*k, gen_inv_num);
     }
     // Jersey number
-    for k in &["jersey_number"] {
+    {
+        let k = &"jersey_number";
         m.insert(*k, gen_jersey);
     }
     // License plate
-    for k in &["license_plate"] {
+    {
+        let k = &"license_plate";
         m.insert(*k, gen_plate);
     }
     // IMEI
-    for k in &["imei"] {
+    {
+        let k = &"imei";
         m.insert(*k, gen_imei);
     }
     // IMSI
-    for k in &["imsi"] {
+    {
+        let k = &"imsi";
         m.insert(*k, gen_imsi);
     }
     // ICCID
-    for k in &["iccid"] {
+    {
+        let k = &"iccid";
         m.insert(*k, gen_iccid);
     }
     // Policy / permit number
@@ -912,89 +920,110 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
         m.insert(*k, gen_policy_num);
     }
     // BOL number
-    for k in &["bol_number"] {
+    {
+        let k = &"bol_number";
         m.insert(*k, gen_bol);
     }
     // Tracking number
-    for k in &["tracking_number"] {
+    {
+        let k = &"tracking_number";
         m.insert(*k, gen_tracking);
     }
     // SCAC code
-    for k in &["scac_code"] {
+    {
+        let k = &"scac_code";
         m.insert(*k, gen_scac);
     }
     // Parcel number / APN
     m.insert("parcel_number", gen_apn);
     // MLS number
-    for k in &["mls_number"] {
+    {
+        let k = &"mls_number";
         m.insert(*k, gen_mls);
     }
     // UPC
-    for k in &["upc"] {
+    {
+        let k = &"upc";
         m.insert(*k, gen_upc);
     }
     // Case number
-    for k in &["case_number"] {
+    {
+        let k = &"case_number";
         m.insert(*k, gen_case_num);
     }
     // Court room
-    for k in &["court_room"] {
+    {
+        let k = &"court_room";
         m.insert(*k, gen_court_room);
     }
     // ORCID
-    for k in &["orcid"] {
+    {
+        let k = &"orcid";
         m.insert(*k, gen_orcid);
     }
     // DOI
-    for k in &["doi"] {
+    {
+        let k = &"doi";
         m.insert(*k, gen_doi);
     }
     // ISBN
-    for k in &["isbn"] {
+    {
+        let k = &"isbn";
         m.insert(*k, gen_isbn);
     }
     // ISSN
-    for k in &["issn"] {
+    {
+        let k = &"issn";
         m.insert(*k, gen_issn);
     }
     // Pages
-    for k in &["pages"] {
+    {
+        let k = &"pages";
         m.insert(*k, gen_pages);
     }
     // Part number
-    for k in &["part_number"] {
+    {
+        let k = &"part_number";
         m.insert(*k, gen_part_num);
     }
     // Batch number
-    for k in &["batch_number"] {
+    {
+        let k = &"batch_number";
         m.insert(*k, gen_batch_num);
     }
     // NCT number
-    for k in &["nct_number"] {
+    {
+        let k = &"nct_number";
         m.insert(*k, gen_nct);
     }
     // Subject number
-    for k in &["subject_number"] {
+    {
+        let k = &"subject_number";
         m.insert(*k, gen_subj_num);
     }
     // Dosage
-    for k in &["dosage"] {
+    {
+        let k = &"dosage";
         m.insert(*k, gen_dosage);
     }
     // Lot number
-    for k in &["lot_number"] {
+    {
+        let k = &"lot_number";
         m.insert(*k, gen_lot);
     }
     // PO number
-    for k in &["po_number"] {
+    {
+        let k = &"po_number";
         m.insert(*k, gen_po);
     }
     // DUNS number
-    for k in &["duns_number"] {
+    {
+        let k = &"duns_number";
         m.insert(*k, gen_duns);
     }
     // Season
-    for k in &["season"] {
+    {
+        let k = &"season";
         m.insert(*k, gen_season);
     }
     // Contracted power
@@ -1023,7 +1052,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     m.insert("volume", |n, rng, _| {
         let mut builder = StringBuilder::with_capacity(n, 2);
         for _ in 0..n {
-            builder.append_value(&(rng.next_usize(50) + 1).to_string());
+            builder.append_value((rng.next_usize(50) + 1).to_string());
         }
         Arc::new(builder.finish())
     });
@@ -1031,7 +1060,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     m.insert("issue", |n, rng, _| {
         let mut builder = StringBuilder::with_capacity(n, 2);
         for _ in 0..n {
-            builder.append_value(&(rng.next_usize(12) + 1).to_string());
+            builder.append_value((rng.next_usize(12) + 1).to_string());
         }
         Arc::new(builder.finish())
     });

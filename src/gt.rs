@@ -38,12 +38,11 @@ pub fn compute_gt(
     for i in 0..n {
         if !mids.is_null(i) {
             let mid = mids.value(i);
-            if !mid.starts_with("HN-") {
-                if let Some(num) = parse_suffix(mid) {
-                    if num <= max_id {
-                        counts[num] += 1;
-                    }
-                }
+            if !mid.starts_with("HN-")
+                && let Some(num) = parse_suffix(mid)
+                && num <= max_id
+            {
+                counts[num] += 1;
             }
         }
     }
@@ -104,7 +103,7 @@ pub fn write_gt_ipc(
     );
 
     let mt_arr = StringArray::from(match_types.to_vec());
-    let diff_arr = StringArray::from_iter_values(std::iter::repeat(difficulty).take(n));
+    let diff_arr = StringArray::from_iter_values(std::iter::repeat_n(difficulty, n));
 
     let batch = arrow::record_batch::RecordBatch::try_new(
         schema.clone(),
@@ -156,7 +155,7 @@ pub fn write_gt_parquet(
     );
 
     let mt_arr = StringArray::from(match_types.to_vec());
-    let diff_arr = StringArray::from_iter_values(std::iter::repeat(difficulty).take(n));
+    let diff_arr = StringArray::from_iter_values(std::iter::repeat_n(difficulty, n));
 
     let batch = arrow::record_batch::RecordBatch::try_new(
         schema.clone(),
