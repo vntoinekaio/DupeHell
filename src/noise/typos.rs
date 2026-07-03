@@ -5,19 +5,25 @@
 // No liability for misuse.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 
 use crate::rng::Rng;
 
-use super::{get_chars, MIN_LEN_AGGR, MIN_LEN_EXTREME, MIN_LEN_TYPO};
+use super::{MIN_LEN_AGGR, MIN_LEN_EXTREME, MIN_LEN_TYPO, get_chars};
 
 static QWERTY_AZERTY: LazyLock<HashMap<char, char>> = LazyLock::new(|| {
     let mut m = HashMap::new();
-    m.insert('q', 'a'); m.insert('w', 'z'); m.insert('a', 'q'); m.insert('z', 'w');
-    m.insert('Q', 'A'); m.insert('W', 'Z'); m.insert('A', 'Q'); m.insert('Z', 'W');
+    m.insert('q', 'a');
+    m.insert('w', 'z');
+    m.insert('a', 'q');
+    m.insert('z', 'w');
+    m.insert('Q', 'A');
+    m.insert('W', 'Z');
+    m.insert('A', 'Q');
+    m.insert('Z', 'W');
     m
 });
 
@@ -31,7 +37,11 @@ fn op_replace(chars: &mut Vec<char>, pos: usize, c: char) {
 }
 
 fn op_insert(chars: &mut Vec<char>, pos: usize, c: char) {
-    let p = if chars.is_empty() { 0 } else { pos % chars.len() };
+    let p = if chars.is_empty() {
+        0
+    } else {
+        pos % chars.len()
+    };
     chars.insert(p, c);
 }
 
@@ -77,7 +87,11 @@ fn apply_ops_with_randchar(
         if j >= ops.len() || j >= positions.len() || j >= rand_chars.len() {
             break;
         }
-        let pos = if chars.is_empty() { 0 } else { positions[j] % chars.len() };
+        let pos = if chars.is_empty() {
+            0
+        } else {
+            positions[j] % chars.len()
+        };
         match ops[j] % 4 {
             0 => op_delete_pop(chars, pos),
             1 => op_replace(chars, pos, rand_chars[j]),
@@ -99,10 +113,19 @@ pub fn apply_typos_str(arr: &dyn arrow::array::Array, rng: &mut Rng, max_dist: u
 
     // Pre-allocate random arrays
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(max_dist) + 1).collect();
-    let ops: Vec<Vec<usize>> = (0..n).map(|_| (0..max_dist).map(|_| rng2.next_usize(3)).collect()).collect();
-    let positions: Vec<Vec<usize>> = (0..n).map(|_| (0..max_dist).map(|_| rng2.next_usize(30)).collect()).collect();
+    let ops: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..max_dist).map(|_| rng2.next_usize(3)).collect())
+        .collect();
+    let positions: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..max_dist).map(|_| rng2.next_usize(30)).collect())
+        .collect();
     let rand_chars: Vec<Vec<char>> = (0..n)
-        .map(|_| (0..max_dist).map(|_| rng2.next_usize(26) as u8 + 97).map(|c| c as char).collect())
+        .map(|_| {
+            (0..max_dist)
+                .map(|_| rng2.next_usize(26) as u8 + 97)
+                .map(|c| c as char)
+                .collect()
+        })
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
@@ -142,12 +165,22 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
     let mut rng2 = rng.fork();
 
     let n_swap: Vec<usize> = (0..n).map(|_| rng2.next_usize(2) + 1).collect();
-    let swap_pos: Vec<Vec<usize>> = (0..n).map(|_| (0..2).map(|_| rng2.next_usize(28)).collect()).collect();
+    let swap_pos: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..2).map(|_| rng2.next_usize(28)).collect())
+        .collect();
     let n_typo: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 2).collect();
-    let typo_ops: Vec<Vec<usize>> = (0..n).map(|_| (0..5).map(|_| rng2.next_usize(4)).collect()).collect();
-    let typo_pos: Vec<Vec<usize>> = (0..n).map(|_| (0..5).map(|_| rng2.next_usize(30)).collect()).collect();
+    let typo_ops: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..5).map(|_| rng2.next_usize(4)).collect())
+        .collect();
+    let typo_pos: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..5).map(|_| rng2.next_usize(30)).collect())
+        .collect();
     let typo_chars: Vec<Vec<char>> = (0..n)
-        .map(|_| (0..5).map(|_| (rng2.next_usize(26) as u8 + 97) as char).collect())
+        .map(|_| {
+            (0..5)
+                .map(|_| (rng2.next_usize(26) as u8 + 97) as char)
+                .collect()
+        })
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
@@ -155,7 +188,13 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
         match get_chars(&src, i, MIN_LEN_AGGR) {
             Some(mut chars) => {
                 apply_swaps(&mut chars, n_swap[i], &swap_pos[i]);
-                apply_ops_with_randchar(&mut chars, n_typo[i], &typo_ops[i], &typo_pos[i], &typo_chars[i]);
+                apply_ops_with_randchar(
+                    &mut chars,
+                    n_typo[i],
+                    &typo_ops[i],
+                    &typo_pos[i],
+                    &typo_chars[i],
+                );
                 builder.append_value(&chars.into_iter().collect::<String>());
             }
             None => {
@@ -179,10 +218,18 @@ pub fn apply_typos_extreme(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(4) + 4).collect();
-    let ops: Vec<Vec<usize>> = (0..n).map(|_| (0..8).map(|_| rng2.next_usize(5)).collect()).collect();
-    let positions: Vec<Vec<usize>> = (0..n).map(|_| (0..8).map(|_| rng2.next_usize(30)).collect()).collect();
+    let ops: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..8).map(|_| rng2.next_usize(5)).collect())
+        .collect();
+    let positions: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..8).map(|_| rng2.next_usize(30)).collect())
+        .collect();
     let rand_chars: Vec<Vec<char>> = (0..n)
-        .map(|_| (0..8).map(|_| (rng2.next_usize(26) as u8 + 97) as char).collect())
+        .map(|_| {
+            (0..8)
+                .map(|_| (rng2.next_usize(26) as u8 + 97) as char)
+                .collect()
+        })
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
@@ -226,7 +273,9 @@ pub fn apply_qwerty_azerty(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(2) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n).map(|_| (0..2).map(|_| rng2.next_usize(30)).collect()).collect();
+    let positions: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..2).map(|_| rng2.next_usize(30)).collect())
+        .collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {

@@ -47,7 +47,12 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
                         let mut name_chars: Vec<char> = name.chars().collect();
                         let last = name_chars.len() - 1;
                         name_chars[last] = (rng2.next_usize(26) as u8 + 97) as char;
-                        format!("{}@{}{}", local, name_chars.into_iter().collect::<String>(), tld)
+                        format!(
+                            "{}@{}{}",
+                            local,
+                            name_chars.into_iter().collect::<String>(),
+                            tld
+                        )
                     } else {
                         s.to_string()
                     }
@@ -57,7 +62,8 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
             }
             1 => {
                 // Replace domain with alternative
-                let alt_domain = ["yahoo.com", "outlook.com", "proton.me", "mail.com"][rng2.next_usize(4)];
+                let alt_domain =
+                    ["yahoo.com", "outlook.com", "proton.me", "mail.com"][rng2.next_usize(4)];
                 format!("{}@{}", local, alt_domain)
             }
             _ => {
@@ -128,8 +134,12 @@ pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
                 // "+33 (XX) XXX-XXXX" format
                 let mut out = String::from("+33 (");
                 for (j, &d) in digits.iter().enumerate() {
-                    if j == 2 { out.push_str(") "); }
-                    if j == 5 { out.push('-'); }
+                    if j == 2 {
+                        out.push_str(") ");
+                    }
+                    if j == 5 {
+                        out.push('-');
+                    }
                     out.push(d);
                 }
                 out
@@ -163,7 +173,8 @@ pub fn corrupt_national_id(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
             let delta = rng2.next_usize(9) as u8 + 1;
             chars[pos] = ((d + delta) % 10 + 48) as char;
         } else if c.is_ascii_alphabetic() {
-            chars[pos] = (rng2.next_usize(26) as u8 + if c.is_ascii_uppercase() { 65 } else { 97 }) as char;
+            chars[pos] =
+                (rng2.next_usize(26) as u8 + if c.is_ascii_uppercase() { 65 } else { 97 }) as char;
         }
         builder.append_value(&chars.into_iter().collect::<String>());
     }
@@ -213,8 +224,12 @@ mod tests {
     use super::*;
     use arrow::array::{Array, AsArray, StringArray};
 
-    fn test_rng() -> Rng { Rng::new(42) }
-    fn make_arr(vals: &[&str]) -> ArrayRef { Arc::new(StringArray::from(vals.to_vec())) }
+    fn test_rng() -> Rng {
+        Rng::new(42)
+    }
+    fn make_arr(vals: &[&str]) -> ArrayRef {
+        Arc::new(StringArray::from(vals.to_vec()))
+    }
 
     #[test]
     fn test_corrupt_email() {

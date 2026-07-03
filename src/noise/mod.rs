@@ -13,9 +13,7 @@ pub mod names;
 pub mod typos;
 pub mod visual;
 
-use std::sync::Arc;
-
-use arrow::array::{Array, ArrayRef, StringBuilder};
+use arrow::array::{Array, ArrayRef};
 
 use crate::rng::Rng;
 
@@ -39,40 +37,12 @@ pub fn get_chars(arr: &arrow::array::StringArray, i: usize, min_len: usize) -> O
     Some(s.chars().collect())
 }
 
-/// Build a StringArray from an iterator of strings (None = null).
-pub fn build_from_iter<I>(n: usize, iter: I) -> ArrayRef
-where
-    I: IntoIterator<Item = Option<String>>,
-{
-    let mut builder = StringBuilder::with_capacity(n, 16);
-    for val in iter {
-        match val {
-            Some(s) => builder.append_value(&s),
-            None => builder.append_null(),
-        }
-    }
-    Arc::new(builder.finish())
-}
-
-/// Generate a Vec of random usize values in [0, range).
-pub fn rand_vec(range: usize, n: usize, rng: &mut Rng) -> Vec<usize> {
-    (0..n).map(|_| rng.next_usize(range)).collect()
-}
-
-/// Generate a Vec of random bool values.
-pub fn rand_bools(n: usize, rng: &mut Rng) -> Vec<bool> {
-    (0..n).map(|_| rng.next_usize(2) == 0).collect()
-}
-
-/// Generate a 2D Vec of random usize values.
-pub fn rand_vec2d(range: usize, rows: usize, cols: usize, rng: &mut Rng) -> Vec<Vec<usize>> {
-    (0..rows)
-        .map(|_| (0..cols).map(|_| rng.next_usize(range)).collect())
-        .collect()
-}
-
 /// Dispatch hub: maps noise type string to the actual noise function.
-pub fn apply_noise_to_column(col: &dyn Array, noise_type: &str, rng: &mut Rng) -> Result<ArrayRef, String> {
+pub fn apply_noise_to_column(
+    col: &dyn Array,
+    noise_type: &str,
+    rng: &mut Rng,
+) -> Result<ArrayRef, String> {
     Ok(match noise_type {
         // Typos
         "typo" | "typos" => typos::apply_typos_str(col, rng, 2),
@@ -117,7 +87,7 @@ pub fn apply_noise_to_column(col: &dyn Array, noise_type: &str, rng: &mut Rng) -
         "names" => {
             let fns: [fn(&dyn Array, &mut Rng) -> ArrayRef; 5] = [
                 names::apply_nickname,
-                |c, r| names::apply_initials(c),
+                |c, _| names::apply_initials(c),
                 names::apply_partial,
                 names::apply_name_compound,
                 names::apply_gender_swap,

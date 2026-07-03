@@ -5,8 +5,8 @@
 // No liability for misuse.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 

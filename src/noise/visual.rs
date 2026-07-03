@@ -5,39 +5,57 @@
 // No liability for misuse.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 
 use crate::rng::Rng;
 
-use super::{get_chars, MIN_LEN_DROPOUT, MIN_LEN_UNICODE};
+use super::{MIN_LEN_DROPOUT, MIN_LEN_UNICODE, get_chars};
 
 static ZERO_WIDTH_CHARS: &[char] = &['\u{200b}', '\u{200c}', '\u{200d}', '\u{feff}'];
 
 static HOMOGLYPHS: LazyLock<HashMap<char, Vec<char>>> = LazyLock::new(|| {
     let mut m: HashMap<char, Vec<char>> = HashMap::new();
-    m.insert('a', vec!['а', 'α', '@']); m.insert('A', vec!['А', 'Α', '@']);
-    m.insert('c', vec!['с', 'с']);       m.insert('C', vec!['С', 'С']);
-    m.insert('e', vec!['е', 'ε', '3']);  m.insert('E', vec!['Е', 'Ε', '3']);
-    m.insert('o', vec!['о', '0', 'ο']);  m.insert('O', vec!['О', 'Ο', '0']);
-    m.insert('p', vec!['р', 'ρ', 'р']);  m.insert('P', vec!['Р', 'Ρ']);
-    m.insert('s', vec!['ѕ', '5', '$']);  m.insert('S', vec!['Ѕ', '5', '$']);
-    m.insert('x', vec!['х', 'χ']);       m.insert('X', vec!['Х', 'Χ']);
-    m.insert('y', vec!['у', 'γ']);       m.insert('Y', vec!['У', 'Υ']);
-    m.insert('0', vec!['О', 'ο', 'O']);  m.insert('1', vec!['l', 'I', '|']);
-    m.insert('l', vec!['1', 'I', '|']);  m.insert('I', vec!['1', 'l', '|']);
-    m.insert('5', vec!['S', '$', 'ѕ']);  m.insert('8', vec!['Β', 'B']);
+    m.insert('a', vec!['а', 'α', '@']);
+    m.insert('A', vec!['А', 'Α', '@']);
+    m.insert('c', vec!['с', 'с']);
+    m.insert('C', vec!['С', 'С']);
+    m.insert('e', vec!['е', 'ε', '3']);
+    m.insert('E', vec!['Е', 'Ε', '3']);
+    m.insert('o', vec!['о', '0', 'ο']);
+    m.insert('O', vec!['О', 'Ο', '0']);
+    m.insert('p', vec!['р', 'ρ', 'р']);
+    m.insert('P', vec!['Р', 'Ρ']);
+    m.insert('s', vec!['ѕ', '5', '$']);
+    m.insert('S', vec!['Ѕ', '5', '$']);
+    m.insert('x', vec!['х', 'χ']);
+    m.insert('X', vec!['Х', 'Χ']);
+    m.insert('y', vec!['у', 'γ']);
+    m.insert('Y', vec!['У', 'Υ']);
+    m.insert('0', vec!['О', 'ο', 'O']);
+    m.insert('1', vec!['l', 'I', '|']);
+    m.insert('l', vec!['1', 'I', '|']);
+    m.insert('I', vec!['1', 'l', '|']);
+    m.insert('5', vec!['S', '$', 'ѕ']);
+    m.insert('8', vec!['Β', 'B']);
     m
 });
 
 static OCR_REPLACEMENTS: LazyLock<HashMap<char, char>> = LazyLock::new(|| {
     let mut m = HashMap::new();
-    m.insert('o', '0'); m.insert('O', '0'); m.insert('0', 'O');
-    m.insert('l', '1'); m.insert('I', '1'); m.insert('1', 'l');
-    m.insert('S', '5'); m.insert('s', '5'); m.insert('5', 'S');
-    m.insert('B', '8'); m.insert('8', 'B');
+    m.insert('o', '0');
+    m.insert('O', '0');
+    m.insert('0', 'O');
+    m.insert('l', '1');
+    m.insert('I', '1');
+    m.insert('1', 'l');
+    m.insert('S', '5');
+    m.insert('s', '5');
+    m.insert('5', 'S');
+    m.insert('B', '8');
+    m.insert('8', 'B');
     m
 });
 
@@ -49,7 +67,9 @@ pub fn apply_homoglyph(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(2) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n).map(|_| (0..2).map(|_| rng2.next_usize(30)).collect()).collect();
+    let positions: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..2).map(|_| rng2.next_usize(30)).collect())
+        .collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
@@ -85,9 +105,15 @@ pub fn apply_unicode_pollution(arr: &dyn arrow::array::Array, rng: &mut Rng) -> 
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n).map(|_| (0..31).map(|_| rng2.next_usize(31)).collect()).collect();
+    let positions: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..31).map(|_| rng2.next_usize(31)).collect())
+        .collect();
     let zw_idx: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..3).map(|_| rng2.next_usize(ZERO_WIDTH_CHARS.len())).collect())
+        .map(|_| {
+            (0..3)
+                .map(|_| rng2.next_usize(ZERO_WIDTH_CHARS.len()))
+                .collect()
+        })
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
@@ -122,7 +148,9 @@ pub fn apply_ocr_errors(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRe
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n).map(|_| (0..3).map(|_| rng2.next_usize(30)).collect()).collect();
+    let positions: Vec<Vec<usize>> = (0..n)
+        .map(|_| (0..3).map(|_| rng2.next_usize(30)).collect())
+        .collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
@@ -226,8 +254,12 @@ mod tests {
     use super::*;
     use arrow::array::{Array, AsArray, StringArray};
 
-    fn test_rng() -> Rng { Rng::new(42) }
-    fn make_arr(vals: &[&str]) -> ArrayRef { Arc::new(StringArray::from(vals.to_vec())) }
+    fn test_rng() -> Rng {
+        Rng::new(42)
+    }
+    fn make_arr(vals: &[&str]) -> ArrayRef {
+        Arc::new(StringArray::from(vals.to_vec()))
+    }
 
     #[test]
     fn test_homoglyph() {

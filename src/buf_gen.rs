@@ -20,7 +20,6 @@ const ALPHA_UPPER_NO_IOQ: &[u8] = b"ABCDEFGHJKLMNPRSTUVWXYZ";
 #[cfg(test)]
 const ALPHA_UPPER: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /// Build a StringArray by appending rows using a closure that writes into &mut Vec<u8>.
@@ -108,10 +107,12 @@ macro_rules! push_digit {
 pub fn buf_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x50484f4e);
     build_string_array(n, 16, |buf| {
-        let a = rng.next_usize(800) + 200;   // 200-999
-        let b = rng.next_usize(900) + 100;   // 100-999
+        let a = rng.next_usize(800) + 200; // 200-999
+        let b = rng.next_usize(900) + 100; // 100-999
         let c = rng.next_usize(9000) + 1000; // 1000-9999
-        buf.push(b'+'); buf.push(b'1'); buf.push(b'-');
+        buf.push(b'+');
+        buf.push(b'1');
+        buf.push(b'-');
         push_digit!(buf, a / 100);
         push_digit!(buf, (a / 10) % 10);
         push_digit!(buf, a % 10);
@@ -132,8 +133,8 @@ pub fn buf_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 pub fn buf_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x53534e);
     build_string_array(n, 11, |buf| {
-        let a = rng.next_usize(900) + 100;   // 100-999
-        let b = rng.next_usize(90) + 10;     // 10-99
+        let a = rng.next_usize(900) + 100; // 100-999
+        let b = rng.next_usize(90) + 10; // 10-99
         let c = rng.next_usize(9000) + 1000; // 1000-9999
         push_digit!(buf, a / 100);
         push_digit!(buf, (a / 10) % 10);
@@ -168,8 +169,8 @@ pub fn buf_email(n: usize, rng: &mut Rng) -> ArrayRef {
 pub fn buf_pan(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x50414e);
     build_string_array(n, 13, |buf| {
-        let a = rng.next_usize(900) + 100;    // 100-999
-        let b = rng.next_usize(90) + 10;      // 10-99
+        let a = rng.next_usize(900) + 100; // 100-999
+        let b = rng.next_usize(90) + 10; // 10-99
         let c = rng.next_usize(900000) + 100000; // 100000-999999
         push_digit!(buf, a / 100);
         push_digit!(buf, (a / 10) % 10);
@@ -192,9 +193,9 @@ pub fn buf_pan(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 pub fn buf_medicare(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x4d4544);
     build_string_array(n, 12, |buf| {
-        let a = rng.next_usize(9000) + 1000;  // 1000-9999
-        let b = rng.next_usize(900) + 100;    // 100-999
-        let c = rng.next_usize(900) + 100;    // 100-999
+        let a = rng.next_usize(9000) + 1000; // 1000-9999
+        let b = rng.next_usize(900) + 100; // 100-999
+        let c = rng.next_usize(900) + 100; // 100-999
         push_digit!(buf, a / 1000);
         push_digit!(buf, (a / 100) % 10);
         push_digit!(buf, (a / 10) % 10);
@@ -215,11 +216,13 @@ pub fn buf_medicare(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 pub fn buf_office_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x4f4643);
     build_string_array(n, 21, |buf| {
-        let a = rng.next_usize(800) + 200;    // 200-999
-        let b = rng.next_usize(900) + 100;    // 100-999
-        let c = rng.next_usize(9000) + 1000;  // 1000-9999
-        let x = rng.next_usize(9900) + 100;   // 100-9999
-        buf.push(b'+'); buf.push(b'1'); buf.push(b'-');
+        let a = rng.next_usize(800) + 200; // 200-999
+        let b = rng.next_usize(900) + 100; // 100-999
+        let c = rng.next_usize(9000) + 1000; // 1000-9999
+        let x = rng.next_usize(9900) + 100; // 100-9999
+        buf.push(b'+');
+        buf.push(b'1');
+        buf.push(b'-');
         push_digit!(buf, a / 100);
         push_digit!(buf, (a / 10) % 10);
         push_digit!(buf, a % 10);
@@ -232,7 +235,8 @@ pub fn buf_office_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         push_digit!(buf, (c / 100) % 10);
         push_digit!(buf, (c / 10) % 10);
         push_digit!(buf, c % 10);
-        buf.push(b' '); buf.push(b'x');
+        buf.push(b' ');
+        buf.push(b'x');
         push_digit!(buf, x / 1000);
         push_digit!(buf, (x / 100) % 10);
         push_digit!(buf, (x / 10) % 10);

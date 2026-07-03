@@ -215,7 +215,9 @@ mod tests {
     use super::*;
     use arrow::array::{AsArray, StringArray};
 
-    fn test_rng() -> Rng { Rng::new(42) }
+    fn test_rng() -> Rng {
+        Rng::new(42)
+    }
     fn make_arr(vals: &[&str]) -> ArrayRef {
         Arc::new(StringArray::from(vals.to_vec()))
     }
