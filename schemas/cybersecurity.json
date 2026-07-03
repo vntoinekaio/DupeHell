@@ -1,0 +1,204 @@
+{
+  "domain": "cybersecurity",
+  "entities": [
+    {
+      "name": "asset",
+      "columns": [
+        {
+          "name": "asset_id",
+          "type": "string"
+        },
+        {
+          "name": "hostname",
+          "type": "string"
+        },
+        {
+          "name": "ip_address",
+          "type": "string"
+        },
+        {
+          "name": "asset_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "os_name",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "department",
+          "type": "string",
+          "pool_name": "department"
+        },
+        {
+          "name": "location",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "vulnerability",
+      "columns": [
+        {
+          "name": "vuln_id",
+          "type": "string"
+        },
+        {
+          "name": "cve_id",
+          "type": "string"
+        },
+        {
+          "name": "severity",
+          "type": "string",
+          "pool_name": "severity_level"
+        },
+        {
+          "name": "threat_type",
+          "type": "string",
+          "pool_name": "threat_type"
+        },
+        {
+          "name": "discovery_date",
+          "type": "date"
+        },
+        {
+          "name": "patch_available",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "incident",
+      "columns": [
+        {
+          "name": "incident_id",
+          "type": "string"
+        },
+        {
+          "name": "asset_id",
+          "type": "string"
+        },
+        {
+          "name": "vuln_id",
+          "type": "string"
+        },
+        {
+          "name": "incident_number",
+          "type": "string"
+        },
+        {
+          "name": "threat_type",
+          "type": "string",
+          "pool_name": "threat_type"
+        },
+        {
+          "name": "severity",
+          "type": "string",
+          "pool_name": "severity_level"
+        },
+        {
+          "name": "detection_date",
+          "type": "datetime"
+        },
+        {
+          "name": "resolution_date",
+          "type": "datetime",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "assigned_to",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "threat_actor",
+      "columns": [
+        {
+          "name": "actor_id",
+          "type": "string"
+        },
+        {
+          "name": "actor_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "sophistication",
+          "type": "string",
+          "pool_name": "severity_level"
+        },
+        {
+          "name": "motivation",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "first_seen",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_ip_diff_hostname",
+      "entity_type": "asset",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"ip_address\"], \"attr_fields\": [\"hostname\", \"asset_type\", \"os_name\", \"department\"]}"
+    },
+    {
+      "name": "same_hostname_diff_ip",
+      "entity_type": "asset",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"hostname\"], \"attr_fields\": [\"ip_address\", \"asset_type\", \"location\"]}"
+    },
+    {
+      "name": "same_cve_diff_threat",
+      "entity_type": "vulnerability",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"cve_id\"], \"attr_fields\": [\"severity\", \"threat_type\", \"discovery_date\", \"patch_available\"]}"
+    },
+    {
+      "name": "same_incident_number_diff_asset",
+      "entity_type": "incident",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"incident_number\"], \"attr_fields\": [\"threat_type\", \"severity\", \"detection_date\", \"assigned_to\"]}"
+    },
+    {
+      "name": "same_threat_type_same_asset",
+      "entity_type": "incident",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"threat_type\", \"asset_id\"], \"attr_fields\": [\"incident_number\", \"severity\", \"detection_date\"]}"
+    },
+    {
+      "name": "same_actor_name_diff_sophistication",
+      "entity_type": "threat_actor",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"actor_name\"], \"attr_fields\": [\"sophistication\", \"motivation\", \"first_seen\"]}"
+    }
+  ]
+}

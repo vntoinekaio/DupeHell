@@ -1,0 +1,214 @@
+{
+  "domain": "biotech",
+  "entities": [
+    {
+      "name": "laboratory",
+      "columns": [
+        {
+          "name": "lab_id",
+          "type": "string"
+        },
+        {
+          "name": "lab_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "lab_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "director_name",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "accreditation",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "research_project",
+      "columns": [
+        {
+          "name": "project_id",
+          "type": "string"
+        },
+        {
+          "name": "lab_id",
+          "type": "string"
+        },
+        {
+          "name": "project_code",
+          "type": "string"
+        },
+        {
+          "name": "project_title",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "principal_investigator",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "grant_amount",
+          "type": "float"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "null_rate_default": 0.25
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "sample",
+      "columns": [
+        {
+          "name": "sample_id",
+          "type": "string"
+        },
+        {
+          "name": "project_id",
+          "type": "string"
+        },
+        {
+          "name": "sample_barcode",
+          "type": "string"
+        },
+        {
+          "name": "sample_type",
+          "type": "string",
+          "pool_name": "sample_type"
+        },
+        {
+          "name": "collection_date",
+          "type": "date"
+        },
+        {
+          "name": "collected_by",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "storage_condition",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "experiment",
+      "columns": [
+        {
+          "name": "experiment_id",
+          "type": "string"
+        },
+        {
+          "name": "sample_id",
+          "type": "string"
+        },
+        {
+          "name": "experiment_type",
+          "type": "string",
+          "pool_name": "experiment_type"
+        },
+        {
+          "name": "performed_by",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "experiment_date",
+          "type": "date"
+        },
+        {
+          "name": "result",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "instrument_used",
+          "type": "string",
+          "pool_name": "biotech_equipment"
+        },
+        {
+          "name": "notes",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_project_code_diff_lab",
+      "entity_type": "research_project",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"project_code\"], \"attr_fields\": [\"project_title\", \"principal_investigator\", \"grant_amount\"]}"
+    },
+    {
+      "name": "same_pi_same_lab",
+      "entity_type": "research_project",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"principal_investigator\", \"lab_id\"], \"attr_fields\": [\"project_code\", \"grant_amount\", \"status\"]}"
+    },
+    {
+      "name": "same_barcode_diff_project",
+      "entity_type": "sample",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"sample_barcode\"], \"attr_fields\": [\"sample_type\", \"collection_date\", \"collected_by\"]}"
+    },
+    {
+      "name": "same_experiment_type_same_sample",
+      "entity_type": "experiment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"experiment_type\", \"sample_id\"], \"attr_fields\": [\"performed_by\", \"result\", \"instrument_used\"]}"
+    },
+    {
+      "name": "same_instrument_same_date",
+      "entity_type": "experiment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"instrument_used\", \"experiment_date\"], \"attr_fields\": [\"experiment_type\", \"sample_id\", \"result\"]}"
+    }
+  ]
+}

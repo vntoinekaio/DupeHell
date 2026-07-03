@@ -1,0 +1,194 @@
+{
+  "domain": "mining",
+  "entities": [
+    {
+      "name": "mine_site",
+      "columns": [
+        {
+          "name": "site_id",
+          "type": "string"
+        },
+        {
+          "name": "site_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "mineral_type",
+          "type": "string",
+          "pool_name": "mineral_type"
+        },
+        {
+          "name": "mine_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "claim",
+      "columns": [
+        {
+          "name": "claim_id",
+          "type": "string"
+        },
+        {
+          "name": "site_id",
+          "type": "string"
+        },
+        {
+          "name": "claim_number",
+          "type": "string"
+        },
+        {
+          "name": "claimant",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "claim_area_ha",
+          "type": "float"
+        },
+        {
+          "name": "filing_date",
+          "type": "date"
+        },
+        {
+          "name": "expiry_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "production_run",
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "site_id",
+          "type": "string"
+        },
+        {
+          "name": "mineral_type",
+          "type": "string",
+          "pool_name": "mineral_type"
+        },
+        {
+          "name": "tons_extracted",
+          "type": "float"
+        },
+        {
+          "name": "ore_grade",
+          "type": "float"
+        },
+        {
+          "name": "production_date",
+          "type": "date"
+        },
+        {
+          "name": "shift",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "environmental_report",
+      "columns": [
+        {
+          "name": "report_id",
+          "type": "string"
+        },
+        {
+          "name": "site_id",
+          "type": "string"
+        },
+        {
+          "name": "report_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "report_date",
+          "type": "date"
+        },
+        {
+          "name": "reported_by",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "compliance",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_claim_number_diff_site",
+      "entity_type": "claim",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"claim_number\"], \"attr_fields\": [\"claimant\", \"claim_area_ha\", \"filing_date\", \"expiry_date\"]}"
+    },
+    {
+      "name": "same_claimant_same_mineral",
+      "entity_type": "claim",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"claimant\", \"site_id\"], \"attr_fields\": [\"claim_number\", \"claim_area_ha\", \"filing_date\"]}"
+    },
+    {
+      "name": "same_mineral_same_site_same_date",
+      "entity_type": "production_run",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"mineral_type\", \"site_id\", \"production_date\"], \"attr_fields\": [\"tons_extracted\", \"ore_grade\", \"shift\"]}"
+    },
+    {
+      "name": "same_report_type_same_site",
+      "entity_type": "environmental_report",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"report_type\", \"site_id\"], \"attr_fields\": [\"report_date\", \"reported_by\", \"compliance\"]}"
+    },
+    {
+      "name": "same_reported_by_same_date",
+      "entity_type": "environmental_report",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"reported_by\", \"report_date\"], \"attr_fields\": [\"report_type\", \"site_id\", \"compliance\"]}"
+    }
+  ]
+}

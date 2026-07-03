@@ -1,0 +1,197 @@
+{
+  "domain": "renewable_energy",
+  "entities": [
+    {
+      "name": "energy_asset",
+      "columns": [
+        {
+          "name": "asset_id",
+          "type": "string"
+        },
+        {
+          "name": "asset_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "energy_source",
+          "type": "string",
+          "pool_name": "energy_source"
+        },
+        {
+          "name": "capacity_mw",
+          "type": "float"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "commission_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "energy_generation_record",
+      "columns": [
+        {
+          "name": "record_id",
+          "type": "string"
+        },
+        {
+          "name": "asset_id",
+          "type": "string"
+        },
+        {
+          "name": "reading_date",
+          "type": "datetime"
+        },
+        {
+          "name": "output_mwh",
+          "type": "float"
+        },
+        {
+          "name": "efficiency",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "maintenance",
+      "columns": [
+        {
+          "name": "maintenance_id",
+          "type": "string"
+        },
+        {
+          "name": "asset_id",
+          "type": "string"
+        },
+        {
+          "name": "maintenance_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "scheduled_date",
+          "type": "date"
+        },
+        {
+          "name": "completed_date",
+          "type": "date",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "technician",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "cost",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "certificate",
+      "columns": [
+        {
+          "name": "cert_id",
+          "type": "string"
+        },
+        {
+          "name": "asset_id",
+          "type": "string"
+        },
+        {
+          "name": "certificate_number",
+          "type": "string"
+        },
+        {
+          "name": "cert_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "issuance_date",
+          "type": "date"
+        },
+        {
+          "name": "mwh_certified",
+          "type": "float"
+        },
+        {
+          "name": "buyer",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_asset_name_diff_source",
+      "entity_type": "energy_asset",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"asset_name\"], \"attr_fields\": [\"energy_source\", \"capacity_mw\", \"city\", \"commission_date\"]}"
+    },
+    {
+      "name": "same_source_same_location",
+      "entity_type": "energy_asset",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"energy_source\", \"city\"], \"attr_fields\": [\"asset_name\", \"capacity_mw\", \"commission_date\"]}"
+    },
+    {
+      "name": "same_reading_date_same_asset",
+      "entity_type": "energy_generation_record",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"reading_date\", \"asset_id\"], \"attr_fields\": [\"output_mwh\", \"efficiency\"]}"
+    },
+    {
+      "name": "same_technician_same_date",
+      "entity_type": "maintenance",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"technician\", \"scheduled_date\"], \"attr_fields\": [\"maintenance_type\", \"completed_date\", \"cost\"]}"
+    },
+    {
+      "name": "same_certificate_number_diff_asset",
+      "entity_type": "certificate",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"certificate_number\"], \"attr_fields\": [\"cert_type\", \"issuance_date\", \"mwh_certified\", \"buyer\"]}"
+    },
+    {
+      "name": "same_buyer_same_date",
+      "entity_type": "certificate",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"buyer\", \"issuance_date\"], \"attr_fields\": [\"certificate_number\", \"cert_type\", \"mwh_certified\"]}"
+    }
+  ]
+}

@@ -1,0 +1,228 @@
+{
+  "domain": "agriculture",
+  "entities": [
+    {
+      "name": "farm",
+      "columns": [
+        {
+          "name": "farm_id",
+          "type": "string"
+        },
+        {
+          "name": "farm_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "farm_type",
+          "type": "string",
+          "pool_name": "crop_type"
+        },
+        {
+          "name": "owner_name",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "total_acreage",
+          "type": "float"
+        },
+        {
+          "name": "established_year",
+          "type": "int"
+        },
+        {
+          "name": "certification",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "crop",
+      "columns": [
+        {
+          "name": "crop_id",
+          "type": "string"
+        },
+        {
+          "name": "farm_id",
+          "type": "string"
+        },
+        {
+          "name": "crop_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "crop_type",
+          "type": "string",
+          "pool_name": "crop_type"
+        },
+        {
+          "name": "planting_date",
+          "type": "date"
+        },
+        {
+          "name": "harvest_date",
+          "type": "date",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "estimated_yield",
+          "type": "float"
+        },
+        {
+          "name": "acreage_allocated",
+          "type": "float"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "livestock",
+      "columns": [
+        {
+          "name": "animal_id",
+          "type": "string"
+        },
+        {
+          "name": "farm_id",
+          "type": "string"
+        },
+        {
+          "name": "animal_type",
+          "type": "string",
+          "pool_name": "crop_type"
+        },
+        {
+          "name": "breed",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "birth_date",
+          "type": "date"
+        },
+        {
+          "name": "gender",
+          "type": "string",
+          "pool_name": "gender"
+        },
+        {
+          "name": "weight_kg",
+          "type": "float"
+        },
+        {
+          "name": "health_status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "harvest",
+      "columns": [
+        {
+          "name": "harvest_id",
+          "type": "string"
+        },
+        {
+          "name": "crop_id",
+          "type": "string"
+        },
+        {
+          "name": "harvest_date",
+          "type": "date"
+        },
+        {
+          "name": "yield_tons",
+          "type": "float"
+        },
+        {
+          "name": "quality_grade",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "notes",
+          "type": "string",
+          "pool_name": "word",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_owner",
+      "entity_type": "farm",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"farm_name\"], \"attr_fields\": [\"owner_name\", \"city\", \"state_code\"]}"
+    },
+    {
+      "name": "same_crop_name_diff_farm",
+      "entity_type": "crop",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"crop_name\"], \"attr_fields\": [\"crop_type\", \"planting_date\", \"estimated_yield\"]}"
+    },
+    {
+      "name": "same_planting_date_same_farm",
+      "entity_type": "crop",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"planting_date\", \"farm_id\"], \"attr_fields\": [\"crop_name\", \"crop_type\", \"estimated_yield\"]}"
+    },
+    {
+      "name": "same_animal_type_diff_farm",
+      "entity_type": "livestock",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"animal_type\"], \"attr_fields\": [\"breed\", \"birth_date\", \"weight_kg\"]}"
+    },
+    {
+      "name": "same_harvest_date_same_crop",
+      "entity_type": "harvest",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"harvest_date\", \"crop_id\"], \"attr_fields\": [\"yield_tons\", \"quality_grade\"]}"
+    }
+  ]
+}

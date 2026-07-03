@@ -1,0 +1,218 @@
+{
+  "domain": "academia",
+  "entities": [
+    {
+      "name": "researcher",
+      "columns": [
+        {
+          "name": "researcher_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "orcid",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "institution",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "academic_field",
+          "type": "string",
+          "pool_name": "academic_field"
+        },
+        {
+          "name": "h_index",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "publication",
+      "columns": [
+        {
+          "name": "publication_id",
+          "type": "string"
+        },
+        {
+          "name": "researcher_id",
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "doi",
+          "type": "string"
+        },
+        {
+          "name": "journal",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "publication_date",
+          "type": "date"
+        },
+        {
+          "name": "citations",
+          "type": "int"
+        },
+        {
+          "name": "academic_field",
+          "type": "string",
+          "pool_name": "academic_field"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "grant",
+      "columns": [
+        {
+          "name": "grant_id",
+          "type": "string"
+        },
+        {
+          "name": "researcher_id",
+          "type": "string"
+        },
+        {
+          "name": "grant_number",
+          "type": "string"
+        },
+        {
+          "name": "funder",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "amount",
+          "type": "float"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date"
+        },
+        {
+          "name": "academic_field",
+          "type": "string",
+          "pool_name": "academic_field"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "conference",
+      "columns": [
+        {
+          "name": "conference_id",
+          "type": "string"
+        },
+        {
+          "name": "researcher_id",
+          "type": "string"
+        },
+        {
+          "name": "conference_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "paper_title",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "academic_field",
+          "type": "string",
+          "pool_name": "academic_field"
+        },
+        {
+          "name": "conference_date",
+          "type": "date"
+        },
+        {
+          "name": "location",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_orcid_diff_name",
+      "entity_type": "researcher",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"orcid\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\"]}"
+    },
+    {
+      "name": "same_email_diff_researcher",
+      "entity_type": "researcher",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"orcid\"]}"
+    },
+    {
+      "name": "same_doi_diff_title",
+      "entity_type": "publication",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"doi\"], \"attr_fields\": [\"title\", \"journal\", \"publication_date\"]}"
+    },
+    {
+      "name": "same_title_same_journal",
+      "entity_type": "publication",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"title\", \"journal\"], \"attr_fields\": [\"doi\", \"publication_date\", \"citations\"]}"
+    },
+    {
+      "name": "same_grant_number_diff_funder",
+      "entity_type": "grant",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"grant_number\"], \"attr_fields\": [\"funder\", \"amount\", \"start_date\"]}"
+    },
+    {
+      "name": "same_researcher_same_funder",
+      "entity_type": "grant",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"researcher_id\", \"funder\"], \"attr_fields\": [\"grant_number\", \"amount\", \"start_date\"]}"
+    },
+    {
+      "name": "same_conference_same_date",
+      "entity_type": "conference",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"conference_name\", \"conference_date\"], \"attr_fields\": [\"paper_title\", \"location\"]}"
+    }
+  ]
+}

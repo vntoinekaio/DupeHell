@@ -1,0 +1,198 @@
+{
+  "domain": "travel",
+  "entities": [
+    {
+      "name": "traveler",
+      "columns": [
+        {
+          "name": "traveler_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "booking",
+      "columns": [
+        {
+          "name": "booking_id",
+          "type": "string"
+        },
+        {
+          "name": "traveler_id",
+          "type": "string"
+        },
+        {
+          "name": "booking_reference",
+          "type": "string"
+        },
+        {
+          "name": "booking_date",
+          "type": "datetime"
+        },
+        {
+          "name": "total_cost",
+          "type": "float"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "hotel_stay",
+      "columns": [
+        {
+          "name": "stay_id",
+          "type": "string"
+        },
+        {
+          "name": "booking_id",
+          "type": "string"
+        },
+        {
+          "name": "hotel_name",
+          "type": "string",
+          "pool_name": "hotel_chain"
+        },
+        {
+          "name": "hotel_city",
+          "type": "string"
+        },
+        {
+          "name": "check_in",
+          "type": "date"
+        },
+        {
+          "name": "check_out",
+          "type": "date"
+        },
+        {
+          "name": "room_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "nightly_rate",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "flight_segment",
+      "columns": [
+        {
+          "name": "segment_id",
+          "type": "string"
+        },
+        {
+          "name": "booking_id",
+          "type": "string"
+        },
+        {
+          "name": "airline",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "flight_number",
+          "type": "string"
+        },
+        {
+          "name": "departure_city",
+          "type": "string"
+        },
+        {
+          "name": "arrival_city",
+          "type": "string"
+        },
+        {
+          "name": "departure_time",
+          "type": "datetime"
+        },
+        {
+          "name": "arrival_time",
+          "type": "datetime"
+        },
+        {
+          "name": "fare_class",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_email",
+      "entity_type": "traveler",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"email\", \"phone\", \"country_code\", \"date_of_birth\"]}"
+    },
+    {
+      "name": "same_reference_diff_traveler",
+      "entity_type": "booking",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"booking_reference\"], \"attr_fields\": [\"traveler_id\", \"booking_date\", \"total_cost\"]}"
+    },
+    {
+      "name": "same_hotel_same_date",
+      "entity_type": "hotel_stay",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"hotel_name\", \"check_in\"], \"attr_fields\": [\"room_type\", \"nightly_rate\", \"check_out\"]}"
+    },
+    {
+      "name": "same_flight_number_same_route",
+      "entity_type": "flight_segment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"flight_number\", \"departure_city\", \"arrival_city\"], \"attr_fields\": [\"departure_time\", \"arrival_time\", \"fare_class\"]}"
+    },
+    {
+      "name": "same_departure_same_airline",
+      "entity_type": "flight_segment",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"departure_time\", \"airline\"], \"attr_fields\": [\"flight_number\", \"departure_city\", \"arrival_city\", \"fare_class\"]}"
+    }
+  ]
+}

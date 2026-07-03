@@ -1,0 +1,258 @@
+{
+  "domain": "nonprofit",
+  "entities": [
+    {
+      "name": "donor",
+      "columns": [
+        {
+          "name": "donor_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "company_name",
+          "type": "string",
+          "pool_name": "company",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "is_anonymous",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "campaign",
+      "columns": [
+        {
+          "name": "campaign_id",
+          "type": "string"
+        },
+        {
+          "name": "campaign_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "goal_amount",
+          "type": "float"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "null_rate_default": 0.1
+        },
+        {
+          "name": "cause_area",
+          "type": "string",
+          "pool_name": "cause_category"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "donation",
+      "columns": [
+        {
+          "name": "donation_id",
+          "type": "string"
+        },
+        {
+          "name": "donor_id",
+          "type": "string"
+        },
+        {
+          "name": "campaign_id",
+          "type": "string"
+        },
+        {
+          "name": "amount",
+          "type": "float"
+        },
+        {
+          "name": "donation_date",
+          "type": "datetime"
+        },
+        {
+          "name": "payment_method",
+          "type": "string",
+          "pool_name": "payment_method"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "grant",
+      "columns": [
+        {
+          "name": "grant_id",
+          "type": "string"
+        },
+        {
+          "name": "foundation_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "grant_amount",
+          "type": "float"
+        },
+        {
+          "name": "grant_program",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "grant_date",
+          "type": "date"
+        },
+        {
+          "name": "grant_duration_months",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "volunteer",
+      "columns": [
+        {
+          "name": "volunteer_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "skill",
+          "type": "string",
+          "pool_name": "occupation"
+        },
+        {
+          "name": "availability_hours",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "program",
+      "columns": [
+        {
+          "name": "program_id",
+          "type": "string"
+        },
+        {
+          "name": "grant_id",
+          "type": "string"
+        },
+        {
+          "name": "volunteer_id",
+          "type": "string"
+        },
+        {
+          "name": "activity_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "beneficiaries_count",
+          "type": "int"
+        },
+        {
+          "name": "program_days",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_email",
+      "entity_type": "donor",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"email\", \"phone\", \"company_name\", \"is_anonymous\"]}"
+    },
+    {
+      "name": "same_email_diff_name",
+      "entity_type": "donor",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"email\"], \"attr_fields\": [\"first_name\", \"last_name\", \"company_name\", \"phone\"]}"
+    },
+    {
+      "name": "same_campaign_same_goal",
+      "entity_type": "campaign",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"campaign_name\", \"goal_amount\"], \"attr_fields\": [\"start_date\", \"end_date\", \"cause_area\"]}"
+    },
+    {
+      "name": "same_donor_same_campaign",
+      "entity_type": "donation",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"donor_id\", \"campaign_id\"], \"attr_fields\": [\"amount\", \"donation_date\", \"payment_method\"]}"
+    },
+    {
+      "name": "same_foundation_same_program",
+      "entity_type": "grant",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"foundation_name\", \"grant_program\"], \"attr_fields\": [\"grant_amount\", \"grant_date\", \"grant_duration_months\"]}"
+    },
+    {
+      "name": "same_volunteer_same_skill",
+      "entity_type": "volunteer",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"first_name\", \"attr_fields\": [\"last_name\", \"skill\", \"availability_hours\"]}"
+    },
+    {
+      "name": "same_program_same_grant",
+      "entity_type": "program",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"grant_id\", \"activity_name\"], \"attr_fields\": [\"volunteer_id\", \"beneficiaries_count\", \"program_days\"]}"
+    }
+  ]
+}

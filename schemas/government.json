@@ -1,0 +1,222 @@
+{
+  "domain": "government",
+  "entities": [
+    {
+      "name": "citizen",
+      "columns": [
+        {
+          "name": "citizen_id",
+          "type": "string"
+        },
+        {
+          "name": "national_id",
+          "type": "string",
+          "null_rate_default": 0.03
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "birth_place",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "marital_status",
+          "type": "string",
+          "null_rate_default": 0.08
+        },
+        {
+          "name": "dependent_count",
+          "type": "int",
+          "null_rate_default": 0.12
+        },
+        {
+          "name": "citizenship_status",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "tax_record",
+      "columns": [
+        {
+          "name": "tax_record_id",
+          "type": "string"
+        },
+        {
+          "name": "citizen_id",
+          "type": "string"
+        },
+        {
+          "name": "tax_year",
+          "type": "int"
+        },
+        {
+          "name": "filing_status",
+          "type": "string"
+        },
+        {
+          "name": "gross_income",
+          "type": "float"
+        },
+        {
+          "name": "tax_refund",
+          "type": "float"
+        },
+        {
+          "name": "is_audited",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "benefit",
+      "columns": [
+        {
+          "name": "benefit_id",
+          "type": "string"
+        },
+        {
+          "name": "citizen_id",
+          "type": "string"
+        },
+        {
+          "name": "benefit_type",
+          "type": "string"
+        },
+        {
+          "name": "monthly_amount",
+          "type": "float"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "permit",
+      "columns": [
+        {
+          "name": "permit_id",
+          "type": "string"
+        },
+        {
+          "name": "citizen_id",
+          "type": "string"
+        },
+        {
+          "name": "permit_type",
+          "type": "string"
+        },
+        {
+          "name": "permit_number",
+          "type": "string"
+        },
+        {
+          "name": "issue_date",
+          "type": "date"
+        },
+        {
+          "name": "expiry_date",
+          "type": "date"
+        },
+        {
+          "name": "issuing_authority",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "similar_national_id_typo",
+      "entity_type": "citizen",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"national_id\", \"attr_fields\": [\"first_name\", \"last_name\", \"date_of_birth\"]}"
+    },
+    {
+      "name": "same_name_dob_diff_citizen",
+      "entity_type": "citizen",
+      "config_json": "{\"pattern\": \"same_name_dob\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"dob_col\": \"date_of_birth\", \"attr_fields\": [\"citizen_id\", \"email\"]}"
+    },
+    {
+      "name": "same_address_diff_citizen",
+      "entity_type": "citizen",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"address_line1\", \"postal_code\"], \"attr_fields\": [\"first_name\", \"last_name\", \"date_of_birth\", \"citizen_id\"]}"
+    },
+    {
+      "name": "same_citizen_multi_benefit",
+      "entity_type": "benefit",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"citizen_id\"], \"attr_fields\": [\"benefit_type\", \"monthly_amount\", \"status\"]}"
+    },
+    {
+      "name": "same_permit_number_diff_type",
+      "entity_type": "permit",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"permit_number\"], \"attr_fields\": [\"permit_type\", \"citizen_id\"]}"
+    }
+  ]
+}

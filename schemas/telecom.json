@@ -1,0 +1,233 @@
+{
+  "domain": "telecom",
+  "entities": [
+    {
+      "name": "subscriber",
+      "columns": [
+        {
+          "name": "subscriber_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "billing_phone",
+          "type": "string"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "ssn_last4",
+          "type": "string",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "account_status",
+          "type": "string"
+        },
+        {
+          "name": "credit_score",
+          "type": "int",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "phone_line",
+      "columns": [
+        {
+          "name": "line_id",
+          "type": "string"
+        },
+        {
+          "name": "subscriber_id",
+          "type": "string"
+        },
+        {
+          "name": "phone_number",
+          "type": "string"
+        },
+        {
+          "name": "line_type",
+          "type": "string"
+        },
+        {
+          "name": "plan_name",
+          "type": "string"
+        },
+        {
+          "name": "monthly_charge",
+          "type": "float"
+        },
+        {
+          "name": "data_allowance_gb",
+          "type": "int"
+        },
+        {
+          "name": "activation_date",
+          "type": "date"
+        },
+        {
+          "name": "is_port_in",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "device",
+      "columns": [
+        {
+          "name": "device_id",
+          "type": "string"
+        },
+        {
+          "name": "line_id",
+          "type": "string"
+        },
+        {
+          "name": "imei",
+          "type": "string"
+        },
+        {
+          "name": "imsi",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "iccid",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "make",
+          "type": "string"
+        },
+        {
+          "name": "model",
+          "type": "string"
+        },
+        {
+          "name": "os_version",
+          "type": "string"
+        },
+        {
+          "name": "purchase_price",
+          "type": "float"
+        },
+        {
+          "name": "is_insured",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "call_record",
+      "columns": [
+        {
+          "name": "call_id",
+          "type": "string"
+        },
+        {
+          "name": "line_id",
+          "type": "string"
+        },
+        {
+          "name": "call_date",
+          "type": "datetime"
+        },
+        {
+          "name": "duration_seconds",
+          "type": "int"
+        },
+        {
+          "name": "call_type",
+          "type": "string"
+        },
+        {
+          "name": "destination_number",
+          "type": "string"
+        },
+        {
+          "name": "is_roaming",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_phone_diff_subscriber",
+      "entity_type": "subscriber",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"billing_phone\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\"]}"
+    },
+    {
+      "name": "same_imei_diff_line",
+      "entity_type": "device",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"imei\"], \"attr_fields\": [\"make\", \"model\", \"line_id\"]}"
+    },
+    {
+      "name": "same_address_diff_name",
+      "entity_type": "subscriber",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"address_line1\"], \"attr_fields\": [\"first_name\", \"last_name\", \"billing_phone\"]}"
+    },
+    {
+      "name": "sim_swap_fraud",
+      "entity_type": "device",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"imsi\"], \"attr_fields\": [\"imei\", \"line_id\", \"make\", \"model\"]}"
+    },
+    {
+      "name": "same_billing_phone_line",
+      "entity_type": "subscriber",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"billing_phone\", \"address_line1\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\"]}"
+    }
+  ]
+}

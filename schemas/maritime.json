@@ -1,0 +1,199 @@
+{
+  "domain": "maritime",
+  "entities": [
+    {
+      "name": "shipping_line",
+      "columns": [
+        {
+          "name": "line_id",
+          "type": "string"
+        },
+        {
+          "name": "line_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "imo_number",
+          "type": "string"
+        },
+        {
+          "name": "country_code",
+          "type": "string"
+        },
+        {
+          "name": "fleet_count",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "vessel",
+      "columns": [
+        {
+          "name": "vessel_id",
+          "type": "string"
+        },
+        {
+          "name": "line_id",
+          "type": "string"
+        },
+        {
+          "name": "vessel_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "imo_number",
+          "type": "string"
+        },
+        {
+          "name": "vessel_type",
+          "type": "string",
+          "pool_name": "vessel_type"
+        },
+        {
+          "name": "gross_tonnage",
+          "type": "int"
+        },
+        {
+          "name": "year_built",
+          "type": "int"
+        },
+        {
+          "name": "flag_state",
+          "type": "string",
+          "pool_name": "country_code"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "voyage",
+      "columns": [
+        {
+          "name": "voyage_id",
+          "type": "string"
+        },
+        {
+          "name": "vessel_id",
+          "type": "string"
+        },
+        {
+          "name": "voyage_number",
+          "type": "string"
+        },
+        {
+          "name": "origin_port",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "destination_port",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "departure_date",
+          "type": "date"
+        },
+        {
+          "name": "arrival_date",
+          "type": "date"
+        },
+        {
+          "name": "cargo_type",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "cargo_manifest",
+      "columns": [
+        {
+          "name": "manifest_id",
+          "type": "string"
+        },
+        {
+          "name": "voyage_id",
+          "type": "string"
+        },
+        {
+          "name": "container_id",
+          "type": "string"
+        },
+        {
+          "name": "cargo_description",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "weight_tons",
+          "type": "float"
+        },
+        {
+          "name": "shipper",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "consignee",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_imo_diff_vessel_name",
+      "entity_type": "vessel",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"imo_number\"], \"attr_fields\": [\"vessel_name\", \"vessel_type\", \"gross_tonnage\", \"flag_state\"]}"
+    },
+    {
+      "name": "same_vessel_name_diff_imo",
+      "entity_type": "vessel",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"vessel_name\"], \"attr_fields\": [\"imo_number\", \"vessel_type\", \"year_built\"]}"
+    },
+    {
+      "name": "same_voyage_number_diff_vessel",
+      "entity_type": "voyage",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"voyage_number\"], \"attr_fields\": [\"origin_port\", \"destination_port\", \"departure_date\", \"arrival_date\"]}"
+    },
+    {
+      "name": "same_origin_destination_same_departure",
+      "entity_type": "voyage",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"origin_port\", \"destination_port\", \"departure_date\"], \"attr_fields\": [\"voyage_number\", \"arrival_date\", \"cargo_type\"]}"
+    },
+    {
+      "name": "same_container_diff_voyage",
+      "entity_type": "cargo_manifest",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"container_id\"], \"attr_fields\": [\"cargo_description\", \"weight_tons\", \"shipper\"]}"
+    },
+    {
+      "name": "same_shipper_same_voyage",
+      "entity_type": "cargo_manifest",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"shipper\", \"voyage_id\"], \"attr_fields\": [\"container_id\", \"cargo_description\", \"weight_tons\"]}"
+    }
+  ]
+}

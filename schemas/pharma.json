@@ -1,0 +1,289 @@
+{
+  "domain": "pharma",
+  "entities": [
+    {
+      "name": "drug",
+      "columns": [
+        {
+          "name": "drug_id",
+          "type": "string"
+        },
+        {
+          "name": "drug_name",
+          "type": "string",
+          "pool_name": "drug_name_brand"
+        },
+        {
+          "name": "generic_name",
+          "type": "string",
+          "pool_name": "drug_name_generic"
+        },
+        {
+          "name": "manufacturer",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "drug_class",
+          "type": "string",
+          "pool_name": "drug_class"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "clinical_trial",
+      "columns": [
+        {
+          "name": "trial_id",
+          "type": "string"
+        },
+        {
+          "name": "nct_number",
+          "type": "string"
+        },
+        {
+          "name": "trial_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "phase",
+          "type": "string",
+          "pool_name": "trial_phase"
+        },
+        {
+          "name": "indication",
+          "type": "string",
+          "pool_name": "specialty"
+        },
+        {
+          "name": "sponsor",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "enrollment_count",
+          "type": "int"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "trial_site",
+      "columns": [
+        {
+          "name": "site_id",
+          "type": "string"
+        },
+        {
+          "name": "trial_id",
+          "type": "string"
+        },
+        {
+          "name": "principal_investigator",
+          "type": "string",
+          "pool_name": "first_name"
+        },
+        {
+          "name": "center_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "country",
+          "type": "string",
+          "pool_name": "country_code"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "subject",
+      "columns": [
+        {
+          "name": "subject_id",
+          "type": "string"
+        },
+        {
+          "name": "site_id",
+          "type": "string"
+        },
+        {
+          "name": "subject_number",
+          "type": "string"
+        },
+        {
+          "name": "treatment_arm",
+          "type": "string",
+          "pool_name": "treatment_arm"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date"
+        },
+        {
+          "name": "gender",
+          "type": "string",
+          "pool_name": "gender"
+        },
+        {
+          "name": "inclusion_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "dispensation",
+      "columns": [
+        {
+          "name": "dispensation_id",
+          "type": "string"
+        },
+        {
+          "name": "subject_id",
+          "type": "string"
+        },
+        {
+          "name": "drug_id",
+          "type": "string"
+        },
+        {
+          "name": "lot_number",
+          "type": "string"
+        },
+        {
+          "name": "dosage",
+          "type": "string"
+        },
+        {
+          "name": "dispensation_date",
+          "type": "datetime"
+        },
+        {
+          "name": "quantity",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "adverse_event",
+      "columns": [
+        {
+          "name": "event_id",
+          "type": "string"
+        },
+        {
+          "name": "subject_id",
+          "type": "string"
+        },
+        {
+          "name": "event_type",
+          "type": "string",
+          "pool_name": "event_type"
+        },
+        {
+          "name": "grade",
+          "type": "string",
+          "pool_name": "ae_grade"
+        },
+        {
+          "name": "imputability",
+          "type": "string",
+          "pool_name": "imputability"
+        },
+        {
+          "name": "event_date",
+          "type": "date"
+        },
+        {
+          "name": "serious",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_generic_diff_brand",
+      "entity_type": "drug",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"generic_name\"], \"attr_fields\": [\"drug_name\", \"manufacturer\", \"drug_class\"]}"
+    },
+    {
+      "name": "same_nct_diff_sponsor",
+      "entity_type": "clinical_trial",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"nct_number\"], \"attr_fields\": [\"sponsor\", \"trial_name\", \"phase\", \"indication\"]}"
+    },
+    {
+      "name": "same_trial_same_indication",
+      "entity_type": "clinical_trial",
+      "config_json": "{\"pattern\": \"mix_identifier\", \"mix_field\": \"trial_name\", \"attr_fields\": [\"indication\", \"sponsor\", \"phase\", \"start_date\"]}"
+    },
+    {
+      "name": "same_center_diff_pi",
+      "entity_type": "trial_site",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"center_name\"], \"attr_fields\": [\"principal_investigator\", \"country\", \"trial_id\"]}"
+    },
+    {
+      "name": "same_dob_same_center",
+      "entity_type": "subject",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"date_of_birth\", \"site_id\"], \"attr_fields\": [\"subject_number\", \"treatment_arm\", \"gender\", \"inclusion_date\"]}"
+    },
+    {
+      "name": "same_subject_same_drug",
+      "entity_type": "dispensation",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"subject_id\", \"drug_id\"], \"attr_fields\": [\"lot_number\", \"dosage\", \"dispensation_date\", \"quantity\"]}"
+    },
+    {
+      "name": "same_event_same_subject",
+      "entity_type": "adverse_event",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"event_type\", \"subject_id\"], \"attr_fields\": [\"grade\", \"imputability\", \"event_date\", \"serious\"]}"
+    },
+    {
+      "name": "same_event_date_same_grade",
+      "entity_type": "adverse_event",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"event_date\", \"grade\"], \"attr_fields\": [\"event_type\", \"subject_id\", \"imputability\", \"serious\"]}"
+    }
+  ]
+}

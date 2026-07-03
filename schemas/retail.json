@@ -1,0 +1,240 @@
+{
+  "domain": "retail",
+  "entities": [
+    {
+      "name": "store",
+      "columns": [
+        {
+          "name": "store_id",
+          "type": "string"
+        },
+        {
+          "name": "store_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "store_type",
+          "type": "string",
+          "pool_name": "department"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "state_code",
+          "type": "string"
+        },
+        {
+          "name": "postal_code",
+          "type": "string"
+        },
+        {
+          "name": "square_footage",
+          "type": "int"
+        },
+        {
+          "name": "opening_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "product",
+      "columns": [
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "product_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "sku",
+          "type": "string"
+        },
+        {
+          "name": "department",
+          "type": "string",
+          "pool_name": "department"
+        },
+        {
+          "name": "unit_price",
+          "type": "float"
+        },
+        {
+          "name": "supplier",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "customer",
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "loyalty_card",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "sale",
+      "columns": [
+        {
+          "name": "sale_id",
+          "type": "string"
+        },
+        {
+          "name": "store_id",
+          "type": "string"
+        },
+        {
+          "name": "customer_id",
+          "type": "string"
+        },
+        {
+          "name": "transaction_number",
+          "type": "string"
+        },
+        {
+          "name": "sale_date",
+          "type": "datetime"
+        },
+        {
+          "name": "total_amount",
+          "type": "float"
+        },
+        {
+          "name": "payment_method",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "sale_item",
+      "columns": [
+        {
+          "name": "item_id",
+          "type": "string"
+        },
+        {
+          "name": "sale_id",
+          "type": "string"
+        },
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "quantity",
+          "type": "int"
+        },
+        {
+          "name": "unit_price",
+          "type": "float"
+        },
+        {
+          "name": "discount",
+          "type": "float"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
+      ],
+      "fk_remaps": []
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_store_name_diff_address",
+      "entity_type": "store",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"store_name\"], \"attr_fields\": [\"address_line1\", \"city\", \"state_code\", \"store_type\"]}"
+    },
+    {
+      "name": "same_sku_diff_product",
+      "entity_type": "product",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"sku\"], \"attr_fields\": [\"product_name\", \"department\", \"unit_price\", \"supplier\"]}"
+    },
+    {
+      "name": "same_loyalty_card_diff_name",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"loyalty_card\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"city\"]}"
+    },
+    {
+      "name": "same_email_diff_customer",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_email\", \"email_col\": \"email\", \"attr_fields\": [\"first_name\", \"last_name\", \"loyalty_card\", \"phone\"]}"
+    },
+    {
+      "name": "same_transaction_number_diff_store",
+      "entity_type": "sale",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"transaction_number\"], \"attr_fields\": [\"store_id\", \"sale_date\", \"total_amount\"]}"
+    },
+    {
+      "name": "same_customer_same_date",
+      "entity_type": "sale",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"customer_id\", \"sale_date\"], \"attr_fields\": [\"transaction_number\", \"total_amount\", \"payment_method\"]}"
+    },
+    {
+      "name": "same_product_same_sale",
+      "entity_type": "sale_item",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"product_id\", \"sale_id\"], \"attr_fields\": [\"quantity\", \"unit_price\", \"discount\"]}"
+    }
+  ]
+}
