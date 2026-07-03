@@ -1,0 +1,125 @@
+{
+  "domain": "technology",
+  "entities": [
+    {
+      "name": "saas_product",
+      "columns": [
+        { "name": "product_id", "type": "string" },
+        { "name": "product_name", "type": "string", "pool_name": "product_names" },
+        { "name": "category", "type": "string", "pool_name": "product_category" },
+        { "name": "version", "type": "string" },
+        { "name": "description", "type": "string", "pool_name": "word" },
+        { "name": "monthly_price", "type": "float" },
+        { "name": "annual_price", "type": "float" },
+        { "name": "launch_date", "type": "date" },
+        { "name": "status", "type": "string", "pool_name": "status_active" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "subscriber",
+      "columns": [
+        { "name": "subscriber_id", "type": "string" },
+        { "name": "first_name", "type": "string" },
+        { "name": "last_name", "type": "string" },
+        { "name": "company_name", "type": "string", "pool_name": "company" },
+        { "name": "email", "type": "string" },
+        { "name": "phone", "type": "string", "null_rate_default": 0.25 },
+        { "name": "city", "type": "string" },
+        { "name": "country", "type": "string" },
+        { "name": "industry", "type": "string", "pool_name": "industry_sector" },
+        { "name": "employee_count", "type": "int" },
+        { "name": "signup_date", "type": "date" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "subscription",
+      "columns": [
+        { "name": "subscription_id", "type": "string" },
+        { "name": "subscriber_id", "type": "string" },
+        { "name": "product_id", "type": "string" },
+        { "name": "plan_tier", "type": "string", "pool_name": "tier" },
+        { "name": "seats", "type": "int" },
+        { "name": "billing_cycle", "type": "string", "pool_name": "word" },
+        { "name": "start_date", "type": "date" },
+        { "name": "end_date", "type": "date", "null_rate_default": 0.7 },
+        { "name": "status", "type": "string", "pool_name": "status_account" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "subscriber_id", "target_entity": "subscriber" },
+        { "source_col": "product_id", "target_entity": "saas_product" }
+      ]
+    },
+    {
+      "name": "license",
+      "columns": [
+        { "name": "license_id", "type": "string" },
+        { "name": "subscription_id", "type": "string" },
+        { "name": "license_key", "type": "string" },
+        { "name": "activation_date", "type": "date" },
+        { "name": "expiry_date", "type": "date" },
+        { "name": "max_activations", "type": "int" },
+        { "name": "current_activations", "type": "int" },
+        { "name": "status", "type": "string", "pool_name": "status_active" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "subscription_id", "target_entity": "subscription" }
+      ]
+    },
+    {
+      "name": "support_ticket",
+      "columns": [
+        { "name": "ticket_id", "type": "string" },
+        { "name": "subscriber_id", "type": "string" },
+        { "name": "product_id", "type": "string" },
+        { "name": "issue_category", "type": "string", "pool_name": "product_category" },
+        { "name": "severity", "type": "string", "pool_name": "severity_level" },
+        { "name": "submitted_date", "type": "datetime" },
+        { "name": "resolved_date", "type": "datetime", "null_rate_default": 0.5 },
+        { "name": "status", "type": "string", "pool_name": "status_crm_lead" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "subscriber_id", "target_entity": "subscriber" },
+        { "source_col": "product_id", "target_entity": "saas_product" }
+      ]
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_product_name_diff_category",
+      "entity_type": "saas_product",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"product_name\"], \"attr_fields\": [\"category\", \"version\", \"monthly_price\", \"annual_price\"]}"
+    },
+    {
+      "name": "same_company_diff_contact",
+      "entity_type": "subscriber",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"company_name\"], \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"phone\", \"city\"]}"
+    },
+    {
+      "name": "same_email_diff_company",
+      "entity_type": "subscriber",
+      "config_json": "{\"pattern\": \"same_email\", \"email_col\": \"email\", \"attr_fields\": [\"first_name\", \"last_name\", \"company_name\", \"city\", \"industry\"]}"
+    },
+    {
+      "name": "same_subscriber_diff_product",
+      "entity_type": "subscription",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"subscriber_id\"], \"attr_fields\": [\"product_id\", \"plan_tier\", \"seats\", \"billing_cycle\"]}"
+    },
+    {
+      "name": "same_license_key_diff_subscription",
+      "entity_type": "license",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"license_key\"], \"attr_fields\": [\"subscription_id\", \"activation_date\", \"expiry_date\", \"max_activations\"]}"
+    },
+    {
+      "name": "same_subscriber_same_severity",
+      "entity_type": "support_ticket",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"subscriber_id\", \"severity\"], \"attr_fields\": [\"product_id\", \"issue_category\", \"submitted_date\", \"status\"]}"
+    }
+  ]
+}

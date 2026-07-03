@@ -1,0 +1,134 @@
+{
+  "domain": "fintech",
+  "entities": [
+    {
+      "name": "customer",
+      "columns": [
+        { "name": "customer_id", "type": "string" },
+        { "name": "first_name", "type": "string" },
+        { "name": "last_name", "type": "string" },
+        { "name": "email", "type": "string" },
+        { "name": "phone", "type": "string", "null_rate_default": 0.2 },
+        { "name": "ssn", "type": "string", "null_rate_default": 0.7 },
+        { "name": "birth_date", "type": "date" },
+        { "name": "city", "type": "string" },
+        { "name": "state", "type": "string" },
+        { "name": "postal_code", "type": "string" },
+        { "name": "credit_score", "type": "int" },
+        { "name": "risk_score", "type": "string", "pool_name": "risk_score" },
+        { "name": "kyc_status", "type": "string", "pool_name": "status_active" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "account",
+      "columns": [
+        { "name": "account_id", "type": "string" },
+        { "name": "customer_id", "type": "string" },
+        { "name": "account_number", "type": "string" },
+        { "name": "routing_number", "type": "string" },
+        { "name": "account_type", "type": "string", "pool_name": "account_type" },
+        { "name": "currency", "type": "string", "pool_name": "currency" },
+        { "name": "current_balance", "type": "float" },
+        { "name": "opening_date", "type": "date" },
+        { "name": "status", "type": "string", "pool_name": "status_account" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "customer_id", "target_entity": "customer" }
+      ]
+    },
+    {
+      "name": "payment_transaction",
+      "columns": [
+        { "name": "transaction_id", "type": "string" },
+        { "name": "account_id", "type": "string" },
+        { "name": "merchant_id", "type": "string" },
+        { "name": "transaction_type", "type": "string", "pool_name": "transaction_type" },
+        { "name": "amount", "type": "float" },
+        { "name": "currency", "type": "string", "pool_name": "currency" },
+        { "name": "payment_method", "type": "string", "pool_name": "payment_method" },
+        { "name": "cc_last_four", "type": "string", "null_rate_default": 0.3 },
+        { "name": "transaction_date", "type": "datetime" },
+        { "name": "status", "type": "string", "pool_name": "status_active" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "account_id", "target_entity": "account" },
+        { "source_col": "merchant_id", "target_entity": "merchant" }
+      ]
+    },
+    {
+      "name": "merchant",
+      "columns": [
+        { "name": "merchant_id", "type": "string" },
+        { "name": "merchant_name", "type": "string", "pool_name": "company" },
+        { "name": "category", "type": "string", "pool_name": "product_category" },
+        { "name": "website", "type": "string" },
+        { "name": "support_email", "type": "string" },
+        { "name": "support_phone", "type": "string", "null_rate_default": 0.3 },
+        { "name": "address_line1", "type": "string" },
+        { "name": "city", "type": "string" },
+        { "name": "country", "type": "string" },
+        { "name": "fee_percent", "type": "float" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": []
+    },
+    {
+      "name": "dispute",
+      "columns": [
+        { "name": "dispute_id", "type": "string" },
+        { "name": "transaction_id", "type": "string" },
+        { "name": "reason", "type": "string", "pool_name": "word" },
+        { "name": "dispute_amount", "type": "float" },
+        { "name": "filing_date", "type": "date" },
+        { "name": "resolution_date", "type": "date", "null_rate_default": 0.4 },
+        { "name": "outcome", "type": "string", "pool_name": "word" },
+        { "name": "status", "type": "string", "pool_name": "status_claim" },
+        { "name": "source_system", "type": "string" }
+      ],
+      "fk_remaps": [
+        { "source_col": "transaction_id", "target_entity": "payment_transaction" }
+      ]
+    }
+  ],
+  "hn_types": [
+    {
+      "name": "same_name_diff_ssn",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_name_different_everything\", \"first_name_col\": \"first_name\", \"last_name_col\": \"last_name\", \"attr_fields\": [\"email\", \"phone\", \"ssn\", \"birth_date\", \"city\"]}"
+    },
+    {
+      "name": "same_ssn_diff_name",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_ssn\", \"ssn_col\": \"ssn\", \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"birth_date\", \"city\"]}"
+    },
+    {
+      "name": "same_phone_diff_person",
+      "entity_type": "customer",
+      "config_json": "{\"pattern\": \"same_phone\", \"phone_col\": \"phone\", \"attr_fields\": [\"first_name\", \"last_name\", \"email\", \"birth_date\"]}"
+    },
+    {
+      "name": "same_account_same_type_diff_amount",
+      "entity_type": "payment_transaction",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"account_id\", \"transaction_type\"], \"attr_fields\": [\"amount\", \"merchant_id\", \"payment_method\", \"transaction_date\"]}"
+    },
+    {
+      "name": "same_merchant_same_amount",
+      "entity_type": "payment_transaction",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"merchant_id\", \"amount\"], \"attr_fields\": [\"account_id\", \"transaction_type\", \"payment_method\", \"transaction_date\"]}"
+    },
+    {
+      "name": "same_customer_diff_account",
+      "entity_type": "account",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"customer_id\"], \"attr_fields\": [\"account_number\", \"account_type\", \"currency\", \"current_balance\"]}"
+    },
+    {
+      "name": "same_merchant_name_diff_address",
+      "entity_type": "merchant",
+      "config_json": "{\"pattern\": \"same_field\", \"id_fields\": [\"merchant_name\"], \"attr_fields\": [\"address_line1\", \"city\", \"country\", \"website\", \"support_email\"]}"
+    }
+  ]
+}

@@ -104,7 +104,6 @@ static POOL_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|
     m.insert("document_type", "document_type");
     m.insert("document_number", "document_number_prefixes");
     m.insert("language", "language");
-    m.insert("ethnic_group", "ethnic_group");
     m.insert("nationality", "country_code");
     m.insert("industry_code", "industry_code");
     m.insert("legal_form", "legal_form");
