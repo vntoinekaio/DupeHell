@@ -31,6 +31,7 @@ pub fn compute_sig(domain: &str, size: usize, seed: u64) -> String {
 
 /// Generate canary records using the entity generator (so they look normal),
 /// then override the email column with a verifiable canary signature.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_all(
     ctx: &Context,
     config: &PipelineConfig,

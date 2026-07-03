@@ -86,7 +86,7 @@ pub fn apply_nickname(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
                 let idx = rng2.next_usize(alternatives.len());
                 builder.append_value(alternatives[idx]);
             } else {
-                builder.append_value(&s.to_uppercase());
+                builder.append_value(s.to_uppercase());
             }
         } else {
             builder.append_value(s);
@@ -174,11 +174,11 @@ pub fn apply_name_compound(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
             continue;
         }
         if rng2.next_usize(2) == 0 {
-            builder.append_value(&format!("{}{}", words[0], words[1]));
+            builder.append_value(format!("{}{}", words[0], words[1]));
         } else {
             let last = words[words.len() - 1];
             let suffix: String = last.chars().take(3).collect();
-            builder.append_value(&format!("{}{}", words[0], suffix));
+            builder.append_value(format!("{}{}", words[0], suffix));
         }
     }
     *rng = rng2;

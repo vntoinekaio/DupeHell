@@ -49,7 +49,7 @@ pub fn apply_address_scramble(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
         let parts: Vec<&str> = s.splitn(2, ' ').collect();
         if parts.len() >= 2 && parts[0].chars().all(|c| c.is_ascii_digit()) {
             let new_num = rng2.next_usize(998) + 1; // 1..999
-            builder.append_value(&format!("{} {}", new_num, parts[1]));
+            builder.append_value(format!("{} {}", new_num, parts[1]));
         } else {
             builder.append_value(s);
         }
@@ -118,7 +118,7 @@ pub fn apply_postal_corrupt(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
         let pos = digit_positions[pos_idx];
         let new_digit = (rng2.next_usize(10) as u8 + 48) as char;
         chars[pos] = new_digit;
-        builder.append_value(&chars.into_iter().collect::<String>());
+        builder.append_value(chars.into_iter().collect::<String>());
     }
     *rng = rng2;
     Arc::new(builder.finish())

@@ -79,7 +79,7 @@ pub fn apply_word_dropout(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
         if remaining.is_empty() {
             builder.append_value(s);
         } else {
-            builder.append_value(&remaining.join(" "));
+            builder.append_value(remaining.join(" "));
         }
     }
     *rng = rng2;
@@ -110,7 +110,7 @@ pub fn apply_company_scramble(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
             let k = rng2.next_usize(j + 1);
             words.swap(j, k);
         }
-        builder.append_value(&words.join(" "));
+        builder.append_value(words.join(" "));
     }
     *rng = rng2;
     Arc::new(builder.finish())
@@ -135,7 +135,7 @@ pub fn apply_acronym(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
             // Short name: take first 6 chars + number
             let prefix: String = s.chars().take(6).collect();
             let num = rng2.next_usize(90) + 10;
-            builder.append_value(&format!("{prefix}{num}"));
+            builder.append_value(format!("{prefix}{num}"));
             continue;
         }
         let n_words = rng2.next_usize(2) + 2; // 2-3 words
@@ -158,7 +158,7 @@ pub fn apply_acronym(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
             .map(|c| c.to_uppercase().next().unwrap_or(c))
             .collect();
         let num = rng2.next_usize(90) + 10;
-        builder.append_value(&format!("{initials}{num}"));
+        builder.append_value(format!("{initials}{num}"));
     }
     *rng = rng2;
     Arc::new(builder.finish())

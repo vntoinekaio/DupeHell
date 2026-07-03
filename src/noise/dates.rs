@@ -21,7 +21,7 @@ pub fn noise_dates(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(4)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
+    for (i, &op) in ops.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
             continue;
@@ -32,7 +32,7 @@ pub fn noise_dates(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
             builder.append_value(s);
             continue;
         }
-        let result = match ops[i] {
+        let result = match op {
             0 => flip_format(s),          // DD-MM-YYYY ↔ YYYY/MM/DD
             1 => fuzz_year(s, &mut rng2), // fuzz year
             2 => normalize_dash(s),       // normalize: DD-MM-YYYY
@@ -48,7 +48,7 @@ pub fn noise_dates(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
 /// Reformats DD-MM-YYYY to YYYY/MM/DD (or reverse).
 fn flip_format(s: &str) -> String {
     // Try DD-MM-YYYY → YYYY/MM/DD
-    let parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
+    let parts: Vec<&str> = s.split(['-', '/']).collect();
     if parts.len() == 3 {
         if parts[0].len() == 2 && parts[2].len() == 4 {
             // DD-MM-YYYY → YYYY/MM/DD
@@ -64,7 +64,7 @@ fn flip_format(s: &str) -> String {
 
 /// Fuzz year by ±{10, 1, decade, year}, clamped 1930-2025.
 fn fuzz_year(s: &str, rng: &mut Rng) -> String {
-    let parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
+    let parts: Vec<&str> = s.split(['-', '/']).collect();
     if parts.len() != 3 {
         return s.to_string();
     }
@@ -90,8 +90,8 @@ fn fuzz_year(s: &str, rng: &mut Rng) -> String {
     parts
         .iter()
         .enumerate()
-        .map(|(i, p)| {
-            if i == year_idx {
+        .map(|(j, p)| {
+            if j == year_idx {
                 format!("{:04}", new_year)
             } else {
                 p.to_string()
@@ -108,7 +108,7 @@ fn normalize_dash(s: &str) -> String {
 
 /// Swap day and month in a date string.
 fn swap_dm(s: &str) -> String {
-    let mut parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
+    let mut parts: Vec<&str> = s.split(['-', '/']).collect();
     if parts.len() == 3 && parts[0].len() <= 2 && parts[1].len() <= 2 {
         parts.swap(0, 1);
     }
@@ -125,13 +125,13 @@ pub fn noise_dates_mix(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let formats: Vec<usize> = (0..n).map(|_| rng2.next_usize(4)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
+    for (i, &fmt) in formats.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
             continue;
         }
         let s = src.value(i);
-        let parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
+        let parts: Vec<&str> = s.split(['-', '/']).collect();
         if parts.len() != 3 {
             builder.append_value(s);
             continue;
@@ -140,7 +140,7 @@ pub fn noise_dates_mix(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
         let month = parts[1];
         let year = parts[2];
         let year_short = if year.len() == 4 { &year[2..] } else { year };
-        let result = match formats[i] {
+        let result = match fmt {
             0 => format!("{}/{}/{}", day, month, year),
             1 => format!("{}/{}/{}", month, day, year),
             2 => format!("{}/{}/{}", year, month, day),
@@ -163,13 +163,13 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(3)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
+    for (i, &strategy) in strategies.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
             continue;
         }
         let s = src.value(i);
-        let parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
+        let parts: Vec<&str> = s.split(['-', '/']).collect();
         if parts.len() != 3 {
             builder.append_value(s);
             continue;
@@ -189,14 +189,14 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
                 continue;
             }
         };
-        let new_year = match strategies[i] {
+        let new_year = match strategy {
             0 => year + rng2.next_usize(30) as i32 + 121, // impossibly old
             1 => year - rng2.next_usize(31) as i32 - 20,  // negative age
             _ => rng2.next_usize(101) as i32 + 1800,      // 1800-1900
         };
         let mut new_parts: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
         new_parts[year_idx] = format!("{:04}", new_year);
-        builder.append_value(&new_parts.join("-"));
+        builder.append_value(new_parts.join("-"));
     }
     *rng = rng2;
     Arc::new(builder.finish())

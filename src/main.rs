@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use clap::Parser;
+use std::path::Path;
 
 use context::Context;
 use pipeline::{PipelineConfig, run_pipeline};
@@ -121,7 +122,7 @@ struct HnSchema {
     config_json: String,
 }
 
-fn load_schema(domain: &str, schemas_dir: &PathBuf) -> Result<DomainSchema, String> {
+fn load_schema(domain: &str, schemas_dir: &Path) -> Result<DomainSchema, String> {
     let path = schemas_dir.join(format!("{domain}.json"));
     let data =
         std::fs::read_to_string(&path).map_err(|e| format!("cannot load schema {path:?}: {e}"))?;
@@ -156,7 +157,7 @@ fn build_pipeline_config(cli: &Cli, schema: &DomainSchema) -> Result<PipelineCon
     let n_singleton = (total as f64 * ds.singleton) as usize;
     let n_doublet_float = total as f64 * ds.doublet;
     let mut n_doublet = n_doublet_float as usize;
-    if n_doublet % 2 != 0 {
+    if !n_doublet.is_multiple_of(2) {
         n_doublet -= 1;
     }
     let mut n_triplet = total - n_singleton - n_doublet;

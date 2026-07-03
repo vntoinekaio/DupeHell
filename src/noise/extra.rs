@@ -167,7 +167,7 @@ pub fn apply_fuzzy_match(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
         for &pos in &positions {
             chars[pos] = (rng2.next_usize(26) as u8 + 97) as char;
         }
-        builder.append_value(&chars.into_iter().collect::<String>());
+        builder.append_value(chars.into_iter().collect::<String>());
     }
     *rng = rng2;
     Arc::new(builder.finish())

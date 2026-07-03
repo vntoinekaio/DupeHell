@@ -29,7 +29,7 @@ static QWERTY_AZERTY: LazyLock<HashMap<char, char>> = LazyLock::new(|| {
 
 // ── Single-char operations ────────────────────────────────────────
 
-fn op_replace(chars: &mut Vec<char>, pos: usize, c: char) {
+fn op_replace(chars: &mut [char], pos: usize, c: char) {
     if !chars.is_empty() {
         let idx = pos % chars.len();
         chars[idx] = c;
@@ -52,7 +52,7 @@ fn op_duplicate(chars: &mut Vec<char>, pos: usize) {
     }
 }
 
-fn op_swap(chars: &mut Vec<char>, pos: usize) {
+fn op_swap(chars: &mut [char], pos: usize) {
     if chars.len() > 1 {
         let p = pos % (chars.len() - 1);
         chars.swap(p, p + 1);
@@ -67,7 +67,7 @@ fn op_delete_pop(chars: &mut Vec<char>, pos: usize) {
 
 // ── Aggressive helpers ────────────────────────────────────────────
 
-fn apply_swaps(chars: &mut Vec<char>, n_swap: usize, swap_positions: &[usize]) {
+fn apply_swaps(chars: &mut [char], n_swap: usize, swap_positions: &[usize]) {
     for j in 0..n_swap {
         if chars.len() > 2 && j < swap_positions.len() {
             let p = swap_positions[j] % (chars.len() - 2);
@@ -130,7 +130,7 @@ pub fn apply_typos_str(arr: &dyn arrow::array::Array, rng: &mut Rng, max_dist: u
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, MIN_LEN_TYPO) {
+        match get_chars(src, i, MIN_LEN_TYPO) {
             Some(mut chars) => {
                 for j in 0..n_ops[i].min(max_dist) {
                     let pos = positions[i][j] % chars.len();
@@ -142,7 +142,7 @@ pub fn apply_typos_str(arr: &dyn arrow::array::Array, rng: &mut Rng, max_dist: u
                         _ => {}
                     }
                 }
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {
@@ -185,7 +185,7 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, MIN_LEN_AGGR) {
+        match get_chars(src, i, MIN_LEN_AGGR) {
             Some(mut chars) => {
                 apply_swaps(&mut chars, n_swap[i], &swap_pos[i]);
                 apply_ops_with_randchar(
@@ -195,7 +195,7 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
                     &typo_pos[i],
                     &typo_chars[i],
                 );
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {
@@ -234,7 +234,7 @@ pub fn apply_typos_extreme(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, MIN_LEN_EXTREME) {
+        match get_chars(src, i, MIN_LEN_EXTREME) {
             Some(mut chars) => {
                 for j in 0..n_ops[i].min(8) {
                     if chars.is_empty() {
@@ -250,7 +250,7 @@ pub fn apply_typos_extreme(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
                         _ => {}
                     }
                 }
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {
@@ -279,15 +279,15 @@ pub fn apply_qwerty_azerty(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
 
     let mut builder = StringBuilder::with_capacity(n, 16);
     for i in 0..n {
-        match get_chars(&src, i, MIN_LEN_TYPO) {
+        match get_chars(src, i, MIN_LEN_TYPO) {
             Some(mut chars) => {
-                for j in 0..n_ops[i].min(2) {
-                    let pos = positions[i][j] % chars.len();
+                for &p in positions[i].iter().take(n_ops[i].min(2)) {
+                    let pos = p % chars.len();
                     if let Some(&replacement) = QWERTY_AZERTY.get(&chars[pos]) {
                         chars[pos] = replacement;
                     }
                 }
-                builder.append_value(&chars.into_iter().collect::<String>());
+                builder.append_value(chars.into_iter().collect::<String>());
             }
             None => {
                 if src.is_null(i) {

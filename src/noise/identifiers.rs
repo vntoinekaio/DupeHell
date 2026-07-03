@@ -20,7 +20,7 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(3)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, 24);
-    for i in 0..n {
+    for (i, &strategy) in strategies.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
             continue;
@@ -35,7 +35,7 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
         let local = &s[..at];
         let domain = &s[at + 1..];
 
-        let result = match strategies[i] {
+        let result = match strategy {
             0 => {
                 // Trim domain: "gmail.com" → "gmali.com" / "hotmail" → "hotmai"
                 let dot_pos = domain.find('.');
@@ -92,7 +92,7 @@ pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(10)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, 20);
-    for i in 0..n {
+    for (i, &strategy) in strategies.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
             continue;
@@ -105,7 +105,7 @@ pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
             continue;
         }
 
-        let result = match strategies[i] {
+        let result = match strategy {
             0..=3 => {
                 // Space-separated pairs
                 let mut out = String::with_capacity(digits.len() + digits.len() / 2);
@@ -176,7 +176,7 @@ pub fn corrupt_national_id(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
             chars[pos] =
                 (rng2.next_usize(26) as u8 + if c.is_ascii_uppercase() { 65 } else { 97 }) as char;
         }
-        builder.append_value(&chars.into_iter().collect::<String>());
+        builder.append_value(chars.into_iter().collect::<String>());
     }
     *rng = rng2;
     Arc::new(builder.finish())
@@ -210,7 +210,7 @@ pub fn corrupt_siren(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
                     }
                 }
             }
-            builder.append_value(&result.into_iter().collect::<String>());
+            builder.append_value(result.into_iter().collect::<String>());
         } else {
             builder.append_value(s);
         }
