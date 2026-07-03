@@ -1,14 +1,14 @@
-# DupeHell2 — Roadmap d'optimisation
+# DupeHell2 — Optimization Roadmap
 
-**État actuel (3 Juillet 2026) :** 10M KYC en **~15.5s — ~660K rec/s** (peak RAM ~4.5 GB)
+**Current state (July 3, 2026):** 10M KYC in **~15.5s — ~660K rec/s** (peak RAM ~4.5 GB)
 
-Architecture : standalone Rust binary (`dupehell2`), pipeline IPC streaming per-batch per-entity, 37 domain schemas, 114 tests pass.
+Architecture: standalone Rust binary (`dupehell2`), pipeline IPC streaming per-batch per-entity, 41 domain schemas, 110 tests pass.
 
 ---
 
 ## Timing 10M KYC
 
-| Section | Temps | % |
+| Section | Time | % |
 |---|---|---|
 | alloc | 0.75s | 6% |
 | **sink** (gen + remap + dup + write) | **10.9s** | **84%** |
@@ -16,146 +16,146 @@ Architecture : standalone Rust binary (`dupehell2`), pipeline IPC streaming per-
 | gt (compute + write) | 1.30s | 10% |
 | **Total** | **12.9s** | **100%** |
 
-Dont :
-- dup (bruit parallèle std::thread::scope) : **4.7s**
+Of which:
+- dup (parallel noise via std::thread::scope) : **4.7s**
 - IPC write (FileWriter::write) : **3.8s**
 
-Le **sink domine à 84%** — le sous-détail dup est le plus gros bloc.
+**Sink dominates at 84%** — dup is the largest sub-block.
 
 ---
 
-## HIGH — Rendement > 5% estimé
+## HIGH — Estimated speedup > 5%
 
-### H1. `add_metadata_and_align` — col_lookup déjà implémenté (Phase 14)
+### H1. `add_metadata_and_align` — col_lookup already implemented (Phase 14)
 
-**État : RÉSOLU** dans Phase 14 streaming. `col_lookup: Vec<Option<usize>>` pré-construit depuis le premier batch, pas de `index_of` par appel.
-
----
-
-### H2. Doubles allocations `Vec` dans les hot paths dup/HN
-
-**Fichier :** `src/pipeline.rs:570-597`
-
-**Problème :** Les indices de sélection pour le bruit sont générés dans un `UInt64Builder` puis passés aux threads. Chaque thread reconstruit `Vec<String>` pour les master_ids.
-
-**Solution :** Utiliser `indices.value(j) as usize % mslice.len()` directement (déjà fait), mais chaque thread alloue toujours `mb: Vec<String>` avec `with_capacity(cnt)`.
-
-**Gain estimé :** ~3-6% dup (~150-280ms)
+**Status: RESOLVED** in Phase 14 streaming. `col_lookup: Vec<Option<usize>>` pre-built from the first batch, no `index_of` per call.
 
 ---
 
-### H3. `serde_json::json!` + `to_string` reconstruit la config colonnes par batch
+### H2. Double `Vec` allocations in hot paths dup/HN
 
-**Fichier :** `src/pipeline.rs:444-448`
+**File:** `src/pipeline.rs:570-597`
 
-**Problème :** `format!(r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{}}}"#, ...)` sérialise `col_json_str` (déjà une string) à chaque batch.
+**Problem:** Selection indices for noise are generated in a `UInt64Builder` then passed to threads. Each thread rebuilds `Vec<String>` for master_ids.
 
-**Solution :** Pré-construire `format!(r#"{{"entity_name":"{}","seed":{},"columns":{}}}"#)` une seule fois, interpoller `n` par batch → économise la reconstruction du wrapper JSON.
+**Solution:** Use `indices.value(j) as usize % mslice.len()` directly (already done), but each thread still allocates `mb: Vec<String>` with `with_capacity(cnt)`.
 
-**Gain estimé :** ~2-5% sink (~200-500ms)
+**Estimated gain:** ~3-6% dup (~150-280ms)
 
 ---
 
-### H4. `get_template` — allocation heap par colonne par batch
+### H3. `serde_json::json!` + `to_string` rebuilds column config per batch
 
-**Fichier :** `src/fast_template.rs:648`
+**File:** `src/pipeline.rs:444-448`
 
-**Problème :**
+**Problem:** `format!(r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{}}}"#, ...)` serializes `col_json_str` (already a string) every batch.
+
+**Solution:** Pre-build `format!(r#"{{"entity_name":"{}","seed":{},"columns":{}}}"#)` once, interpolate `n` per batch → saves JSON wrapper reconstruction.
+
+**Estimated gain:** ~2-5% sink (~200-500ms)
+
+---
+
+### H4. `get_template` — heap allocation per column per batch
+
+**File:** `src/fast_template.rs:648`
+
+**Problem:**
 ```rust
 pub fn get_template(name: &str) -> Option<TemplateFn> {
-    let key = &name.to_lowercase().replace(' ', "_");  // heap alloc par appel
+    let key = &name.to_lowercase().replace(' ', "_");  // heap alloc per call
     REGISTRY.get(key.as_str()).copied()
 }
 ```
-~80 appels pour 10M → 80 heap allocations inutiles (les clés REGISTRY sont déjà normalisées).
+~80 calls for 10M → 80 unnecessary heap allocations (REGISTRY keys are already normalized).
 
-**Solution :** Normaliser le nom de colonne une fois en amont dans `column_gen.rs`, passer la clé pré-calculée.
+**Solution:** Normalize column name once upstream in `column_gen.rs`, pass pre-computed key.
 
-**Gain estimé :** ~1-3% gen (inclus dans sink)
+**Estimated gain:** ~1-3% gen (included in sink)
 
 ---
 
-### H5. `buf_digits` alloue `Vec<u8>` par élément
+### H5. `buf_digits` allocates `Vec<u8>` per element
 
-**Fichier :** `src/buf_gen.rs:53`
+**File:** `src/buf_gen.rs:53`
 
-**Problème :**
+**Problem:**
 ```rust
-let mut s = vec![b'0'; width];  // HEAP ALLOC par élément (5M pour 10M)
+let mut s = vec![b'0'; width];  // HEAP ALLOC per element (5M for 10M)
 ```
 
-**Solution :** Déplacer le buffer avant la boucle, réutiliser par overwrite.
+**Solution:** Move buffer before the loop, reuse by overwrite.
 
-**Gain estimé :** ~1-3% gen
-
----
-
-## MEDIUM — Rendement 1-5% estimé
-
-### M1. `pick_rows` — pas de Vec intermédiaire (déjà UInt64Builder)
-
-**État : RÉSOLU** — les indices sont écrits directement dans `UInt64Builder` (Phase 13c).
+**Estimated gain:** ~1-3% gen
 
 ---
 
-### M2. HN pool — concaténation unique (déjà fait)
+## MEDIUM — Estimated speedup 1-5%
 
-**État : RÉSOLU** — Phase 14 concatène eager dans `HnPool.batch`.
+### M1. `pick_rows` — no intermediate Vec (already UInt64Builder)
 
----
-
-### M3. `compute_gt` — `Vec<u32>` suffix index (déjà fait)
-
-**État : RÉSOLU** — Phase 12.1 : `Vec<u32>` remplace `HashMap<&str, usize>`.
+**Status: RESOLVED** — indices are written directly to `UInt64Builder` (Phase 13c).
 
 ---
 
-### M4. `add_metadata_and_align` — `vec![domain; n]` redondant
+### M2. HN pool — unique concatenation (already done)
 
-**Fichier :** `src/pipeline.rs:865`
-
-**Problème :** `StringArray::from(vec![domain; n])` crée un `Vec<&str>` de taille n.
-
-**Solution :** `StringArray::from_iter_values(std::iter::repeat(domain).take(n))`.
-
-**Gain estimé :** ~1% sink
+**Status: RESOLVED** — Phase 14 concatenates eager in `HnPool.batch`.
 
 ---
 
-### M5. `apply_noise_to_batch` — `Vec<Option<ArrayRef>>` partiel
+### M3. `compute_gt` — `Vec<u32>` suffix index (already done)
 
-**Fichier :** `src/pipeline.rs:281-282`
-
-**Problème :** Clone 38 colonnes pour en modifier 2-3.
-
-**Solution :** `Vec<Option<ArrayRef>>`, ne cloner que les colonnes modifiées.
-
-**Gain estimé :** ~1-2% dup
+**Status: RESOLVED** — Phase 12.1: `Vec<u32>` replaces `HashMap<&str, usize>`.
 
 ---
 
-### M6. FK pool — `StringBuilder` déjà utilisé (Phase 14)
+### M4. `add_metadata_and_align` — `vec![domain; n]` redundant
 
-**État : RÉSOLU** — Phase 14 utilise `StringBuilder` au lieu de `Vec<String>`.
+**File:** `src/pipeline.rs:865`
+
+**Problem:** `StringArray::from(vec![domain; n])` creates a `Vec<&str>` of size n.
+
+**Solution:** `StringArray::from_iter_values(std::iter::repeat(domain).take(n))`.
+
+**Estimated gain:** ~1% sink
 
 ---
 
-## LOW — < 1% (pour info)
+### M5. `apply_noise_to_batch` — partial `Vec<Option<ArrayRef>>`
 
-| # | Pattern | Fichier | Note |
+**File:** `src/pipeline.rs:281-282`
+
+**Problem:** Clones 38 columns to modify 2-3.
+
+**Solution:** `Vec<Option<ArrayRef>>`, clone only modified columns.
+
+**Estimated gain:** ~1-2% dup
+
+---
+
+### M6. FK pool — `StringBuilder` already used (Phase 14)
+
+**Status: RESOLVED** — Phase 14 uses `StringBuilder` instead of `Vec<String>`.
+
+---
+
+## LOW — < 1% (for reference)
+
+| # | Pattern | File | Note |
 |---|---|---|---|
-| L1 | `entity_prefix` utilise `format!` | `pipeline.rs:125` | Appelé 1× par entité, négligeable |
-| L2 | `random_indices` alloue `Vec<usize>` | `rng.rs:62` | Pas dans les hot paths |
-| L3 | `PoolStore::load` via `from_reader` | `context.rs:33` | One-time startup, négligeable |
-| L4 | `generate_null_mask` per-element RNG | `column_gen.rs:231` | Inhérent à l'algo |
-| L5 | `apply_null_rate` per-element StringBuilder | `column_gen.rs:244` | Inhérent à l'algo |
-| L6 | `build` / `build_string_array` dupliquées | `fast_template.rs` / `buf_gen.rs` | Hygiène, pas perf |
+| L1 | `entity_prefix` uses `format!` | `pipeline.rs:125` | Called 1× per entity, negligible |
+| L2 | `random_indices` allocates `Vec<usize>` | `rng.rs:62` | Not in hot paths |
+| L3 | `PoolStore::load` via `from_reader` | `context.rs:33` | One-time startup, negligible |
+| L4 | `generate_null_mask` per-element RNG | `column_gen.rs:231` | Inherent to algorithm |
+| L5 | `apply_null_rate` per-element StringBuilder | `column_gen.rs:244` | Inherent to algorithm |
+| L6 | Duplicate `build` / `build_string_array` | `fast_template.rs` / `buf_gen.rs` | Hygiene, not perf |
 
 ---
 
-## Prochaines optimisations (ROI décroissant)
+## Next optimizations (diminishing ROI)
 
-| Priorité | ID | Gain estimé | Effort |
+| Priority | ID | Estimated gain | Effort |
 |---|---|---|---|
 | 1 | **H2** | 3-6% sink | 20min |
 | 2 | **H3** | 2-5% sink | 10min |
@@ -164,7 +164,7 @@ let mut s = vec![b'0'; width];  // HEAP ALLOC par élément (5M pour 10M)
 | 5 | M4 | 1% sink | 5min |
 | 6 | M5 | 1-2% dup | 20min |
 
-**Objectif H2+H3+H5+H4 : ~7-14% → ~11-12s pipeline → ~800K+ rec/s**
+**Target H2+H3+H5+H4: ~7-14% → ~11-12s pipeline → ~800K+ rec/s**
 
 ---
 
@@ -177,5 +177,5 @@ dupehell2 --domain kyc --size 1000000 [--seed 42] [--difficulty medium|hard|hell
           [--pools-dir ../dupehell/assets/pools] [--schemas-dir schemas]
 ```
 
-- `--parquet` : alias pour `--output-format parquet` (dataset + GT en .parquet ZSTD(3))
-- Défaut : IPC pour dataset et GT
+- `--parquet` : alias for `--output-format parquet` (dataset + GT as .parquet ZSTD(3))
+- Default: IPC for dataset and GT
