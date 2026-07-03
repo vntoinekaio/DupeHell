@@ -11,6 +11,7 @@ use arrow::array::{ArrayRef, StringBuilder};
 #[cfg(test)]
 use arrow::array::{Array, AsArray};
 
+use crate::context::Context;
 use crate::rng::Rng;
 
 // ── Character tables ──────────────────────────────────────────────────────
@@ -46,7 +47,8 @@ fn rand_char(chars: &[u8], rng: &mut Rng) -> u8 {
 // ── buf_digits: generic digit string from integer ─────────────────────────
 
 /// Produce an Arrow StringArray where each entry is `num` zero-padded to `width` digits.
-pub fn buf_digits(nums: &[u64], width: usize) -> ArrayRef {
+/// If `watermark_mask` is Some, the last 3 digits are masked with the given value.
+pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> ArrayRef {
     let n = nums.len();
     let mut builder = StringBuilder::with_capacity(n, n * width);
     let mut s = vec![b'0'; width];
@@ -55,6 +57,14 @@ pub fn buf_digits(nums: &[u64], width: usize) -> ArrayRef {
         for j in (0..width).rev() {
             s[j] = b'0' + (val % 10) as u8;
             val /= 10;
+        }
+        if let Some(wm) = watermark_mask {
+            if width >= 3 {
+                let start = width - 3;
+                s[start] = b'0' + ((wm / 100) % 10) as u8;
+                s[start + 1] = b'0' + ((wm / 10) % 10) as u8;
+                s[start + 2] = b'0' + (wm % 10) as u8;
+            }
         }
         builder.append_value(unsafe { std::str::from_utf8_unchecked(&s) });
     }
@@ -76,6 +86,16 @@ pub fn bytes_strings(chars: &[u8], n: usize, length: usize, rng: &mut Rng) -> Ar
     Arc::new(builder.finish())
 }
 
+/// Replace the last `n_digits` bytes of `buf` with the given value (0-padded).
+fn watermark_buf(buf: &mut Vec<u8>, n_digits: usize, value: u64) {
+    let start = buf.len() - n_digits;
+    let mut v = value;
+    for j in (0..n_digits).rev() {
+        buf[start + j] = b'0' + (v % 10) as u8;
+        v /= 10;
+    }
+}
+
 // ── Buffer generators ─────────────────────────────────────────────────────
 
 macro_rules! push_digit {
@@ -85,7 +105,8 @@ macro_rules! push_digit {
 }
 
 /// `+1-XXX-XXX-XXXX` (16 bytes)
-pub fn buf_phone(n: usize, rng: &mut Rng) -> ArrayRef {
+pub fn buf_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x50484f4e);
     build_string_array(n, 16, |buf| {
         let a = rng.next_usize(800) + 200;   // 200-999
         let b = rng.next_usize(900) + 100;   // 100-999
@@ -103,11 +124,13 @@ pub fn buf_phone(n: usize, rng: &mut Rng) -> ArrayRef {
         push_digit!(buf, (c / 100) % 10);
         push_digit!(buf, (c / 10) % 10);
         push_digit!(buf, c % 10);
+        watermark_buf(buf, 3, wm);
     })
 }
 
 /// `XXX-XX-XXXX` (11 bytes)
-pub fn buf_ssn(n: usize, rng: &mut Rng) -> ArrayRef {
+pub fn buf_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x53534e);
     build_string_array(n, 11, |buf| {
         let a = rng.next_usize(900) + 100;   // 100-999
         let b = rng.next_usize(90) + 10;     // 10-99
@@ -123,6 +146,7 @@ pub fn buf_ssn(n: usize, rng: &mut Rng) -> ArrayRef {
         push_digit!(buf, (c / 100) % 10);
         push_digit!(buf, (c / 10) % 10);
         push_digit!(buf, c % 10);
+        watermark_buf(buf, 3, wm);
     })
 }
 
@@ -141,7 +165,8 @@ pub fn buf_email(n: usize, rng: &mut Rng) -> ArrayRef {
 }
 
 /// `XXX-XX-XXXXXX` (13 bytes, PAN)
-pub fn buf_pan(n: usize, rng: &mut Rng) -> ArrayRef {
+pub fn buf_pan(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x50414e);
     build_string_array(n, 13, |buf| {
         let a = rng.next_usize(900) + 100;    // 100-999
         let b = rng.next_usize(90) + 10;      // 10-99
@@ -159,11 +184,13 @@ pub fn buf_pan(n: usize, rng: &mut Rng) -> ArrayRef {
         push_digit!(buf, (c / 100) % 10);
         push_digit!(buf, (c / 10) % 10);
         push_digit!(buf, c % 10);
+        watermark_buf(buf, 3, wm);
     })
 }
 
 /// `XXXX-XXX-XXX` (12 bytes, Medicare)
-pub fn buf_medicare(n: usize, rng: &mut Rng) -> ArrayRef {
+pub fn buf_medicare(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x4d4544);
     build_string_array(n, 12, |buf| {
         let a = rng.next_usize(9000) + 1000;  // 1000-9999
         let b = rng.next_usize(900) + 100;    // 100-999
@@ -180,11 +207,13 @@ pub fn buf_medicare(n: usize, rng: &mut Rng) -> ArrayRef {
         push_digit!(buf, c / 100);
         push_digit!(buf, (c / 10) % 10);
         push_digit!(buf, c % 10);
+        watermark_buf(buf, 2, wm / 10);
     })
 }
 
 /// `+1-XXX-XXX-XXXX xXXXX` (21 bytes, office phone with extension)
-pub fn buf_office_phone(n: usize, rng: &mut Rng) -> ArrayRef {
+pub fn buf_office_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x4f4643);
     build_string_array(n, 21, |buf| {
         let a = rng.next_usize(800) + 200;    // 200-999
         let b = rng.next_usize(900) + 100;    // 100-999
@@ -208,11 +237,13 @@ pub fn buf_office_phone(n: usize, rng: &mut Rng) -> ArrayRef {
         push_digit!(buf, (x / 100) % 10);
         push_digit!(buf, (x / 10) % 10);
         push_digit!(buf, x % 10);
+        watermark_buf(buf, 3, wm);
     })
 }
 
 /// `LXXXXXXX` (8 bytes, passport: 1 letter + 7 digits)
-pub fn buf_passport(n: usize, rng: &mut Rng) -> ArrayRef {
+pub fn buf_passport(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_3digits(0x504153);
     build_string_array(n, 8, |buf| {
         let letter = rand_char(ALPHA_UPPER_NO_IOQ, rng);
         let nums = rng.next_usize(9000000) + 1000000;
@@ -224,6 +255,7 @@ pub fn buf_passport(n: usize, rng: &mut Rng) -> ArrayRef {
         push_digit!(buf, (nums / 100) % 10);
         push_digit!(buf, (nums / 10) % 10);
         push_digit!(buf, nums % 10);
+        watermark_buf(buf, 3, wm);
     })
 }
 
@@ -240,13 +272,15 @@ pub fn buf_ssn_last4(n: usize, rng: &mut Rng) -> ArrayRef {
 }
 
 /// `****XXX` (7 bytes, masked account number)
-pub fn buf_acct_num(n: usize, rng: &mut Rng) -> ArrayRef {
+pub fn buf_acct_num(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let wm = ctx.watermark_2digits(0x414354);
     build_string_array(n, 7, |buf| {
         let nums = rng.next_usize(900) + 100;
         buf.extend_from_slice(b"****");
         push_digit!(buf, nums / 100);
         push_digit!(buf, (nums / 10) % 10);
         push_digit!(buf, nums % 10);
+        watermark_buf(buf, 2, wm);
     })
 }
 
@@ -275,7 +309,8 @@ mod tests {
     #[test]
     fn test_buf_phone() {
         let mut rng = test_rng();
-        let arr = buf_phone(5, &mut rng);
+        let ctx = Context::test();
+        let arr = buf_phone(5, &mut rng, &ctx);
         assert_eq!(arr.len(), 5);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
@@ -288,7 +323,8 @@ mod tests {
     #[test]
     fn test_buf_ssn() {
         let mut rng = test_rng();
-        let arr = buf_ssn(5, &mut rng);
+        let ctx = Context::test();
+        let arr = buf_ssn(5, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             assert_eq!(s.value(i).len(), 11, "ssn[{i}] = {:?}", s.value(i));
@@ -311,7 +347,8 @@ mod tests {
     #[test]
     fn test_buf_pan() {
         let mut rng = test_rng();
-        let arr = buf_pan(5, &mut rng);
+        let ctx = Context::test();
+        let arr = buf_pan(5, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             assert_eq!(s.value(i).len(), 13, "pan[{i}] = {:?}", s.value(i));
@@ -321,7 +358,8 @@ mod tests {
     #[test]
     fn test_buf_medicare() {
         let mut rng = test_rng();
-        let arr = buf_medicare(5, &mut rng);
+        let ctx = Context::test();
+        let arr = buf_medicare(5, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             assert_eq!(s.value(i).len(), 12, "medicare[{i}] = {:?}", s.value(i));
@@ -331,7 +369,8 @@ mod tests {
     #[test]
     fn test_buf_office_phone() {
         let mut rng = test_rng();
-        let arr = buf_office_phone(5, &mut rng);
+        let ctx = Context::test();
+        let arr = buf_office_phone(5, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             let v = s.value(i);
@@ -343,7 +382,8 @@ mod tests {
     #[test]
     fn test_buf_passport() {
         let mut rng = test_rng();
-        let arr = buf_passport(5, &mut rng);
+        let ctx = Context::test();
+        let arr = buf_passport(5, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             let v = s.value(i);
@@ -374,7 +414,8 @@ mod tests {
     #[test]
     fn test_buf_acct_num() {
         let mut rng = test_rng();
-        let arr = buf_acct_num(5, &mut rng);
+        let ctx = Context::test();
+        let arr = buf_acct_num(5, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             let v = s.value(i);
@@ -417,7 +458,7 @@ mod tests {
     #[test]
     fn test_buf_digits() {
         let nums = vec![123, 45, 7890, 0, 9999];
-        let arr = buf_digits(&nums, 4);
+        let arr = buf_digits(&nums, 4, None);
         let s = arr.as_string::<i32>();
         assert_eq!(s.value(0), "0123");
         assert_eq!(s.value(1), "0045");
@@ -430,8 +471,9 @@ mod tests {
     fn test_deterministic() {
         let mut rng_a = Rng::new(42);
         let mut rng_b = Rng::new(42);
-        let a = buf_phone(100, &mut rng_a);
-        let b = buf_phone(100, &mut rng_b);
+        let ctx = Context::test();
+        let a = buf_phone(100, &mut rng_a, &ctx);
+        let b = buf_phone(100, &mut rng_b, &ctx);
         let a_arr = a.as_string::<i32>();
         let b_arr = b.as_string::<i32>();
         for i in 0..100 {

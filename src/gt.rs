@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use arrow::array::{Array, AsArray, StringArray};
 
 /// Extract 7-digit numeric suffix from a master_id (e.g. "E00001-0000123" → 123).
@@ -84,6 +85,7 @@ pub fn write_gt_ipc(
     match_types: &[&str],
     difficulty: &str,
     path: &str,
+    metadata: &HashMap<String, String>,
 ) -> Result<(), String> {
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::ipc::writer::FileWriter;
@@ -96,7 +98,7 @@ pub fn write_gt_ipc(
         Field::new("entity_type", DataType::Utf8, false),
         Field::new("match_type", DataType::Utf8, false),
         Field::new("difficulty", DataType::Utf8, false),
-    ]));
+    ]).with_metadata(metadata.clone()));
 
     let mt_arr = StringArray::from(match_types.to_vec());
     let diff_arr = StringArray::from_iter_values(std::iter::repeat(difficulty).take(n));
@@ -129,6 +131,7 @@ pub fn write_gt_parquet(
     match_types: &[&str],
     difficulty: &str,
     path: &str,
+    metadata: &HashMap<String, String>,
 ) -> Result<(), String> {
     use arrow::datatypes::{DataType, Field, Schema};
     use parquet::arrow::ArrowWriter;
@@ -143,7 +146,7 @@ pub fn write_gt_parquet(
         Field::new("entity_type", DataType::Utf8, false),
         Field::new("match_type", DataType::Utf8, false),
         Field::new("difficulty", DataType::Utf8, false),
-    ]));
+    ]).with_metadata(metadata.clone()));
 
     let mt_arr = StringArray::from(match_types.to_vec());
     let diff_arr = StringArray::from_iter_values(std::iter::repeat(difficulty).take(n));
@@ -162,9 +165,12 @@ pub fn write_gt_parquet(
 
     let file = std::fs::File::create(path).map_err(|e| format!("create {path}: {e}"))?;
     let zstd = ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
+    let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata.iter()
+        .map(|(k, v)| parquet::file::metadata::KeyValue { key: k.clone(), value: Some(v.clone()) }).collect();
     let props = WriterProperties::builder()
         .set_compression(Compression::ZSTD(zstd))
         .set_data_page_size_limit(1_048_576)
+        .set_key_value_metadata(Some(meta_kv))
         .build();
     let mut writer = ArrowWriter::try_new(file, schema, Some(props))
         .map_err(|e| format!("arrow writer: {e}"))?;

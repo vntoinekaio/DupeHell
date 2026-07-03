@@ -67,9 +67,12 @@ impl PoolStore {
 pub struct Context {
     pub domain: String,
     pub pool_store: PoolStore,
+    pub watermark_map: std::collections::HashMap<u64, u64>, // col_tag → masked value
 }
 
 impl Context {
+    const WATERMARK_SECRET: &'static str = "DupeHell-WATERMARK-v0.4-educational-only-2026";
+
     /// Build a Context from a domain name + path to pools directory.
     pub fn new(domain: &str, pools_dir: &str) -> Result<Self, String> {
         let pool_store = PoolStore::load(pools_dir)?;
@@ -80,7 +83,41 @@ impl Context {
         Ok(Self {
             domain: domain.to_string(),
             pool_store,
+            watermark_map: std::collections::HashMap::new(),
         })
+    }
+
+    /// Enable watermarking by computing per-column tags from the pipeline config.
+    pub fn enable_watermark(&mut self, domain: &str, size: usize, seed: u64) {
+        use sha2::{Sha256, Digest};
+        for &tag in &[
+            0x53534e,   // "SSN"
+            0x50484f4e, // "PHONE"
+            0x50414e,   // "PAN"
+            0x4d4544,   // "MEDICARE"
+            0x4f4643,   // "OFFICE_PHONE"
+            0x504153,   // "PASSPORT"
+            0x414354,   // "ACCOUNT"
+            0x424152,   // "BARCODE"
+            0x494343,   // "ICCID"
+            0x555043,   // "UPC"
+        ] {
+            let input = format!("{}{}{}{}{}",
+                Self::WATERMARK_SECRET, domain, size, seed, tag);
+            let hash = Sha256::digest(input.as_bytes());
+            let wm = u64::from_le_bytes(hash[..8].try_into().unwrap());
+            self.watermark_map.insert(tag, wm);
+        }
+    }
+
+    /// Return the watermark mask for a given column tag (last 3 digits, 0..999).
+    pub fn watermark_3digits(&self, tag: u64) -> u64 {
+        self.watermark_map.get(&tag).copied().unwrap_or(0) % 1000
+    }
+
+    /// Return the watermark mask for a given column tag (last 2 digits, 0..99).
+    pub fn watermark_2digits(&self, tag: u64) -> u64 {
+        self.watermark_map.get(&tag).copied().unwrap_or(0) % 100
     }
 
     /// Return the number of loaded pools.
@@ -101,5 +138,19 @@ impl Context {
             .get_nested(name)
             .map(|v| v.to_string())
             .unwrap_or_default()
+    }
+
+    /// Create a minimal context for testing (no pools loaded, watermark disabled).
+    /// Watermark helpers return 0, ensuring deterministic test output.
+    #[cfg(test)]
+    pub fn test() -> Self {
+        Self {
+            domain: "test".into(),
+            pool_store: PoolStore {
+                pools: HashMap::new(),
+                nested_pools: HashMap::new(),
+            },
+            watermark_map: HashMap::new(),
+        }
     }
 }

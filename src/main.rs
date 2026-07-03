@@ -1,4 +1,5 @@
 mod buf_gen;
+mod canary;
 mod column_gen;
 mod context;
 mod entity_gen;
@@ -275,7 +276,7 @@ fn main() {
         }
     };
 
-    let ctx = match Context::new(&cli.domain, &cli.pools_dir.to_string_lossy()) {
+    let mut ctx = match Context::new(&cli.domain, &cli.pools_dir.to_string_lossy()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error loading pools: {e}");
@@ -290,6 +291,8 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    ctx.enable_watermark(&config.domain, config.size, config.seed);
 
     eprintln!("DupeHell v0.4 — {} domain, {} records [{}]",
         cli.domain.to_uppercase(), cli.size, cli.difficulty);
