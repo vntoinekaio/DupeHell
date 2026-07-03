@@ -718,8 +718,6 @@ pub fn run_pipeline(
     writer.finish().map_err(|e| format!("finish IPC writer: {e}"))?;
     let t3a_elapsed = t3.elapsed().as_secs_f64();
 
-    let gt_path = format!("{}/{}_ground_truth.ipc", output_dir, config.run_id);
-
     let t3b = std::time::Instant::now();
 
     // Phase 13: concat once, keep ArrayRef alive, as_string borrows from it
@@ -746,15 +744,29 @@ pub fn run_pipeline(
     );
     let _t_gt_compute = t_gt0.elapsed().as_secs_f64();
 
+    let gt_ext = if config.output_format == "parquet" { "parquet" } else { "ipc" };
+    let gt_path = format!("{}/{}_ground_truth.{}", output_dir, config.run_id, gt_ext);
+
     let t_gt1 = std::time::Instant::now();
-    crate::gt::write_gt_ipc(
-        record_id_arr,
-        master_id_arr,
-        entity_type_arr,
-        &gt_match_types,
-        config.difficulty.as_str(),
-        &gt_path,
-    )?;
+    if config.output_format == "parquet" {
+        crate::gt::write_gt_parquet(
+            record_id_arr,
+            master_id_arr,
+            entity_type_arr,
+            &gt_match_types,
+            config.difficulty.as_str(),
+            &gt_path,
+        )?;
+    } else {
+        crate::gt::write_gt_ipc(
+            record_id_arr,
+            master_id_arr,
+            entity_type_arr,
+            &gt_match_types,
+            config.difficulty.as_str(),
+            &gt_path,
+        )?;
+    }
     let _t_gt_write = t_gt1.elapsed().as_secs_f64();
     let t3b_elapsed = t3b.elapsed().as_secs_f64();
     let _t3_elapsed = t3.elapsed().as_secs_f64();

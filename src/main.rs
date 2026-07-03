@@ -58,6 +58,9 @@ struct Cli {
     #[arg(long, default_value = "ipc")]
     output_format: String,
 
+    #[arg(long)]
+    parquet: bool,
+
     #[arg(long, default_value = ".")]
     output_dir: PathBuf,
 
@@ -236,7 +239,7 @@ fn build_pipeline_config(cli: &Cli, schema: &DomainSchema) -> Result<PipelineCon
         "size": cli.size,
         "seed": cli.seed,
         "difficulty": cli.difficulty,
-        "output_format": cli.output_format,
+        "output_format": if cli.parquet { "parquet" } else { &cli.output_format },
         "output_dir": cli.output_dir.to_str().unwrap_or("."),
         "run_id": format!("{}_{}", cli.domain, chrono_now()),
         "total_unique": total_unique,
