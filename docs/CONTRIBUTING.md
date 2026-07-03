@@ -44,7 +44,8 @@ dupehell2/
 ├── pyproject.toml        # Python packaging (maturin)
 ├── schemas/*.json        # 41 domain schemas
 ├── assets/pools/         # 132 pool files (multi-lang)
-└── ROADMAP.md            # Perf optimisation tracking
+├── docs/                 # Documentation
+└── CODE_OF_CONDUCT.md    # Contributor Covenant
 ```
 
 ## Testing
@@ -66,4 +67,4 @@ cargo test          # 110 tests, ~30s
 
 ## Performance
 
-See [BENCHMARK.md](BENCHMARK.md) for detailed metrics (up to 75M records, ~630K rec/s).
+See [BENCHMARK.md](./BENCHMARK.md) for detailed metrics (up to 75M records, ~630K rec/s).

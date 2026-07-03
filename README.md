@@ -82,7 +82,7 @@ Domain **kyc**, difficulty **medium**, single-thread:
 | 50 M | 50 750 006 | 74.5 s | 681 K |
 | 75 M | 76 125 006 | 121.1 s | 628 K |
 
-(See [BENCHMARK.md](BENCHMARK.md) for full details.)
+(See [docs/BENCHMARK.md](docs/BENCHMARK.md) for full details.)
 
 ## Architecture
 
@@ -107,10 +107,21 @@ lib.rs / main.rs → Context (132 pools) → PipelineConfig → run_pipeline()
 ### Rust
 
 ```bash
-cargo test          # 110 tests
+cargo test                   # 110 tests
 cargo build --release
-cargo clippy        # 0 warnings
-cargo fmt --check   # formatted
+cargo clippy                 # 0 warnings
+cargo fmt --check            # formatted
+```
+
+## Documentation
+
+| File | Description |
+|---|---|
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Architecture, development workflow |
+| [docs/BENCHMARK.md](docs/BENCHMARK.md) | Performance metrics (up to 75M records) |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Optimization roadmap |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security policy & vulnerability reporting |
+| [docs/WATERMARK.md](docs/WATERMARK.md) | Watermarking & provenance layers |
 ```
 
 ### Python
