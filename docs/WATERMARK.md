@@ -29,7 +29,7 @@ HashMap::from([
   ("dupehell.provenance", "dupehell-synthetic-data"),
   ("dupehell.license",    "MIT"),
   ("dupehell.purpose",    "Educational Use Only — Record Linkage Benchmarking"),
-  ("dupehell.url",        "https://github.com/anomalyco/dupehell"),
+  ("dupehell.url",        "https://github.com/vntoinekaio/DupeHell"),
   ("dupehell.timestamp",  chrono_now()),
   ("dupehell.domain",     config.domain),
   ("dupehell.size",       &config.size.to_string()),

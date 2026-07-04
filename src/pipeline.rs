@@ -32,6 +32,7 @@ pub struct PipelineConfig {
 pub struct EntityPlan {
     pub name: String,
     pub n_base: usize,
+    pub n_dup: usize,
     pub identifier_col: Option<String>,
     pub columns_json: String,
     pub noise_types: Vec<NoisePlanEntry>,
@@ -132,25 +133,36 @@ struct HnPool {
 
 /// Heuristic: determine target columns for a noise type based on name patterns.
 /// Used when plan_cols is empty (legacy configs without column lists).
-fn match_noise_columns(schema: &Schema, noise_type: &str) -> Vec<String> {
+fn match_noise_columns(schema: &Schema, noise_type: &str, exclude_cols: &[String]) -> Vec<String> {
     let mut matched: Vec<String> = Vec::new();
     for field in schema.fields() {
         if !matches!(field.data_type(), DataType::Utf8 | DataType::LargeUtf8) {
             continue;
         }
+        if exclude_cols.contains(field.name()) {
+            continue;
+        }
         let lower = field.name().to_lowercase();
         match noise_type {
-            "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "homoglyph"
-            | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout" | "nickname"
-            | "initials" | "partial" | "name_compound" | "gender_swap" | "language_mix"
-            | "blocking_fail" | "fuzzy_match" | "phonetic" => {
+            "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "visual" | "homoglyph"
+            | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout" | "language_mix"
+            | "blocking_fail" => {
+                // Skip email-like columns — typo/visual noise destroys '@'
+                if lower.contains("email") {
+                    continue;
+                }
                 if contains_any(
                     &lower,
                     &[
                         "name", "first", "last", "given", "family", "address", "street", "city",
-                        "email", "phone", "company", "legal", "trading",
+                        "phone", "company", "legal", "trading",
                     ],
                 ) {
+                    matched.push(field.name().clone());
+                }
+            }
+            "names" | "nickname" | "initials" | "partial" | "name_compound" | "gender_swap" => {
+                if contains_any(&lower, &["name", "first", "last", "given", "family"]) {
                     matched.push(field.name().clone());
                 }
             }
@@ -159,7 +171,7 @@ fn match_noise_columns(schema: &Schema, noise_type: &str) -> Vec<String> {
                     matched.push(field.name().clone());
                 }
             }
-            "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
+            "dates" | "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
                 if contains_any(&lower, &["date", "birth", "incorporation", "founding"]) {
                     matched.push(field.name().clone());
                 }
@@ -169,12 +181,33 @@ fn match_noise_columns(schema: &Schema, noise_type: &str) -> Vec<String> {
                     matched.push(field.name().clone());
                 }
             }
-            "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
+            "identifiers" | "corrupt_email" | "corrupt_phone" | "corrupt_national_id"
+            | "corrupt_siren" | "national_id_corrupt" | "phone_corrupt" | "email_corrupt"
+            | "siren_corrupt" => {
+                if contains_any(&lower, &["email", "phone", "ssn", "pan", "passport", "account", "medicare", "license", "siren", "national_id"]) {
+                    matched.push(field.name().clone());
+                }
+            }
+            "extra" | "name_null" | "dob_null" | "blocking_fail_initial"
+            | "blocking_fail_partial" | "fuzzy_match" | "phonetic" => {
+                // Skip email-like columns — extra noise destroys '@'
+                if lower.contains("email") {
+                    continue;
+                }
+                if contains_any(&lower, &[
+                    "name", "first", "last", "given", "family",
+                    "phone", "address", "street", "city",
+                    "company", "legal", "trading", "note", "comment",
+                ]) {
+                    matched.push(field.name().clone());
+                }
+            }
+            "companies" | "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
                 if contains_any(&lower, &["company", "legal", "trading", "name"]) {
                     matched.push(field.name().clone());
                 }
             }
-            "address_scramble" | "postal_corrupt" => {
+            "addresses" | "address_scramble" | "postal_corrupt" => {
                 if contains_any(&lower, &["address", "street", "postal", "city"]) {
                     matched.push(field.name().clone());
                 }
@@ -182,12 +215,12 @@ fn match_noise_columns(schema: &Schema, noise_type: &str) -> Vec<String> {
             "exact" | "english_name" | "estonian_name" | "lithuanian_name" | "slovak_name"
             | "serbian_name" | "norwegian_name" | "swedish_name" | "dutch_name" | "czech_name"
             | "albanian_name" | "polish_name" | "romanian_name" | "hungarian_name"
-            | "german_name" | "italian_name" | "spanish_name" | "portuguese_name" | "name_null"
-            | "dob_null" | "combo_hard" | "combo_extreme" | "combo_ultimate" | "french_address" => {
+            | "german_name" | "italian_name" | "spanish_name" | "portuguese_name"
+            | "combo_hard" | "combo_extreme" | "combo_ultimate" | "french_address" => {
                 // These noise types are handled inline or are no-ops — skip
             }
             _ => {
-                // Default: apply to all string columns
+                // Default: apply to all string columns (except FK columns)
                 matched.push(field.name().clone());
             }
         }
@@ -212,13 +245,14 @@ fn apply_noise_to_batch(
     noise_type: &str,
     plan_cols: &[String],
     rng: &mut Rng,
+    exclude_cols: &[String],
 ) -> Result<RecordBatch, String> {
     let schema = rb.schema();
     let n_cols = rb.num_columns();
 
     // Fallback to heuristic when plan_cols is empty
     let target_cols: Vec<String> = if plan_cols.is_empty() {
-        match_noise_columns(&schema, noise_type)
+        match_noise_columns(&schema, noise_type, exclude_cols)
     } else {
         plan_cols.to_vec()
     };
@@ -373,6 +407,8 @@ pub fn run_pipeline(
     config: &PipelineConfig,
     output_dir: &str,
 ) -> Result<PipelineOutput, String> {
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| format!("create output directory {output_dir:?}: {e}"))?;
     let t_start = std::time::Instant::now();
 
     // Pre-allocate IDs (base + dups + HN + safety margin)
@@ -598,6 +634,13 @@ pub fn run_pipeline(
             let mut dup_mids_buf: Vec<String> = Vec::new();
             let mids_ref = master_id_pool.get(&plan.name).unwrap();
 
+            // Collect FK columns to exclude from noise
+            let fk_exclude_cols: Vec<String> = plan
+                .fk_remaps
+                .iter()
+                .map(|r| r.source_col.clone())
+                .collect();
+
             // Pre-generate indices + parallel noise (Phase 13c)
             let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan
                 .noise_types
@@ -627,10 +670,11 @@ pub fn run_pipeline(
                     let idxs = indices.clone();
                     let cols_v: Vec<String> = cols.to_vec();
                     let mslice: &[String] = mids_ref.as_slice();
+                    let exclude = fk_exclude_cols.clone();
                     handles.push(s.spawn(move || {
                         let dup = pick_rows(&rb, &idxs)?;
                         let mut rng = Rng::new(*seed);
-                        let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng)?;
+                        let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng, &exclude)?;
                         let mut mb = Vec::with_capacity(*cnt);
                         for j in 0..*cnt {
                             mb.push(mslice[idxs.value(j) as usize % mslice.len()].clone());
@@ -705,7 +749,7 @@ pub fn run_pipeline(
     let t2 = std::time::Instant::now();
     // Phase 12.3: separate null cache for HN section (different entity types)
     let mut hn_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
-    for hn_cfg in &config.hard_neg_types {
+    for (hn_idx, hn_cfg) in config.hard_neg_types.iter().enumerate() {
         if hn_cfg.count == 0 {
             continue;
         }
@@ -734,7 +778,7 @@ pub fn run_pipeline(
 
         let hn_rids: &[String] = &ids.record_ids[global_rid_offset..global_rid_offset + n_hn];
 
-        let mut hn_mid_rng = Rng::new(config.seed.wrapping_add(300));
+        let mut hn_mid_rng = Rng::new(config.seed.wrapping_add(300 + hn_idx as u64));
         let hn_mids: Vec<String> = (0..n_hn)
             .map(|_i| {
                 let pad = hn_mid_rng.next_usize(10_000_000);
@@ -980,7 +1024,7 @@ fn build_metadata_map(config: &PipelineConfig) -> HashMap<String, String> {
         ),
         (
             "dupehell.url".into(),
-            "https://github.com/anomalyco/dupehell".into(),
+            "https://github.com/vntoinekaio/DupeHell".into(),
         ),
         ("dupehell.domain".into(), config.domain.clone()),
         ("dupehell.size".into(), config.size.to_string()),
@@ -994,26 +1038,26 @@ fn build_metadata_map(config: &PipelineConfig) -> HashMap<String, String> {
 
 /// Build the union schema from all entity plans (all columns + metadata).
 fn build_full_schema(config: &PipelineConfig) -> Schema {
-    let mut field_map: Vec<(String, DataType)> = Vec::new();
+    let mut field_map: Vec<(String, DataType, bool)> = Vec::new();
     let metadata_fields = ["record_id", "domain", "entity_type", "master_id"];
     for mf in &metadata_fields {
-        field_map.push((mf.to_string(), DataType::Utf8));
+        field_map.push((mf.to_string(), DataType::Utf8, false));
     }
     for plan in &config.entity_plans {
         let cols: Vec<serde_json::Value> =
             serde_json::from_str(&plan.columns_json).unwrap_or_default();
         for col in &cols {
             let name = col["name"].as_str().unwrap_or("").to_string();
-            if name.is_empty() || field_map.iter().any(|(n, _)| n == &name) {
+            if name.is_empty() || field_map.iter().any(|(n, _, _)| n == &name) {
                 continue;
             }
             let col_type = col_type_from_request(col);
-            field_map.push((name, col_type));
+            field_map.push((name, col_type, true));
         }
     }
     let fields: Vec<Field> = field_map
         .into_iter()
-        .map(|(n, dt)| Field::new(&n, dt, true))
+        .map(|(n, dt, nullable)| Field::new(&n, dt, nullable))
         .collect();
     Schema::new(fields).with_metadata(build_metadata_map(config))
 }

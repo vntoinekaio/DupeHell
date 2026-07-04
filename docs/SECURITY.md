@@ -12,7 +12,7 @@ DupeHell generates **synthetic data** and does not process real personally ident
 
 If you discover a security vulnerability, please **do not open a public issue**. Instead, report it privately via GitHub's Security Advisory tab:
 
-https://github.com/anomalyco/dupehell/security/advisories
+https://github.com/vntoinekaio/DupeHell/security/advisories
 
 You can also contact the maintainers directly through GitHub.
 

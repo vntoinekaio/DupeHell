@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/anomalyco/dupehell2
+git clone https://github.com/vntoinekaio/DupeHell
 cd dupehell2
 cargo build --release
 cargo test

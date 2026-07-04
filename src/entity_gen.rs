@@ -437,17 +437,18 @@ pub fn generate_entity_batch(ctx: &Context, request_json: &str) -> Result<Record
     let mut field_infos: Vec<(String, DataType, bool)> = Vec::with_capacity(col_count);
     for col_def in &req.columns {
         let ct = col_type_from_str(&col_def.col_type);
+        let nullable = col_def.nullable && col_def.null_rate_default > 0.0;
         col_defs.push(ColumnDef {
             name: col_def.name.clone(),
             col_type: ct,
             pool_name: col_def.pool_name.clone(),
-            nullable: col_def.nullable,
+            nullable,
             null_rate: col_def.null_rate_default,
         });
         field_infos.push((
             col_def.name.clone(),
             col_type_to_arrow(&col_def.col_type),
-            col_def.nullable,
+            nullable,
         ));
     }
 
