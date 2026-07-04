@@ -1,3 +1,6 @@
+<!-- DupeHell -- MIT License . Educational Use Only -->
+<!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
+
 # DupeHell2
 
 **Synthetic data generator for record linkage benchmarking.**  
@@ -155,4 +158,21 @@ pip install target/wheels/dupehell-*.whl
 
 ## License
 
-MIT — Educational Use Only. See [ETHICS.md](ETHICS.md) for prohibited uses.
+MIT — **Educational Use Only**. 
+
+This software generates synthetic data for research and educational purposes
+only. It must not be used for fraud, identity theft, surveillance, or any
+illegal activity. See [ETHICS.md](ETHICS.md) for the full list of prohibited
+uses and responsible disclosure policy.
+
+If you use DupeHell in your research, please cite:
+
+```bibtex
+@software{dupehell2026,
+  author = {DupeHell Contributors},
+  title = {DupeHell: Synthetic Multi-Domain Dataset Generator for
+           Record Linkage Benchmarking},
+  year = {2026},
+  url = {https://github.com/vntoinekaio/DupeHell}
+}
+```
