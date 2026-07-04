@@ -1,3 +1,6 @@
+<!-- DupeHell -- MIT License . Educational Use Only -->
+<!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
+
 # Getting Started
 
 ## Installation
@@ -76,6 +79,18 @@ print(schema.domain)    # "kyc"
 print(schema.entities)  # list of entity definitions
 print(schema.hn_types)  # hard-negative type configs
 ```
+
+---
+
+## Ethics
+
+DupeHell generates **synthetic data** for **educational and research purposes
+only** — specifically for benchmarking entity resolution algorithms.
+
+- All data is procedurally generated — no real PII is used or distributed
+- You may **not** use it for fraud, impersonation, surveillance, or any
+  illegal activity
+- See [ETHICS.md](../ETHICS.md) for the full policy and prohibited uses
 
 ---
 

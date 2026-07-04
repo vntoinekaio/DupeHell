@@ -1,3 +1,6 @@
+<!-- DupeHell -- MIT License . Educational Use Only -->
+<!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
+
 # Benchmarks
 
 Domain **kyc**, difficulty **medium**, seed **42**.  
