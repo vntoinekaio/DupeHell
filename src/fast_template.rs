@@ -778,7 +778,7 @@ use std::collections::HashMap;
 static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| {
     let mut m: HashMap<&'static str, TemplateFn> = HashMap::new();
     // Email
-    for k in &["email", "email_address", "business_email", "personal_email"] {
+    for k in &["email", "email_address", "business_email", "personal_email", "support_email"] {
         m.insert(*k, gen_email);
     }
     // Phone

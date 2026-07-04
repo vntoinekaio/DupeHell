@@ -117,6 +117,8 @@ cargo fmt --check            # formatted
 
 | File | Description |
 |---|---|
+| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Installation, quick start, output formats |
+| [docs/API.md](docs/API.md) | Full Python & Rust API reference |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Architecture, development workflow |
 | [docs/BENCHMARK.md](docs/BENCHMARK.md) | Performance metrics (up to 75M records) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Optimization roadmap |

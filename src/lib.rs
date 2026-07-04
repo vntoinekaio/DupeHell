@@ -5,6 +5,7 @@ mod buf_gen;
 mod canary;
 mod column_gen;
 pub mod context;
+pub mod difficulty;
 mod entity_gen;
 mod fast_template;
 mod fk_remap;
@@ -17,6 +18,7 @@ pub mod rng;
 pub mod schema;
 
 pub use context::Context;
+pub use difficulty::DifficultyReport;
 pub use pipeline::{PipelineConfig, PipelineOutput, PipelineStats, run_pipeline};
 pub use schema::{
     DomainSchema, EntitySchema, HnSchema, build_pipeline_config, chrono_now, load_schema,
@@ -62,6 +64,22 @@ impl GenerateResult {
 }
 
 #[pyfunction]
+fn estimate_difficulty(
+    domain: &str,
+    size: usize,
+    seed: u64,
+    difficulty: &str,
+    schemas_dir: &str,
+) -> PyResult<String> {
+    let schema =
+        load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
+    let report =
+        crate::difficulty::estimate_difficulty(domain, size, seed, difficulty, 0.3, &schema)
+            .map_err(PyValueError::new_err)?;
+    serde_json::to_string(&report).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
 fn generate(
     domain: &str,
     size: usize,
@@ -70,6 +88,7 @@ fn generate(
     output_dir: &str,
     pools_dir: &str,
     schemas_dir: &str,
+    output_format: &str,
 ) -> PyResult<GenerateResult> {
     let schema =
         load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
@@ -77,8 +96,9 @@ fn generate(
     let mut ctx = Context::new(domain, pools_dir).map_err(PyValueError::new_err)?;
 
     let run_id = format!("{}_{}", domain, chrono_now());
-    let config = build_pipeline_config(domain, size, seed, difficulty, 0.3, &schema, &run_id)
-        .map_err(PyValueError::new_err)?;
+    let config =
+        build_pipeline_config(domain, size, seed, difficulty, 0.3, &schema, &run_id, output_format)
+            .map_err(PyValueError::new_err)?;
 
     ctx.enable_watermark(&config.domain, config.size, config.seed);
 
@@ -98,6 +118,7 @@ fn generate(
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate, m)?)?;
+    m.add_function(wrap_pyfunction!(estimate_difficulty, m)?)?;
     m.add_class::<GenerateResult>()?;
     Ok(())
 }
