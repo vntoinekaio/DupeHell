@@ -1,4 +1,14 @@
+// DupeHell -- MIT License . Educational Use Only
+//
+// Synthetic multi-domain dataset generator for record linkage benchmarking.
+// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
+// No liability for misuse.
+
 use pyo3::exceptions::PyValueError;
+// Synthetic multi-domain dataset generator for record linkage benchmarking.
+// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
+// No liability for misuse.
+
 use pyo3::prelude::*;
 
 mod buf_gen;

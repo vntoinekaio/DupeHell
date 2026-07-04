@@ -1,3 +1,9 @@
+// DupeHell -- MIT License . Educational Use Only
+//
+// Synthetic multi-domain dataset generator for record linkage benchmarking.
+// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
+// No liability for misuse.
+
 use std::collections::HashMap;
 use std::path::Path;
 
