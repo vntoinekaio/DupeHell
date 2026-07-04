@@ -1,3 +1,9 @@
+// DupeHell -- MIT License . Educational Use Only
+//
+// Synthetic multi-domain dataset generator for record linkage benchmarking.
+// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
+// No liability for misuse.
+
 use arrow::array::{ArrayRef, UInt64Array};
 use arrow::compute::take;
 use arrow::record_batch::RecordBatch;

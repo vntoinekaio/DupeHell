@@ -5,10 +5,28 @@ build-backend = "maturin"
 [project]
 name = "dupehell"
 version = "0.4.0"
-description = "Synthetic record linkage dataset generator"
+description = "Synthetic multi-domain dataset generator for record linkage benchmarking — Educational Use Only"
 license = "MIT"
 requires-python = ">=3.8"
 dependencies = ["pydantic>=2.0"]
+keywords = ["synthetic-data", "record-linkage", "entity-resolution", "deduplication", "benchmarking"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database :: Front-Ends",
+]
+authors = [
+    { name = "DupeHell Contributors" },
+]
+
+[project.urls]
+Repository = "https://github.com/vntoinekaio/DupeHell"
+Documentation = "https://github.com/vntoinekaio/DupeHell/blob/master/docs/GETTING_STARTED.md"
+"Ethics & Prohibited Uses" = "https://github.com/vntoinekaio/DupeHell/blob/master/ETHICS.md"
 
 [tool.maturin]
 module-name = "dupehell._core"

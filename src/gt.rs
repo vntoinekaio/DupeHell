@@ -1,4 +1,14 @@
+// DupeHell -- MIT License . Educational Use Only
+//
+// Synthetic multi-domain dataset generator for record linkage benchmarking.
+// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
+// No liability for misuse.
+
 use arrow::array::{Array, AsArray, StringArray};
+// Synthetic multi-domain dataset generator for record linkage benchmarking.
+// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
+// No liability for misuse.
+
 use std::collections::HashMap;
 
 /// Extract 7-digit numeric suffix from a master_id (e.g. "E00001-0000123" → 123).
