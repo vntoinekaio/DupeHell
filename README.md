@@ -3,7 +3,11 @@
 **Synthetic data generator for record linkage benchmarking.**  
 Rust + Python — 41 domains, 500K+ rec/s, 110 tests.
 
-Generate realistic multi-entity synthetic datasets with controlled duplicates, hard negatives, and ground-truth labels. Designed for benchmarking entity resolution (deduplication) and record linkage pipelines.
+Generate realistic multi-entity synthetic datasets with controlled duplicates,
+hard negatives, and ground-truth labels. Designed for benchmarking entity
+resolution (deduplication) and record linkage pipelines.
+
+---
 
 ## Quick start
 
@@ -16,15 +20,7 @@ pip install dupehell
 ```python
 from dupehell import generate
 
-r = generate(
-    domain="publishing",
-    size=10000,
-    seed=42,
-    difficulty="hard",
-    output_dir="./data",
-    pools_dir="./assets/pools",
-    schemas_dir="./schemas",
-)
+r = generate(domain="publishing", size=10000, seed=42, difficulty="hard")
 print(r.dataset)       # ./data/publishing_<hash>.ipc
 print(r.ground_truth)  # ./data/publishing_<hash>_ground_truth.ipc
 print(r.total_records) # 1030
@@ -39,7 +35,7 @@ cargo run --release -- --domain kyc --size 100000 --seed 42
 ### Output
 
 | Format | Extension | Notes |
-|---|---|---|
+|--------|-----------|-------|
 | IPC (Arrow) | `.ipc` | Default, fastest write |
 | Parquet | `.parquet` | Via `--parquet` flag |
 
@@ -49,84 +45,105 @@ Each run produces:
 
 ### CLI options
 
-```
---domain <DOMAIN>                      [default: kyc]
---size <SIZE>                          [default: 1000000]
---seed <SEED>                          [default: 42]
---difficulty <medium|hard|hell>        [default: medium]
---output-format <ipc|parquet>          [default: ipc]
---output-dir <PATH>                    [default: .]
---hard-neg-ratio <FLOAT>               [default: 0.3]
---singleton-master-fraction <FLOAT>    [default: 0.1]
-```
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--domain` | `kyc` | Domain name |
+| `--size` | `1000000` | Base records |
+| `--seed` | `42` | PRNG seed |
+| `--difficulty` | `medium` | `light` / `medium` / `hard` / `hell` |
+| `--output-format` | `ipc` | `ipc` or `parquet` |
+| `--output-dir` | `.` | Output directory |
+
+---
 
 ## Features
 
-- **41 domains** — KYC, publishing, fintech, blockchain, technology, banking, healthcare, ecommerce, automotive, cybersecurity, gaming, and 31 more
-- **Multi-entity schemas** — 3–5 entity types per domain (e.g. Person, Account, Address, Transaction)
-- **Controlled noise** — typos, OCR errors, homoglyphs, date swaps, phonetic variants, Unicode pollution
-- **Hard negatives** — Rust-native `hn_common.rs` with `same_field`, `mix_identifier`, `mix_arrays` primitives
-- **Ground truth** — full match labels (exact_dup, hard_neg, singleton) with cluster statistics
-- **Deterministic** — seeded RNG (`rand_pcg`) for reproducible output across runs
-- **Watermarking** — SHA256-based 3-layer fingerprinting (metadata, canary records, numeric steganography)
+- **41 domains** — KYC, publishing, fintech, blockchain, technology, banking,
+  healthcare, ecommerce, automotive, cybersecurity, gaming, and 31 more
+- **Multi-entity schemas** — 3–5 entity types per domain (person, account,
+  address, transaction)
+- **Controlled noise** — typos, OCR errors, homoglyphs, date swaps, phonetic
+  variants, Unicode pollution
+- **Hard negatives** — `same_field`, `mix_identifier`, `mix_arrays` primitives
+- **Ground truth** — full match labels (exact_dup, hard_neg, singleton) with
+  cluster statistics
+- **Deterministic** — seeded RNG (`rand_pcg`) for reproducible output
+- **Watermarking** — SHA256-based 3-layer fingerprinting (metadata, canary
+  records, numeric steganography)
+
+---
 
 ## Performance
 
-Domain **kyc**, difficulty **medium**, single-thread:
+Domain **kyc**, difficulty **medium**, single-thread.
 
 | Size | Records | Time | rec/s |
-|---|---|---|---|
-| 100 K | 101 506 | 2.6 s | 38 K |
-| 1 M | 1 015 006 | 3.9 s | 261 K |
-| 10 M | 10 150 006 | 17.3 s | 586 K |
-| 50 M | 50 750 006 | 74.5 s | 681 K |
-| 75 M | 76 125 006 | 121.1 s | 628 K |
+|------|---------|------|-------|
+| 100K | 101 506 | 2.6 s | 38 K |
+| 1M | 1 015 006 | 3.9 s | 261 K |
+| 10M | 10 150 006 | 17.3 s | 586 K |
+| 50M | 50 750 006 | 74.5 s | 681 K |
+| 75M | 76 125 006 | 121.1 s | 628 K |
 
-(See [docs/BENCHMARK.md](docs/BENCHMARK.md) for full details.)
+See [docs/BENCHMARK.md](docs/BENCHMARK.md) for full details.
+
+---
 
 ## Architecture
 
 ```
 lib.rs / main.rs → Context (132 pools) → PipelineConfig → run_pipeline()
-                                                              │
-                     ┌────────────────────────────────────────┼────────────────────┐
-                     ▼                                        ▼                    ▼
-              entity_gen.rs                            fk_remap.rs           hn_common.rs
-              (IPC batch gen)                          (FK cross-ref)       (hard negatives)
-                     │                                        │                    │
-                     └────────────────────────────────────────┴────────────────────┘
-                                                              ▼
-                                                     pipeline.rs
-                                              (merge + ground truth + IPC write)
-                                                              ▼
-                                                     {domain}.ipc + GT.ipc
+                                                          │
+         ┌────────────────────────────────────────────────┼────────────────────┐
+         ▼                                                ▼                    ▼
+  entity_gen.rs                                    fk_remap.rs           hn_common.rs
+  (batch gen)                                      (FK cross-ref)        (hard negatives)
+         │                                                │                    │
+         └──────────────────────────────────────────────────────┴────────────────────┘
+                                                          ▼
+                                                  pipeline.rs
+                                           (merge + GT + IPC write)
+                                                          ▼
+                                                 {domain}.ipc + GT.ipc
 ```
 
-## Development
-
-### Rust
-
-```bash
-cargo test                   # 110 tests
-cargo build --release
-cargo clippy                 # 0 warnings
-cargo fmt --check            # formatted
-```
+---
 
 ## Documentation
 
 | File | Description |
-|---|---|
+|------|-------------|
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Installation, quick start, output formats |
 | [docs/API.md](docs/API.md) | Full Python & Rust API reference |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Architecture, development workflow |
 | [docs/BENCHMARK.md](docs/BENCHMARK.md) | Performance metrics (up to 75M records) |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Optimization roadmap |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security policy & vulnerability reporting |
 | [docs/WATERMARK.md](docs/WATERMARK.md) | Watermarking & provenance layers |
+
+---
+
+## Domains
+
+Academia · Agriculture · Automotive · Aviation · Banking · Biotech ·
+Blockchain · Construction · CRM · Cybersecurity · Ecommerce · Education ·
+Energy · Fashion · Fintech · Food & Beverage · Gaming · Government ·
+Healthcare · Hospitality · HR · Insurance · KYC · Legal · Logistics ·
+Manufacturing · Maritime · Media · Mining · Nonprofit · Pharma · Publishing ·
+Real Estate · Renewable Energy · Retail · Social Media · Sports · Supply Chain ·
+Technology · Telecom · Travel
+
+---
+
+## Development
+
+```bash
+cargo test        # 110 tests, ~30s
+cargo build --release
+cargo clippy      # 0 warnings
+cargo fmt --check # all formatted
 ```
 
-### Python
+### Python wheel
 
 ```bash
 pip install maturin
@@ -134,10 +151,8 @@ maturin build --release
 pip install target/wheels/dupehell-*.whl
 ```
 
-## Domains
-
-Academia, Agriculture, Automotive, Aviation, Banking, Biotech, Blockchain, Construction, CRM, Cybersecurity, Ecommerce, Education, Energy, Fashion, Fintech, Food & Beverage, Gaming, Government, Healthcare, Hospitality, HR, Insurance, KYC, Legal, Logistics, Manufacturing, Maritime, Media, Mining, Nonprofit, Pharma, Publishing, Real Estate, Renewable Energy, Retail, Social Media, Sports, Supply Chain, Technology, Telecom, Travel.
+---
 
 ## License
 
-MIT
+MIT — Educational Use Only. See [ETHICS.md](ETHICS.md) for prohibited uses.

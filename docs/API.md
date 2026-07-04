@@ -21,9 +21,9 @@ Generate a synthetic dataset for a given domain.
 **Parameters:**
 
 | Name | Type | Default | Description |
-|---|---|---|---|
+|------|------|---------|-------------|
 | `domain` | `str` | — | Domain name (e.g. `"kyc"`, `"publishing"`). Must match a file in `schemas/`. |
-| `size` | `int` | — | Number of base records to generate (before duplicates & hard negatives). |
+| `size` | `int` | — | Number of base records (before duplicates & hard negatives). |
 | `seed` | `int` | `42` | PRNG seed for deterministic output. |
 | `difficulty` | `str` | `"medium"` | One of `"light"`, `"medium"`, `"hard"`, `"hell"`. Controls duplicate ratios and noise intensity. |
 | `output_dir` | `str` | `"."` | Directory for output `.ipc` / `.parquet` files. |
@@ -41,13 +41,13 @@ Generate a synthetic dataset for a given domain.
 Returned by `generate()`.
 
 | Attribute | Type | Description |
-|---|---|---|
+|-----------|------|-------------|
 | `dataset` | `str` | Path to the generated dataset file |
 | `ground_truth` | `str` | Path to the ground-truth labels file |
 | `total_records` | `int` | Total records in the dataset |
 | `exact_dups` | `int` | Exact duplicate rows |
 | `hard_negs` | `int` | Hard negative pairs |
-| `uniques` | `int` | Unique/singleton records |
+| `uniques` | `int` | Unique / singleton records |
 | `masters` | `int` | Distinct master entities |
 
 ---
@@ -57,19 +57,20 @@ Returned by `generate()`.
 ```python
 def estimate_difficulty(
     domain: str,
-    size: int = 1000000,
+    size: int = 1_000_000,
     seed: int = 42,
     difficulty: str = "medium",
     schemas_dir: str = "./schemas",
 ) -> DifficultyReport
 ```
 
-Estimate the theoretical maximum F1 score achievable for a given configuration, without generating data.
+Estimate the theoretical maximum F1 score for a given configuration without
+generating data.
 
 **Parameters:**
 
 | Name | Type | Default | Description |
-|---|---|---|---|
+|------|------|---------|-------------|
 | `domain` | `str` | — | Domain name |
 | `size` | `int` | `1000000` | Number of base records |
 | `seed` | `int` | `42` | PRNG seed |
@@ -91,7 +92,7 @@ Load and validate a domain schema file with Pydantic.
 **Parameters:**
 
 | Name | Type | Description |
-|---|---|---|
+|------|------|-------------|
 | `path` | `str` or `Path` | Path to a schema JSON file |
 
 **Returns:** [`DomainSchema`](#domainschema)
@@ -100,28 +101,28 @@ Load and validate a domain schema file with Pydantic.
 
 ---
 
-### `DomainSchema`
+### Models
 
-Pydantic model for a domain schema file.
+#### `DomainSchema`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `domain` | `str` | Domain name |
 | `entities` | `list[EntitySchema]` | Entity definitions (min 1) |
 | `hn_types` | `list[HnSchema]` | Hard-negative type configurations |
 
-### `EntitySchema`
+#### `EntitySchema`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `name` | `str` | Entity name |
 | `columns` | `list[ColumnDef]` | Column definitions (min 1) |
 | `fk_remaps` | `list[FkRemap]` | Foreign key remapping rules |
 
-### `ColumnDef`
+#### `ColumnDef`
 
 | Field | Type | Default | Description |
-|---|---|---|---|
+|-------|------|---------|-------------|
 | `name` | `str` | — | Column name |
 | `type` | `str` | `"string"` | One of `string`, `int`, `float`, `boolean`, `date`, `datetime` |
 | `pool_name` | `str` or `None` | `None` | Pool for random value selection |
@@ -129,27 +130,27 @@ Pydantic model for a domain schema file.
 | `null_rate_default` | `float` | `0.0` | Default null rate |
 | `conditions` | `list[ColCondition]` | `[]` | Conditional column logic |
 
-### `ColCondition`
+#### `ColCondition`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `depends_on` | `str` | Name of the dependency column |
 | `op` | `str` | One of `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte` |
 | `value` | `Any` | Comparison value |
 | `action` | `str` | One of `set_null`, `set_value`, `set_pool` |
 | `action_value` | `Any` or `None` | Value to apply (for `set_value` / `set_pool`) |
 
-### `FkRemap`
+#### `FkRemap`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `source_col` | `str` | Source column to remap |
 | `target_entity` | `str` | Target entity to reference |
 
-### `HnSchema`
+#### `HnSchema`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `entity_type` | `str` | Entity type for hard negatives |
 | `config_json` | `str` | JSON string with HN configuration |
 
@@ -158,7 +159,7 @@ Pydantic model for a domain schema file.
 ### `DifficultyReport`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `domain` | `str` | Domain name |
 | `difficulty` | `str` | Difficulty level |
 | `size` | `int` | Requested record count |
@@ -171,10 +172,10 @@ Pydantic model for a domain schema file.
 | `f1_max` | `float` | Theoretical maximum F1 score |
 | `entities` | `list[EntityDifficulty]` | Per-entity breakdown |
 
-### `EntityDifficulty`
+#### `EntityDifficulty`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `name` | `str` | Entity name |
 | `n_base` | `int` | Unique entity count |
 | `n_dup` | `int` | Duplicate record count |
@@ -184,10 +185,10 @@ Pydantic model for a domain schema file.
 | `guaranteed_fn` | `int` | Estimated unavoidable FN |
 | `columns` | `list[ColReliability]` | Per-column reliability scores |
 
-### `ColReliability`
+#### `ColReliability`
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `name` | `str` | Column name |
 | `col_type` | `str` | Column data type |
 | `noise_damage` | `float` | Probability this column is corrupted by noise (0–1) |
@@ -205,12 +206,12 @@ dupehell2 [OPTIONS]
 ```
 
 | Option | Default | Description |
-|---|---|---|
+|--------|---------|-------------|
 | `--domain <DOMAIN>` | `kyc` | Domain schema to use |
 | `--size <SIZE>` | `1000000` | Number of base records |
 | `--seed <SEED>` | `42` | PRNG seed |
 | `--difficulty <LEVEL>` | `medium` | `light`, `medium`, `hard`, or `hell` |
-| `--estimate` | — | Estimate theoretical max F1 and exit (no data generated) |
+| `--estimate` | — | Estimate theoretical max F1 and exit (no data) |
 | `--output-format <FMT>` | `ipc` | `ipc` or `parquet` |
 | `--parquet` | — | Shorthand for `--output-format parquet` |
 | `--output-dir <PATH>` | `.` | Output directory |
@@ -223,8 +224,10 @@ dupehell2 [OPTIONS]
 
 The Rust crate exposes:
 
-- `schema::load_schema()` — load a domain schema from JSON
-- `schema::build_pipeline_config()` — build pipeline configuration
-- `pipeline::run_pipeline()` — run the generation pipeline
-- `difficulty::estimate_difficulty()` — estimate theoretical max F1
-- `context::Context` — runtime context (pools, watermark)
+| Function | Module | Description |
+|----------|--------|-------------|
+| `load_schema()` | `schema` | Load a domain schema from JSON |
+| `build_pipeline_config()` | `schema` | Build pipeline configuration |
+| `run_pipeline()` | `pipeline` | Run the generation pipeline |
+| `estimate_difficulty()` | `difficulty` | Estimate theoretical max F1 |
+| `Context` | `context` | Runtime context (pools, watermark)

@@ -1,18 +1,26 @@
 # Security Policy
 
-## Supported Versions
+---
 
-| Version | Supported          |
-|---------|--------------------|
-| 0.x     | :white_check_mark: |
+## Supported versions
 
-## Reporting a Vulnerability
+| Version | Supported |
+|---------|-----------|
+| 0.x | ✅ |
 
-DupeHell generates **synthetic data** and does not process real personally identifiable information. However, security issues related to the generation pipeline, dependency vulnerabilities, or potential misuse vectors should be reported.
+---
 
-If you discover a security vulnerability, please **do not open a public issue**. Instead, report it privately via GitHub's Security Advisory tab:
+## Reporting a vulnerability
 
-https://github.com/vntoinekaio/DupeHell/security/advisories
+DupeHell generates **synthetic data** and does not process real personally
+identifiable information. However, security issues related to the generation
+pipeline, dependency vulnerabilities, or potential misuse vectors should be
+reported.
+
+If you discover a security vulnerability, **do not open a public issue**. Report
+it privately via GitHub's Security Advisory tab:
+
+[https://github.com/vntoinekaio/DupeHell/security/advisories](https://github.com/vntoinekaio/DupeHell/security/advisories)
 
 You can also contact the maintainers directly through GitHub.
 
@@ -25,9 +33,13 @@ You can also contact the maintainers directly through GitHub.
 
 ### Response timeline
 
-- **Acknowledgment** within 48 hours
-- **Initial assessment** within 5 business days
-- **Fix timeline** communicated based on severity
+| Step | Timeframe |
+|------|-----------|
+| Acknowledgment | Within 48 hours |
+| Initial assessment | Within 5 business days |
+| Fix timeline | Communicated based on severity |
+
+---
 
 ## Scope
 
@@ -38,9 +50,12 @@ You can also contact the maintainers directly through GitHub.
 
 ## Out of scope
 
-- Misuse of the generated synthetic data (covered by ETHICS.md)
+- Misuse of the generated synthetic data (covered by [ETHICS.md](../ETHICS.md))
 - Hypothetical attacks requiring physical access or modified runtime environments
 
-## Responsible Disclosure
+---
 
-Please allow reasonable time for a fix before any public disclosure. We will credit reporters in release notes unless they prefer to remain anonymous.
+## Responsible disclosure
+
+Please allow reasonable time for a fix before any public disclosure. We will
+credit reporters in release notes unless they prefer to remain anonymous.
