@@ -151,6 +151,9 @@ pub fn build_pipeline_config(
     if size < 10 {
         return Err(format!("size must be >= 10, got {size}"));
     }
+    if schema.entities.is_empty() {
+        return Err(format!("schema for domain '{domain}' has no entities"));
+    }
     let ds = difficulty_settings(difficulty);
     let total = size;
 

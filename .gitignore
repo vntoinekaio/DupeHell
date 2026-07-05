@@ -7,3 +7,20 @@ __pycache__/
 .DS_Store
 ROADMAP.md
 test-agent.md
+metrics.md
+
+# Generated test reports
+*_report.json
+
+# One-shot agent test scripts (not part of maintained suite)
+test_agent_full.py
+test_difficulty.py
+test_exhaustive_errors.py
+test_fk_sweep.py
+test_schema_edge_cases.py
+test_schema_interop.py
+test_seed_determinism.py
+
+# Test infrastructure
+run_all_tests.ps1
+demo/

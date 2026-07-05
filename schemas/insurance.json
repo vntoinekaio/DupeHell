@@ -19,12 +19,14 @@
         {
           "name": "drivers_license_number",
           "type": "string",
-          "null_rate_default": 0.4
+          "null_rate_default": 0.4,
+          "sensitivity": "medium"
         },
         {
           "name": "ssn",
           "type": "string",
-          "null_rate_default": 0.08
+          "null_rate_default": 0.08,
+          "sensitivity": "high"
         },
         {
           "name": "date_of_birth",

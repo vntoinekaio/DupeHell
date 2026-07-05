@@ -24,7 +24,8 @@
         {
           "name": "ssn",
           "type": "string",
-          "null_rate_default": 0.05
+          "null_rate_default": 0.05,
+          "sensitivity": "high"
         },
         {
           "name": "date_of_birth",
@@ -59,7 +60,8 @@
         {
           "name": "citizenship",
           "type": "string",
-          "null_rate_default": 0.05
+          "null_rate_default": 0.05,
+          "sensitivity": "medium"
         },
         {
           "name": "occupation",

@@ -15,6 +15,10 @@ Quick start::
 import json as _json
 from pathlib import Path as _Path
 
+import dupehell._core as _core
+import dupehell.models as models
+import dupehell.schema as schema
+
 from dupehell._core import generate as _generate, estimate_difficulty as _estimate
 from dupehell._core import GenerateResult as _GenerateResult
 from dupehell.models import DomainSchema, DifficultyReport as _DifficultyReport
@@ -81,9 +85,12 @@ def generate(
     seed: int = 42,
     difficulty: str = "medium",
     output_dir: str = ".",
+    locale: str = "en",
     pools_dir: str | None = None,
     schemas_dir: str | None = None,
     output_format: str = "ipc",
+    hard_neg_ratio: float = 0.3,
+    singleton_master_fraction: float = 0.10,
 ) -> GenerateResult:
     """Generate a synthetic record linkage dataset.
 
@@ -95,6 +102,8 @@ def generate(
         seed: Random seed for deterministic reproducibility. Same seed + domain = identical output.
         difficulty: Noise/difficulty level. One of ``"light"``, ``"medium"``, ``"hard"``, ``"hell"``.
         output_dir: Directory to write output files (created automatically if missing).
+        locale: Locale for pool data. One of ``"en"``, ``"fr"``, ``"de"``, ``"es"``, ``"it"``, ``"pt"``.
+            Falls back to ``"en"`` if the requested locale is not available in a pool file.
         pools_dir: Path to the asset pools directory (shipped with the package).
             If None (default), tries ``./assets/pools`` then the package-installed path.
         schemas_dir: Path to the schema JSON directory (shipped with the package).
@@ -141,7 +150,7 @@ def generate(
         raise FileNotFoundError(msg) from None
     import os as _os
     _os.makedirs(output_dir, exist_ok=True)
-    return _generate(domain, size, seed, difficulty, output_dir, pools_dir, schemas_dir, output_format)
+    return _generate(domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir, output_format, hard_neg_ratio, singleton_master_fraction)
 
 
 def estimate_difficulty(
@@ -150,6 +159,7 @@ def estimate_difficulty(
     seed: int = 42,
     difficulty: str = "medium",
     schemas_dir: str | None = None,
+    hard_neg_ratio: float = 0.3,
 ) -> DifficultyReport:
     """Estimate the maximum achievable F1 score without generating data.
 
@@ -182,5 +192,5 @@ def estimate_difficulty(
     """
     if schemas_dir is None:
         schemas_dir = _default_schemas_dir()
-    raw = _estimate(domain, size, seed, difficulty, schemas_dir)
+    raw = _estimate(domain, size, seed, difficulty, schemas_dir, hard_neg_ratio)
     return DifficultyReport.model_validate(_json.loads(raw))

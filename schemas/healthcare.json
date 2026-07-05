@@ -46,7 +46,8 @@
         {
           "name": "ssn",
           "type": "string",
-          "null_rate_default": 0.7
+          "null_rate_default": 0.7,
+          "sensitivity": "high"
         },
         {
           "name": "address_line1",
@@ -81,12 +82,14 @@
         {
           "name": "medicare_num",
           "type": "string",
-          "null_rate_default": 0.9
+          "null_rate_default": 0.9,
+          "sensitivity": "medium"
         },
         {
           "name": "medicaid_num",
           "type": "string",
-          "null_rate_default": 0.9
+          "null_rate_default": 0.9,
+          "sensitivity": "medium"
         },
         {
           "name": "cur_pcp_prov_id",
@@ -94,7 +97,8 @@
         },
         {
           "name": "death_date",
-          "type": "date"
+          "type": "date",
+          "null_rate_default": 0.95
         },
         {
           "name": "source_system",

@@ -98,7 +98,6 @@
     "Competency Hearing",
     "Restitution Hearing",
     "Forfeiture Hearing",
-    "Lunacy Hearing",
     "Expungement Hearing"
   ],
   "fr": [
@@ -200,7 +199,6 @@
     "Audience de Compétence",
     "Audience de Réparation",
     "Audience de Confiscation",
-    "Audience d'Aliénation",
     "Audience d'Effacement de Casier"
   ],
   "de": [
@@ -302,7 +300,6 @@
     "Kompetenzanhörung",
     "Wiedergutmachungsverhandlung",
     "Verfallverhandlung",
-    "Entmündigungsverhandlung",
     "Löschungsverhandlung"
   ],
   "es": [
@@ -404,7 +401,6 @@
     "Audiencia de Competencia",
     "Audiencia de Restitución",
     "Audiencia de Confiscación",
-    "Audiencia de Enajenación",
     "Audiencia de Cancelación de Antecedentes"
   ],
   "it": [
@@ -506,7 +502,6 @@
     "Udienza di Competenza",
     "Udienza di Restituzione",
     "Udienza di Confisca",
-    "Udienza di Interdizione",
     "Udienza di Cancellazione dei Precedenti"
   ],
   "pt": [
@@ -608,7 +603,6 @@
     "Audiência de Competência",
     "Audiência de Restituição",
     "Audiência de Confisco",
-    "Audiência de Interdição",
     "Audiência de Expurgo de Registros"
   ]
 }

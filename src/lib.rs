@@ -80,35 +80,47 @@ fn estimate_difficulty(
     seed: u64,
     difficulty: &str,
     schemas_dir: &str,
+    hard_neg_ratio: f64,
 ) -> PyResult<String> {
     let schema =
         load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
     let report =
-        crate::difficulty::estimate_difficulty(domain, size, seed, difficulty, 0.3, &schema)
+        crate::difficulty::estimate_difficulty(domain, size, seed, difficulty, hard_neg_ratio, &schema)
             .map_err(PyValueError::new_err)?;
     serde_json::to_string(&report).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 #[pyfunction]
+#[allow(unused_variables)]
 fn generate(
     domain: &str,
     size: usize,
     seed: u64,
     difficulty: &str,
     output_dir: &str,
+    locale: &str,
     pools_dir: &str,
     schemas_dir: &str,
     output_format: &str,
+    hard_neg_ratio: f64,
+    singleton_master_fraction: f64,
 ) -> PyResult<GenerateResult> {
     let schema =
         load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
 
-    let mut ctx = Context::new(domain, pools_dir).map_err(PyValueError::new_err)?;
+    if output_format != "ipc" && output_format != "parquet" {
+        return Err(PyValueError::new_err(format!(
+            "invalid output format '{output_format}'; expected 'ipc' or 'parquet'"
+        )));
+    }
+
+    let mut ctx = Context::new(domain, locale, pools_dir).map_err(PyValueError::new_err)?;
 
     let run_id = format!("{}_{}", domain, chrono_now());
-    let config =
-        build_pipeline_config(domain, size, seed, difficulty, 0.3, &schema, &run_id, output_format)
-            .map_err(PyValueError::new_err)?;
+    let config = build_pipeline_config(
+        domain, size, seed, difficulty, hard_neg_ratio, &schema, &run_id, output_format,
+    )
+    .map_err(PyValueError::new_err)?;
 
     ctx.enable_watermark(&config.domain, config.size, config.seed);
 

@@ -200,12 +200,43 @@ Load and validate a domain schema file with Pydantic.
 
 ---
 
+## How Difficulty Estimation Works
+
+`estimate_difficulty()` computes **theoretical maximum F1** without generating data:
+
+- **`guaranteed_fp`**: hard-negative pairs that are identical on all non-HN columns — no algorithm can distinguish them from true duplicates without external information
+- **`guaranteed_fn`**: true duplicate pairs where noise has destroyed discriminating columns — even perfect matching will miss them
+- **`precision_max`**: derived from `total_true_pairs / (total_true_pairs + guaranteed_fp)` — ceiling on precision
+- **`recall_max`**: derived from `(total_true_pairs - guaranteed_fn) / total_true_pairs` — ceiling on recall
+- **`f1_max`**: harmonic mean of `precision_max` and `recall_max`
+
+This lets you check whether your ER pipeline can "leave points on the table" or is hitting the theoretical ceiling.
+
+**Example:**
+
+```python
+from dupehell import estimate_difficulty
+
+report = estimate_difficulty(domain="kyc", size=1_000_000, difficulty="hard")
+print(f"Max F1: {report.f1_max:.3f}")               # e.g., 0.892
+print(f"Guaranteed FP: {report.guaranteed_fp}")       # e.g. 3200
+print(f"Guaranteed FN: {report.guaranteed_fn}")       # e.g. 5100
+
+# Per-entity breakdown
+for ed in report.entities:
+    print(f"{ed.name}: F1_max={ed.f1_max:.3f}, "
+          f"guaranteed_FP={ed.guaranteed_fp}, "
+          f"guaranteed_FN={ed.guaranteed_fn}")
+```
+
+---
+
 ## Rust API (binary)
 
 ### CLI
 
 ```bash
-dupehell2 [OPTIONS]
+dupehell [OPTIONS]
 ```
 
 | Option | Default | Description |

@@ -45,13 +45,14 @@ pub fn generate_all(
     null_cache: &mut HashMap<(DataType, usize), ArrayRef>,
     global_rid_offset: &mut usize,
     ids: &IdPools,
+    fk_pools: &HashMap<String, RecordBatch>,
     writer: &mut arrow::ipc::writer::FileWriter<std::fs::File>,
     gt_record_id_arrs: &mut Vec<ArrayRef>,
     gt_entity_type_arrs: &mut Vec<ArrayRef>,
     gt_master_id_arrs: &mut Vec<ArrayRef>,
 ) -> Result<(), String> {
     let sig = compute_sig(&config.domain, config.size, config.seed);
-    let canary_seed = u64::from_le_bytes(sig.as_bytes()[..8].try_into().unwrap());
+    let canary_seed = u64::from_str_radix(&sig, 16).unwrap();
 
     for (ent_idx, plan) in config.entity_plans.iter().enumerate() {
         let n = CANARY_COUNT;
@@ -63,6 +64,22 @@ pub fn generate_all(
             plan.name, n, batch_seed, plan.columns_json,
         );
         let mut rb = entity_gen::generate_entity_batch(ctx, &request_json)?;
+
+        // FK remap (same logic as pipeline.rs lines 513-528)
+        let plan = &config.entity_plans[ent_idx];
+        if !plan.fk_remaps.is_empty() {
+            let mut fk_rng = crate::rng::Rng::new(batch_seed.wrapping_add(42));
+            for remap in &plan.fk_remaps {
+                if let Some(pool) = fk_pools.get(&remap.target_entity) {
+                    rb = crate::fk_remap::fk_remap_batch(
+                        &rb,
+                        pool,
+                        &remap.source_col,
+                        &mut fk_rng,
+                    )?;
+                }
+            }
+        }
 
         // Override the email column (whichever name it has in this domain)
         let rb_schema = rb.schema();

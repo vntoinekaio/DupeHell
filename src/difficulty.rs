@@ -268,7 +268,8 @@ pub fn estimate_difficulty(
             .sum();
 
         // True duplicate pairs per entity = n_dup / 2 (all duplicates are paired)
-        let true_pairs = plan.n_dup / 2;
+        let n_dup: usize = plan.noise_types.iter().map(|n| n.count).sum();
+        let true_pairs = n_dup / 2;
 
         // Column analysis: noise intensity scales with how many noise plan entries apply
         let noise_intensity = (plan.noise_types.len() as f64 / 8.0).clamp(0.0, 1.0);
@@ -287,7 +288,7 @@ pub fn estimate_difficulty(
             let rel_fn = util * (1.0 - damage);
 
             // Reliability for AVOIDING false positives: utility × freedom from HN poisoning
-            let rel_fp = util * (1.0 - hn_risk);
+            let rel_fp = util * (1.0 - hn_risk) * (1.0 - damage);
 
             if rel_fn > best_fn_reliability {
                 best_fn_reliability = rel_fn;
@@ -322,7 +323,7 @@ pub fn estimate_difficulty(
         entities.push(EntityDifficulty {
             name: plan.name.clone(),
             n_base: plan.n_base,
-            n_dup: plan.n_dup,
+            n_dup,
             true_pairs,
             hard_neg_pairs: hn_pairs,
             guaranteed_fp,

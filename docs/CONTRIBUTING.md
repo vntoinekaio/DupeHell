@@ -10,7 +10,7 @@ git clone https://github.com/vntoinekaio/DupeHell
 cd dupehell2
 cargo build --release
 cargo test
-./target/release/dupehell2 --domain kyc --size 1000 --seed 42
+./target/release/dupehell --domain kyc --size 1000 --seed 42
 ```
 
 ---
@@ -21,7 +21,7 @@ DupeHell2 generates synthetic datasets for record linkage benchmarking across
 41 domains. Available as a Rust CLI binary or a Python package (`pip install dupehell`).
 
 ```
-dupehell2/
+dupehell/
 ├── src/
 │   ├── lib.rs              # Library root + PyO3 bindings
 │   ├── main.rs             # CLI entry point (clap)

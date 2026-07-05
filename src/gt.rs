@@ -68,6 +68,8 @@ pub fn compute_gt(
         let mt = if mid.starts_with("HN-") {
             n_hard_neg += 1;
             "hard_neg"
+        } else if mid.starts_with("CANARY-") {
+            "canary"
         } else if let Some(num) = parse_suffix(mid) {
             if num <= max_id && counts[num] > 1 {
                 n_exact_dup += 1;

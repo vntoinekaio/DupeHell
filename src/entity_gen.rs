@@ -437,7 +437,7 @@ pub fn generate_entity_batch(ctx: &Context, request_json: &str) -> Result<Record
     let mut field_infos: Vec<(String, DataType, bool)> = Vec::with_capacity(col_count);
     for col_def in &req.columns {
         let ct = col_type_from_str(&col_def.col_type);
-        let nullable = col_def.nullable && col_def.null_rate_default > 0.0;
+        let nullable = col_def.nullable;
         col_defs.push(ColumnDef {
             name: col_def.name.clone(),
             col_type: ct,
@@ -497,7 +497,7 @@ mod tests {
             .parent()
             .unwrap()
             .join("dupehell/assets/pools");
-        Context::new("kyc", pools_dir.to_str().unwrap()).unwrap()
+        Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap()
     }
 
     #[test]

@@ -30,3 +30,15 @@ Measurements via `dupehell` Python wheel (PyO3, single-thread).
   `gt` (ground truth) ~15 %; `alloc` (IDs) ~5 %
 - **10M in 17s**, **50M in 75s**, **75M in 2 min**, **100M in ~3 min** —
   near-linear scaling
+
+---
+
+## Per-domain variance (10M records, medium difficulty)
+
+| Domain | Time | rec/s | masters | hard_negs |
+|--------|------|-------|---------|-----------|
+| kyc | 17.3 s | 586 K | 6.0M | 150 K |
+| publishing | 19.1 s | 534 K | 5.8M | 180 K |
+| blockchain | 18.7 s | 543 K | 5.9M | 160 K |
+
+Variance across domains is low (~10 % throughput spread), dominated by schema complexity (number of entities, FK remaps) rather than domain semantics.
