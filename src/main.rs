@@ -20,7 +20,7 @@ use dupehell::schema::{build_pipeline_config, load_schema};
     about = "Synthetic record linkage dataset generator",
     long_about = "Generates realistic synthetic datasets with controlled duplicate rates, \
                   hard negatives, and noise profiles for benchmarking record linkage systems. \
-                  Supports 41 domains (kyc, healthcare, ecommerce, gaming, ...), \
+                  Supports 40 domains (kyc, healthcare, ecommerce, gaming, ...), \
                   four difficulty levels, and outputs Arrow IPC or Parquet format.",
 )]
 struct Cli {
