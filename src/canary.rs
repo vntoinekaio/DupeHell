@@ -71,12 +71,8 @@ pub fn generate_all(
             let mut fk_rng = crate::rng::Rng::new(batch_seed.wrapping_add(42));
             for remap in &plan.fk_remaps {
                 if let Some(pool) = fk_pools.get(&remap.target_entity) {
-                    rb = crate::fk_remap::fk_remap_batch(
-                        &rb,
-                        pool,
-                        &remap.source_col,
-                        &mut fk_rng,
-                    )?;
+                    rb =
+                        crate::fk_remap::fk_remap_batch(&rb, pool, &remap.source_col, &mut fk_rng)?;
                 }
             }
         }

@@ -84,14 +84,21 @@ fn estimate_difficulty(
 ) -> PyResult<String> {
     let schema =
         load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
-    let report =
-        crate::difficulty::estimate_difficulty(domain, size, seed, difficulty, hard_neg_ratio, &schema)
-            .map_err(PyValueError::new_err)?;
+    let report = crate::difficulty::estimate_difficulty(
+        domain,
+        size,
+        seed,
+        difficulty,
+        hard_neg_ratio,
+        &schema,
+    )
+    .map_err(PyValueError::new_err)?;
     serde_json::to_string(&report).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 #[pyfunction]
 #[allow(unused_variables)]
+#[allow(clippy::too_many_arguments)]
 fn generate(
     domain: &str,
     size: usize,
@@ -118,7 +125,14 @@ fn generate(
 
     let run_id = format!("{}_{}", domain, chrono_now());
     let config = build_pipeline_config(
-        domain, size, seed, difficulty, hard_neg_ratio, &schema, &run_id, output_format,
+        domain,
+        size,
+        seed,
+        difficulty,
+        hard_neg_ratio,
+        &schema,
+        &run_id,
+        output_format,
     )
     .map_err(PyValueError::new_err)?;
 
