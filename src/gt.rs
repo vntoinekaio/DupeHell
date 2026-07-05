@@ -11,27 +11,13 @@ use arrow::array::{Array, AsArray, StringArray};
 
 use std::collections::HashMap;
 
-/// Extract 7-digit numeric suffix from a master_id (e.g. "E00001-0000123" → 123).
-/// Returns None if the suffix is not 7 ASCII digits.
-#[inline(always)]
-fn parse_suffix(mid: &str) -> Option<usize> {
-    let bytes = mid.as_bytes();
-    if bytes.len() < 7 {
-        return None;
-    }
-    let start = bytes.len() - 7;
-    let mut n = 0usize;
-    for &b in &bytes[start..] {
-        if !b.is_ascii_digit() {
-            return None;
-        }
-        n = n * 10 + (b - b'0') as usize;
-    }
-    Some(n)
-}
-
 /// Compute ground truth: returns (match_types, n_exact_dup, n_hard_neg, n_unique).
-/// Uses a Vec<u32> indexed by the 7-digit suffix, eliminating all hash table overhead.
+///
+/// Duplicate detection is keyed on the **full** master_id string (entity prefix
+/// included), not just a numeric suffix: master_ids are assigned per-entity-plan
+/// starting from index 0, so two unrelated entities of different types can share
+/// the same numeric suffix. Keying on the full string avoids counting those as
+/// duplicates of each other.
 pub fn compute_gt(
     record_ids: &dyn Array,
     master_ids: &dyn Array,
@@ -40,19 +26,13 @@ pub fn compute_gt(
     let n = record_ids.len();
     let mids = master_ids.as_string::<i32>();
 
-    // Pre-allocated Vec covers all possible 7-digit suffixes (0..n, plus HN range)
-    let max_id = n.max(10_000_000);
-    let mut counts = vec![0u32; max_id + 1];
-
-    // First pass: count non-HN master_ids via numeric suffix
+    // First pass: count non-HN/non-CANARY master_ids by their full string.
+    let mut counts: HashMap<&str, u32> = HashMap::with_capacity(n);
     for i in 0..n {
         if !mids.is_null(i) {
             let mid = mids.value(i);
-            if !mid.starts_with("HN-")
-                && let Some(num) = parse_suffix(mid)
-                && num <= max_id
-            {
-                counts[num] += 1;
+            if !mid.starts_with("HN-") && !mid.starts_with("CANARY-") {
+                *counts.entry(mid).or_insert(0) += 1;
             }
         }
     }
@@ -70,14 +50,9 @@ pub fn compute_gt(
             "hard_neg"
         } else if mid.starts_with("CANARY-") {
             "canary"
-        } else if let Some(num) = parse_suffix(mid) {
-            if num <= max_id && counts[num] > 1 {
-                n_exact_dup += 1;
-                "exact_dup"
-            } else {
-                n_unique += 1;
-                "unique"
-            }
+        } else if counts.get(mid).copied().unwrap_or(0) > 1 {
+            n_exact_dup += 1;
+            "exact_dup"
         } else {
             n_unique += 1;
             "unique"
@@ -241,5 +216,20 @@ mod tests {
         let ets = StringArray::from(vec!["person", "person", "person"]);
         let (mt, _ed, _hn, _un) = compute_gt(&rids, &mids, &ets);
         assert_eq!(mt.len(), 3);
+    }
+
+    /// Regression test: two different entity types can produce master_ids that
+    /// share the same numeric suffix (each entity's index restarts at 0), but
+    /// must not be counted as duplicates of each other.
+    #[test]
+    fn test_no_cross_entity_suffix_collision() {
+        let rids = StringArray::from(vec!["R1", "R2"]);
+        let mids = StringArray::from(vec!["PERSON-0000001", "ACCOUNT-0000001"]);
+        let ets = StringArray::from(vec!["person", "account"]);
+        let (mt, ed, _hn, un) = compute_gt(&rids, &mids, &ets);
+        assert_eq!(mt[0], "unique");
+        assert_eq!(mt[1], "unique");
+        assert_eq!(ed, 0);
+        assert_eq!(un, 2);
     }
 }
