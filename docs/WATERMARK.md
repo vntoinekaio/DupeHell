@@ -118,7 +118,7 @@ In `src/pipeline.rs`, after the entity loop (Phase 1) and before Phase 2 (HN):
 ### Verification
 
 ```bash
-dupehell2 verify --dataset kyc_*.ipc
+dupehell verify --dataset kyc_*.ipc
 # → ✓ Canary found: domain=kyc size=10000000 seed=42 (3 records)
 # → ✓ Signature valid: sig=4a1f... matches computed hash
 ```
@@ -217,7 +217,7 @@ fn verify_watermark(rb: &RecordBatch, domain: &str, size: usize, seed: u64) -> b
 ```
 
 ```bash
-dupehell2 verify --dataset kyc_*.parquet
+dupehell verify --dataset kyc_*.parquet
 # → ✓ Numeric watermark verified: 10/10 columns match
 ```
 
@@ -251,7 +251,7 @@ sha2 = "0.10"
 ## Verification command
 
 ```bash
-dupehell2 verify --dataset <path.ipc|path.parquet>
+dupehell verify --dataset <path.ipc|path.parquet>
 ```
 
 New clap subcommand in `src/main.rs`:

@@ -33,12 +33,14 @@
         {
           "name": "date_of_birth",
           "type": "date",
-          "null_rate_default": 0.1
+          "null_rate_default": 0.1,
+          "sensitivity": "medium"
         },
         {
           "name": "ssn",
           "type": "string",
-          "null_rate_default": 0.03
+          "null_rate_default": 0.03,
+          "sensitivity": "high"
         },
         {
           "name": "address_line1",

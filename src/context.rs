@@ -16,9 +16,17 @@ pub struct PoolStore {
     pub pools: HashMap<String, Pool>,
 }
 
+/// Known locale codes supported by pool files.
+const LOCALES: &[&str] = &["en", "fr", "de", "es", "it", "pt"];
+
+fn is_locale_key(key: &str) -> bool {
+    LOCALES.contains(&key)
+}
+
 impl PoolStore {
-    /// Load all JSON files from `pools_dir` (non-recursive).
-    pub fn load(pools_dir: &str) -> Result<Self, String> {
+    /// Load all JSON files from `pools_dir` (non-recursive), selecting `locale` data.
+    /// Falls back to `"en"` if the requested locale is not found.
+    pub fn load(pools_dir: &str, locale: &str) -> Result<Self, String> {
         let dir = Path::new(pools_dir);
         if !dir.is_dir() {
             return Err(format!("pools dir not found: {pools_dir}"));
@@ -54,12 +62,33 @@ impl PoolStore {
                     pools.insert(name, pool);
                 }
                 serde_json::Value::Object(_map) => {
-                    if let Some(en_arr) = data.get("en").and_then(|v| v.as_array()) {
-                        let pool = en_arr
-                            .iter()
+                    let pool = if let Some(arr) = data
+                        .get(locale)
+                        .or_else(|| data.get("en"))
+                        .and_then(|v| v.as_array())
+                    {
+                        arr.iter()
                             .filter_map(|v| v.as_str())
                             .map(String::from)
-                            .collect::<Pool>();
+                            .collect::<Pool>()
+                    } else if let Some(obj) = data.as_object() {
+                        // No locale key found — check if this is a region-keyed pool
+                        // (e.g. french_cities.json with "ile_de_france" keys).
+                        let has_locale_keys = obj.keys().any(|k| is_locale_key(k));
+                        if !has_locale_keys {
+                            obj.values()
+                                .filter_map(|v| v.as_array())
+                                .flatten()
+                                .filter_map(|v| v.as_str().or_else(|| v.get(0).and_then(|s| s.as_str())))
+                                .map(String::from)
+                                .collect::<Pool>()
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    };
+                    if !pool.is_empty() {
                         pools.insert(name, pool);
                     }
                 }
@@ -78,21 +107,23 @@ impl PoolStore {
 #[derive(Clone, Debug)]
 pub struct Context {
     pub pool_store: PoolStore,
+    pub locale: String,
     pub watermark_map: std::collections::HashMap<u64, u64>, // col_tag → masked value
 }
 
 impl Context {
     const WATERMARK_SECRET: &'static str = "DupeHell-WATERMARK-v0.4-educational-only-2026";
 
-    /// Build a Context from a domain name + path to pools directory.
-    pub fn new(domain: &str, pools_dir: &str) -> Result<Self, String> {
-        let pool_store = PoolStore::load(pools_dir)?;
+    /// Build a Context from a domain name + locale + path to pools directory.
+    pub fn new(domain: &str, locale: &str, pools_dir: &str) -> Result<Self, String> {
+        let pool_store = PoolStore::load(pools_dir, locale)?;
         log::info!(
-            "Context loaded: domain={domain}, pools={}",
+            "Context loaded: domain={domain}, locale={locale}, pools={}",
             pool_store.pools.len()
         );
         Ok(Self {
             pool_store,
+            locale: locale.to_string(),
             watermark_map: std::collections::HashMap::new(),
         })
     }
@@ -144,6 +175,7 @@ impl Context {
             pool_store: PoolStore {
                 pools: HashMap::new(),
             },
+            locale: "en".to_string(),
             watermark_map: HashMap::new(),
         }
     }

@@ -9,7 +9,6 @@
         { "name": "last_name", "type": "string" },
         { "name": "middle_name", "type": "string", "null_rate_default": 0.6 },
         { "name": "birth_date", "type": "date", "null_rate_default": 0.3 },
-        { "name": "nationality", "type": "string" },
         { "name": "language", "type": "string", "pool_name": "language" },
         { "name": "email", "type": "string", "null_rate_default": 0.15 },
         { "name": "orcid", "type": "string", "null_rate_default": 0.4 },

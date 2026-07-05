@@ -38,7 +38,6 @@ pub struct PipelineConfig {
 pub struct EntityPlan {
     pub name: String,
     pub n_base: usize,
-    pub n_dup: usize,
     pub identifier_col: Option<String>,
     pub columns_json: String,
     pub noise_types: Vec<NoisePlanEntry>,
@@ -94,7 +93,7 @@ fn preallocate_ids(total: usize) -> IdPools {
 
     // Reusable buffers — write digits manually, avoid format! overhead
     let mut rid_buf: Vec<u8> = b"R-0000000000000".to_vec();
-    let mut pad_buf: Vec<u8> = b"0000000".to_vec();
+    let mut pad_buf: Vec<u8> = b"0000000000000".to_vec();
 
     for i in 0..total {
         // Write 13-digit counter into rid_buf[2..15]
@@ -103,15 +102,15 @@ fn preallocate_ids(total: usize) -> IdPools {
             rid_buf[j] = b'0' + (n % 10) as u8;
             n /= 10;
         }
-        record_ids.push(unsafe { String::from_utf8_unchecked(rid_buf.clone()) });
+        record_ids.push(String::from_utf8(rid_buf.clone()).unwrap());
 
-        // Write 7-digit counter into pad_buf
+        // Write 13-digit counter into pad_buf
         let mut n = i;
-        for j in (0..7).rev() {
+        for j in (0..13).rev() {
             pad_buf[j] = b'0' + (n % 10) as u8;
             n /= 10;
         }
-        pad_7.push(unsafe { String::from_utf8_unchecked(pad_buf.clone()) });
+        pad_7.push(String::from_utf8(pad_buf.clone()).unwrap());
     }
 
     IdPools { record_ids, pad_7 }
@@ -167,7 +166,7 @@ fn match_noise_columns(schema: &Schema, noise_type: &str, exclude_cols: &[String
                     matched.push(field.name().clone());
                 }
             }
-            "names" | "nickname" | "initials" | "partial" | "name_compound" | "gender_swap" => {
+            "names" | "nickname" | "initials" | "partial" | "name_compound" => {
                 if contains_any(&lower, &["name", "first", "last", "given", "family"]) {
                     matched.push(field.name().clone());
                 }
@@ -319,7 +318,7 @@ fn apply_noise_to_batch(
                 let phone_s = phone_arr.as_string::<i32>();
                 let email_s = email_arr.as_string::<i32>();
                 let n = phone_s.len();
-                let mut builder = arrow::array::StringBuilder::with_capacity(n, 8);
+                let mut builder = arrow::array::StringBuilder::with_capacity(n, 32);
                 for i in 0..n {
                     let pv = if phone_s.is_null(i) {
                         ""
@@ -600,13 +599,12 @@ pub fn run_pipeline(
 
         // Save FK pool for cross-entity remapping
         if let Some(id_col) = &plan.identifier_col {
-            if fk_builder.len() == 0 {
-                continue;
-            }
-            let schema = Arc::new(Schema::new(vec![Field::new(id_col, DataType::Utf8, true)]));
-            let arr = Arc::new(fk_builder.finish()) as ArrayRef;
-            if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr]) {
-                fk_pools.insert(plan.name.clone(), pool_rb);
+            if fk_builder.len() > 0 {
+                let schema = Arc::new(Schema::new(vec![Field::new(id_col, DataType::Utf8, true)]));
+                let arr = Arc::new(fk_builder.finish()) as ArrayRef;
+                if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr]) {
+                    fk_pools.insert(plan.name.clone(), pool_rb);
+                }
             }
         }
 
@@ -838,6 +836,7 @@ pub fn run_pipeline(
             &mut canary_null_cache,
             &mut global_rid_offset,
             &ids,
+            &fk_pools,
             &mut writer,
             &mut gt_record_id_arrs,
             &mut gt_entity_type_arrs,
@@ -930,17 +929,7 @@ pub fn run_pipeline(
             .map_err(|e| format!("open IPC for conversion: {e}"))?;
         let ipc_reader = FileReader::try_new(ipc_file, None)
             .map_err(|e| format!("IPC reader for conversion: {e}"))?;
-
-        let mut batches: Vec<RecordBatch> = Vec::new();
-        for batch_result in ipc_reader {
-            batches.push(batch_result.map_err(|e| format!("IPC batch for conversion: {e}"))?);
-        }
-        let batch = if batches.len() == 1 {
-            batches.into_iter().next().unwrap()
-        } else {
-            arrow::compute::concat_batches(&batches[0].schema(), &batches)
-                .map_err(|e| format!("concat IPC batches: {e}"))?
-        };
+        let schema = ipc_reader.schema();
 
         let parquet_file = std::fs::File::create(&parquet_path)
             .map_err(|e| format!("create {parquet_path}: {e}"))?;
@@ -958,11 +947,15 @@ pub fn run_pipeline(
             .set_key_value_metadata(Some(meta_kv))
             .build();
         let mut parquet_writer =
-            parquet::arrow::ArrowWriter::try_new(parquet_file, batch.schema(), Some(props))
+            parquet::arrow::ArrowWriter::try_new(parquet_file, schema, Some(props))
                 .map_err(|e| format!("ArrowWriter for conversion: {e}"))?;
-        parquet_writer
-            .write(&batch)
-            .map_err(|e| format!("write parquet conversion: {e}"))?;
+
+        for batch_result in ipc_reader {
+            let batch = batch_result.map_err(|e| format!("IPC batch for conversion: {e}"))?;
+            parquet_writer
+                .write(&batch)
+                .map_err(|e| format!("write parquet conversion: {e}"))?;
+        }
         parquet_writer
             .close()
             .map_err(|e| format!("close parquet conversion: {e}"))?;

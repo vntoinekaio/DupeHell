@@ -85,12 +85,11 @@ pub fn apply_noise_to_column(
         "siren_corrupt" | "corrupt_siren" => identifiers::corrupt_siren(col, rng),
         // Names (category → random sub-type)
         "names" => {
-            let fns: [fn(&dyn Array, &mut Rng) -> ArrayRef; 5] = [
+            let fns: [fn(&dyn Array, &mut Rng) -> ArrayRef; 4] = [
                 names::apply_nickname,
                 |c, _| names::apply_initials(c),
                 names::apply_partial,
                 names::apply_name_compound,
-                names::apply_gender_swap,
             ];
             fns[rng.next_usize(fns.len())](col, rng)
         }
@@ -98,7 +97,6 @@ pub fn apply_noise_to_column(
         "initials" => names::apply_initials(col),
         "partial" => names::apply_partial(col, rng),
         "name_compound" => names::apply_name_compound(col, rng),
-        "gender_swap" => names::apply_gender_swap(col, rng),
         // Companies (category → random sub-type)
         "companies" => {
             let fns: [fn(&dyn Array, &mut Rng) -> ArrayRef; 4] = [

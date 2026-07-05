@@ -8,14 +8,14 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use dupehell2::context::Context;
-use dupehell2::difficulty::estimate_difficulty;
-use dupehell2::pipeline::run_pipeline;
-use dupehell2::schema::{build_pipeline_config, load_schema};
+use dupehell::context::Context;
+use dupehell::difficulty::estimate_difficulty;
+use dupehell::pipeline::run_pipeline;
+use dupehell::schema::{build_pipeline_config, load_schema};
 
 #[derive(Parser)]
 #[command(
-    name = "dupehell2",
+    name = "dupehell",
     version = "0.4.0",
     about = "Synthetic record linkage dataset generator",
     long_about = "Generates realistic synthetic datasets with controlled duplicate rates, \
@@ -53,6 +53,9 @@ struct Cli {
 
     #[arg(long, default_value_t = 0.10, help = "Fraction of masters with only one record (0.0 to 1.0)")]
     singleton_master_fraction: f64,
+
+    #[arg(long, default_value = "en", value_parser = clap::builder::PossibleValuesParser::new(["en", "fr", "de", "es", "it", "pt"]), help = "Locale for pool data (en, fr, de, es, it, pt)")]
+    locale: String,
 
     #[arg(long, default_value = "../dupehell/assets/pools", help = "Path to asset pools directory")]
     pools_dir: PathBuf,
@@ -105,7 +108,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mut ctx = match Context::new(&cli.domain, &cli.pools_dir.to_string_lossy()) {
+    let mut ctx = match Context::new(&cli.domain, &cli.locale, &cli.pools_dir.to_string_lossy()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error loading pools: {e}");
@@ -124,7 +127,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let run_id = format!("{}_{}", cli.domain, dupehell2::schema::chrono_now());
+    let run_id = format!("{}_{}", cli.domain, dupehell::schema::chrono_now());
     let config = match build_pipeline_config(
         &cli.domain,
         cli.size,

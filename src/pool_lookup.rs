@@ -173,7 +173,6 @@ static POOL_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|
     m.insert("merchant_category", "product_category");
     m.insert("plan_name", "product_names");
     m.insert("issuing_authority", "company");
-    m.insert("grade", "gender");
     m.insert("title", "occupation");
     m
 });
@@ -218,7 +217,7 @@ mod tests {
             .parent()
             .unwrap()
             .join("dupehell/assets/pools");
-        let ctx = Context::new("kyc", pools_dir.to_str().unwrap()).unwrap();
+        let ctx = Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap();
         let mut rng = Rng::new(42);
         let arr = pool_values("first_name", 10, &mut rng, &ctx);
         assert_eq!(arr.len(), 10);

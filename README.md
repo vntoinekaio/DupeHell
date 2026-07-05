@@ -6,7 +6,7 @@
 **Synthetic data generator for record linkage benchmarking.**  
 Rust + Python — 41 domains, 500K+ rec/s, 110 tests.
 
-Generate realistic multi-entity synthetic datasets with controlled duplicates,
+Generate synthetic multi-entity datasets with realistic schemas, controlled duplicates,
 hard negatives, and ground-truth labels. Designed for benchmarking entity
 resolution (deduplication) and record linkage pipelines.
 

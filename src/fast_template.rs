@@ -43,7 +43,7 @@ where
     for _ in 0..n {
         buf.clear();
         build_row(&mut buf);
-        builder.append_value(unsafe { std::str::from_utf8_unchecked(&buf) });
+        builder.append_value(std::str::from_utf8(&buf).unwrap());
     }
     Arc::new(builder.finish())
 }
@@ -1107,7 +1107,7 @@ mod tests {
             .parent()
             .unwrap()
             .join("dupehell/assets/pools");
-        Context::new("kyc", pools_dir.to_str().unwrap()).unwrap()
+        Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap()
     }
 
     fn test_rng() -> Rng {

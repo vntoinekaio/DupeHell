@@ -21,52 +21,6 @@ static NICKNAMES_MAP: LazyLock<HashMap<&'static str, Vec<&'static str>>> = LazyL
     m
 });
 
-static MALE_NAMES: &[&str] = &[
-    "Jean",
-    "Pierre",
-    "Michel",
-    "François",
-    "Laurent",
-    "Bruno",
-    "Philippe",
-    "Nicolas",
-    "Alexandre",
-    "Thomas",
-    "Kevin",
-    "Samuel",
-    "Romain",
-    "Julien",
-    "Maxime",
-    "Benoît",
-    "Christophe",
-    "Stéphane",
-    "Sébastien",
-    "Olivier",
-];
-
-static FEMALE_NAMES: &[&str] = &[
-    "Marie",
-    "Catherine",
-    "Sophie",
-    "Isabelle",
-    "Nathalie",
-    "Christine",
-    "Valérie",
-    "Françoise",
-    "Muriel",
-    "Michèle",
-    "Patricia",
-    "Anne",
-    "Sandrine",
-    "Céline",
-    "Aurélie",
-    "Julie",
-    "Emilie",
-    "Laura",
-    "Pauline",
-    "Anna",
-];
-
 /// Replace names with random nickname variants (50%) or uppercase (50%).
 pub fn apply_nickname(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     use arrow::array::AsArray;
@@ -185,35 +139,6 @@ pub fn apply_name_compound(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     Arc::new(builder.finish())
 }
 
-/// Swap male ↔ female names at 50% probability.
-pub fn apply_gender_swap(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
-    use arrow::array::AsArray;
-    let src = arr.as_string::<i32>();
-    let n = src.len();
-    let mut rng2 = rng.fork();
-
-    let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
-        if src.is_null(i) {
-            builder.append_null();
-            continue;
-        }
-        let s = src.value(i);
-        let r = rng2.next_f64();
-        if MALE_NAMES.contains(&s) && r < 0.5 {
-            let idx = rng2.next_usize(FEMALE_NAMES.len());
-            builder.append_value(FEMALE_NAMES[idx]);
-        } else if FEMALE_NAMES.contains(&s) && r < 0.5 {
-            let idx = rng2.next_usize(MALE_NAMES.len());
-            builder.append_value(MALE_NAMES[idx]);
-        } else {
-            builder.append_value(s);
-        }
-    }
-    *rng = rng2;
-    Arc::new(builder.finish())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,17 +194,6 @@ mod tests {
         assert!(!s.value(1).contains(' '));
         // Single word passes through
         assert_eq!(s.value(2), "Single");
-    }
-
-    #[test]
-    fn test_gender_swap() {
-        let arr = make_arr(&["Jean", "Marie", "Unknown", "Pierre"]);
-        let mut rng = test_rng();
-        let result = apply_gender_swap(&*arr, &mut rng);
-        let s = result.as_string::<i32>();
-        assert_eq!(result.len(), 4);
-        // Unknown should pass through unchanged
-        assert_eq!(s.value(2), "Unknown");
     }
 
     #[test]

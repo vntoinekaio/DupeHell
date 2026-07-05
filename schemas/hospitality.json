@@ -32,7 +32,8 @@
         },
         {
           "name": "nationality",
-          "type": "string"
+          "type": "string",
+          "sensitivity": "medium"
         },
         {
           "name": "date_of_birth",
@@ -61,7 +62,8 @@
         {
           "name": "passport_number",
           "type": "string",
-          "null_rate_default": 0.5
+          "null_rate_default": 0.5,
+          "sensitivity": "high"
         },
         {
           "name": "preferred_language",

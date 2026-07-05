@@ -17,7 +17,7 @@ pip install dupehell
 git clone https://github.com/vntoinekaio/DupeHell
 cd dupehell2
 cargo build --release
-./target/release/dupehell2 --domain kyc --size 1000 --seed 42
+./target/release/dupehell --domain kyc --size 1000 --seed 42
 ```
 
 ---
@@ -42,14 +42,14 @@ print(r.total_records) # ~10150 (size + dups + hard negatives)
 
 ```bash
 # Minimal
-dupehell2 --domain kyc --size 100000 --seed 42
+dupehell --domain kyc --size 100000 --seed 42
 
 # Full options
-dupehell2 --domain kyc --size 1000000 --seed 42 \
+dupehell --domain kyc --size 1000000 --seed 42 \
   --difficulty hell --output-format parquet --output-dir ./output
 
 # Help
-dupehell2 --help
+dupehell --help
 ```
 
 ---

@@ -24,6 +24,7 @@ class GenerateResult:
     masters: int
 
     def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
 
 
 def generate(
@@ -32,9 +33,11 @@ def generate(
     seed: int = 42,
     difficulty: str = "medium",
     output_dir: str = ".",
-    pools_dir: str = "./assets/pools",
-    schemas_dir: str = "./schemas",
+    pools_dir: Optional[str] = None,
+    schemas_dir: Optional[str] = None,
     output_format: str = "ipc",
+    hard_neg_ratio: float = 0.3,
+    singleton_master_fraction: float = 0.10,
 ) -> GenerateResult:
     """Internal Rust implementation — use :func:`dupehell.generate` instead."""
     ...
@@ -45,7 +48,8 @@ def estimate_difficulty(
     size: int = 1_000_000,
     seed: int = 42,
     difficulty: str = "medium",
-    schemas_dir: str = "./schemas",
+    schemas_dir: Optional[str] = None,
+    hard_neg_ratio: float = 0.3,
 ) -> str:
     """Internal Rust implementation — use :func:`dupehell.estimate_difficulty` instead."""
     ...

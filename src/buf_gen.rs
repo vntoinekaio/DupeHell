@@ -32,8 +32,7 @@ where
     for _ in 0..n {
         buf.clear();
         build_row(&mut buf);
-        // Safety: all generators produce valid ASCII (thus valid UTF-8)
-        builder.append_value(unsafe { std::str::from_utf8_unchecked(&buf) });
+        builder.append_value(std::str::from_utf8(&buf).unwrap());
     }
     Arc::new(builder.finish())
 }
@@ -65,7 +64,7 @@ pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> Ar
             s[start + 1] = b'0' + ((wm / 10) % 10) as u8;
             s[start + 2] = b'0' + (wm % 10) as u8;
         }
-        builder.append_value(unsafe { std::str::from_utf8_unchecked(&s) });
+        builder.append_value(std::str::from_utf8(&s).unwrap());
     }
     Arc::new(builder.finish())
 }
@@ -80,7 +79,7 @@ pub fn bytes_strings(chars: &[u8], n: usize, length: usize, rng: &mut Rng) -> Ar
         for b in s.iter_mut() {
             *b = rand_char(chars, rng);
         }
-        builder.append_value(unsafe { std::str::from_utf8_unchecked(&s) });
+        builder.append_value(std::str::from_utf8(&s).unwrap());
     }
     Arc::new(builder.finish())
 }

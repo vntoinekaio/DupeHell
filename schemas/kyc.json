@@ -32,7 +32,8 @@
         },
         {
           "name": "nationality",
-          "type": "string"
+          "type": "string",
+          "sensitivity": "medium"
         },
         {
           "name": "email_address",
@@ -47,12 +48,14 @@
         {
           "name": "personal_administrative_number",
           "type": "string",
-          "null_rate_default": 0.85
+          "null_rate_default": 0.85,
+          "sensitivity": "high"
         },
         {
           "name": "tax_id",
           "type": "string",
-          "null_rate_default": 0.85
+          "null_rate_default": 0.85,
+          "sensitivity": "high"
         },
         {
           "name": "residential_address_line1",
@@ -129,7 +132,8 @@
         {
           "name": "tax_id",
           "type": "string",
-          "null_rate_default": 0.85
+          "null_rate_default": 0.85,
+          "sensitivity": "high"
         },
         {
           "name": "legal_form",

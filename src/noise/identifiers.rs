@@ -81,8 +81,8 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     Arc::new(builder.finish())
 }
 
-/// Corrupt phone: 40% space-separated pairs, 30% digit corruption + "+33 ",
-/// 30% "+33 (XX) XXX-XXXX" format.
+/// Corrupt phone: 40% space-separated pairs, 30% digit corruption + "+1 ",
+/// 30% "+1 (XX) XXX-XXXX" format.
 pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     use arrow::array::AsArray;
     let src = arr.as_string::<i32>();
@@ -128,11 +128,11 @@ pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
                     let pos = rng2.next_usize(corrupted.len());
                     corrupted[pos] = (rng2.next_usize(10) as u8 + 48) as char;
                 }
-                format!("+33 {}", corrupted.into_iter().collect::<String>())
+                format!("+1 {}", corrupted.into_iter().collect::<String>())
             }
             _ => {
                 // "+33 (XX) XXX-XXXX" format
-                let mut out = String::from("+33 (");
+                let mut out = String::from("+1 (");
                 for (j, &d) in digits.iter().enumerate() {
                     if j == 2 {
                         out.push_str(") ");
@@ -197,7 +197,8 @@ pub fn corrupt_siren(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
         }
         let s = src.value(i);
         let digits: Vec<char> = s.chars().filter(|c| c.is_ascii_digit()).collect();
-        if digits.len() == 9 {
+        let non_digit_ok = s.chars().all(|c| c.is_ascii_digit() || c == ' ');
+        if digits.len() == 9 && non_digit_ok {
             let mut result: Vec<char> = s.chars().collect();
             // Find the position of the 9th digit from the end
             let mut digit_count = 0;

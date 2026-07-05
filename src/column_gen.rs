@@ -194,34 +194,42 @@ fn gen_boolean(n: usize, rng: &mut Rng) -> ArrayRef {
     Arc::new(builder.finish())
 }
 
+fn days_in_month(year: i64, month: usize) -> usize {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
 fn gen_date(n: usize, rng: &mut Rng) -> ArrayRef {
-    let start_days = 709_705_i64; // days from 0000-01-01 to 1940-01-01 (approx)
-    let end_days = 732_165_i64; // days from 0000-01-01 to 2005-12-31 (approx)
-    let range = (end_days - start_days) as usize;
     let mut builder = StringBuilder::with_capacity(n, 10);
     for _ in 0..n {
-        let days = start_days + rng.next_usize(range) as i64;
-        // Convert days since epoch to YYYY-MM-DD (civil date approximation)
-        let y = days / 365;
-        let rem = days % 365;
-        let m = rem / 30 + 1;
-        let d = rem % 30 + 1;
-        builder.append_value(format!("{:04}-{:02}-{:02}", y, m.min(12), d.min(30)));
+        let y = 1940 + rng.next_usize(66);
+        let m = rng.next_usize(12) + 1;
+        let max_days = days_in_month(y as i64, m);
+        let d = rng.next_usize(max_days) + 1;
+        builder.append_value(format!("{y:04}-{m:02}-{d:02}"));
     }
     Arc::new(builder.finish())
 }
 
 fn gen_datetime(n: usize, rng: &mut Rng) -> ArrayRef {
-    let start_hours = 2020_i64 * 365 * 24;
-    let end_hours = 2025_i64 * 365 * 24;
-    let hours_range = (end_hours - start_hours) as usize;
     let mut builder = StringBuilder::with_capacity(n, 19);
     for _ in 0..n {
-        let h = start_hours + rng.next_usize(hours_range) as i64;
-        let y = 2020 + h / (365 * 24);
-        let rem = h % (365 * 24);
-        let hr = rem % 24;
-        builder.append_value(format!("{y:04}-01-01 {:02}:00:00", hr));
+        let y = 2020 + rng.next_usize(6);
+        let m = rng.next_usize(12) + 1;
+        let max_days = days_in_month(y as i64, m);
+        let d = rng.next_usize(max_days) + 1;
+        let hr = rng.next_usize(24);
+        builder.append_value(format!("{y:04}-{m:02}-{d:02} {hr:02}:00:00"));
     }
     Arc::new(builder.finish())
 }
@@ -310,21 +318,7 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
         return arr;
     }
 
-    // Stage 3: Generic _id fallback
-    if col.name.ends_with("_id") || col.name == "id" {
-        let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
-        let mut builder = StringBuilder::with_capacity(n, 12);
-        for i in 0..n {
-            builder.append_value(format!("{}-{:07}", prefix, i));
-        }
-        return if col.nullable && col.null_rate > 0.0 {
-            apply_null_rate(&*Arc::new(builder.finish()), col.null_rate, rng)
-        } else {
-            Arc::new(builder.finish())
-        };
-    }
-
-    // Stage 4: Type-based dispatch
+    // Stage 3: Type-based dispatch
     match col.col_type {
         ColType::Boolean => gen_boolean(n, rng),
         ColType::Int => gen_int64(&col.name, n, rng),
@@ -332,7 +326,7 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
         ColType::Date => gen_date(n, rng),
         ColType::Datetime => gen_datetime(n, rng),
         ColType::String => {
-            // Stage 5: Pool lookup
+            // Pool lookup
             if let Some(ref pn) = col.pool_name {
                 let arr = pool_values(pn, n, rng, ctx);
                 return if col.nullable && col.null_rate > 0.0 {
@@ -347,6 +341,19 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
                     apply_null_rate(&*arr, col.null_rate, rng)
                 } else {
                     arr
+                };
+            }
+            // _id fallback (after pool lookup, before word fallback)
+            if col.name.ends_with("_id") || col.name == "id" {
+                let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
+                let mut builder = StringBuilder::with_capacity(n, 12);
+                for i in 0..n {
+                    builder.append_value(format!("{}-{:07}", prefix, i));
+                }
+                return if col.nullable && col.null_rate > 0.0 {
+                    apply_null_rate(&*Arc::new(builder.finish()), col.null_rate, rng)
+                } else {
+                    Arc::new(builder.finish())
                 };
             }
             // Fallback: "word" pool
@@ -370,7 +377,7 @@ mod tests {
             .parent()
             .unwrap()
             .join("dupehell/assets/pools");
-        Context::new("kyc", pools_dir.to_str().unwrap()).unwrap()
+        Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap()
     }
 
     fn test_rng() -> Rng {
@@ -564,6 +571,95 @@ mod tests {
         let sb = b.as_string::<i32>();
         for i in 0..100 {
             assert_eq!(sa.value(i), sb.value(i), "mismatch at {i}");
+        }
+    }
+
+    #[test]
+    fn test_gen_date_valid() {
+        use std::collections::HashSet;
+        let mut rng = test_rng();
+        let arr = gen_date(10000, &mut rng);
+        let s = arr.as_string::<i32>();
+        assert_eq!(s.len(), 10000);
+        let mut months_seen = HashSet::new();
+        let mut days_seen = HashSet::new();
+        for i in 0..10000 {
+            let v = s.value(i);
+            assert_eq!(v.len(), 10, "date[{i}] = {v:?}");
+            let parts: Vec<&str> = v.split('-').collect();
+            let y: i64 = parts[0].parse().unwrap();
+            let m: usize = parts[1].parse().unwrap();
+            let d: usize = parts[2].parse().unwrap();
+            assert!(y >= 1940 && y <= 2005, "year {y} out of range");
+            assert!(m >= 1 && m <= 12, "month {m} out of range");
+            let max = match m {
+                1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+                4 | 6 | 9 | 11 => 30,
+                2 => {
+                    if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
+                        29
+                    } else {
+                        28
+                    }
+                }
+                _ => unreachable!(),
+            };
+            assert!(
+                d >= 1 && d <= max,
+                "date[{i}] = {v}: day {d} > max {max}"
+            );
+            months_seen.insert(m);
+            days_seen.insert(d);
+        }
+        assert!(
+            months_seen.len() >= 11,
+            "only saw months: {months_seen:?}"
+        );
+        assert!(days_seen.len() >= 28, "only saw days: {days_seen:?}");
+    }
+
+    #[test]
+    fn test_gen_datetime_varied() {
+        use std::collections::HashSet;
+        let mut rng = test_rng();
+        let arr = gen_datetime(10000, &mut rng);
+        let s = arr.as_string::<i32>();
+        assert_eq!(s.len(), 10000);
+        let mut months_seen = HashSet::new();
+        let mut days_seen = HashSet::new();
+        for i in 0..10000 {
+            let v = s.value(i);
+            assert_eq!(v.len(), 19, "datetime[{i}] = {v:?}");
+            let date_part = &v[..10];
+            let parts: Vec<&str> = date_part.split('-').collect();
+            let _y: i64 = parts[0].parse().unwrap();
+            let m: usize = parts[1].parse().unwrap();
+            let d: usize = parts[2].parse().unwrap();
+            months_seen.insert(m);
+            days_seen.insert(d);
+        }
+        assert!(
+            months_seen.len() >= 11,
+            "only saw months: {months_seen:?}"
+        );
+        assert!(days_seen.len() >= 28, "only saw days: {days_seen:?}");
+    }
+
+    #[test]
+    fn test_department_id_from_pool() {
+        let ctx = test_ctx();
+        let mut rng = test_rng();
+        let col = ColumnDef::new("department_id", ColType::String);
+        let arr = generate_column(&col, 100, &mut rng, &ctx);
+        let s = arr.as_string::<i32>();
+        assert_eq!(s.len(), 100);
+        for i in 0..100 {
+            let v = s.value(i);
+            assert!(
+                !v.starts_with("DEPA-"),
+                "department_id[{i}] = {v:?} (should be pool value, not generated ID)"
+            );
+            assert!(!v.is_empty(), "department_id[{i}] empty");
         }
     }
 }
