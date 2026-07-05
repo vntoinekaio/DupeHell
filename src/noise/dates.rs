@@ -139,7 +139,11 @@ pub fn noise_dates_mix(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
         let day = parts[0];
         let month = parts[1];
         let year = parts[2];
-        let year_short = if year.len() == 4 { year.get(2..).unwrap_or(year) } else { year };
+        let year_short = if year.len() == 4 {
+            year.get(2..).unwrap_or(year)
+        } else {
+            year
+        };
         let result = match fmt {
             0 => format!("{}/{}/{}", day, month, year),
             1 => format!("{}/{}/{}", month, day, year),

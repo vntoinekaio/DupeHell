@@ -79,7 +79,9 @@ impl PoolStore {
                             obj.values()
                                 .filter_map(|v| v.as_array())
                                 .flatten()
-                                .filter_map(|v| v.as_str().or_else(|| v.get(0).and_then(|s| s.as_str())))
+                                .filter_map(|v| {
+                                    v.as_str().or_else(|| v.get(0).and_then(|s| s.as_str()))
+                                })
                                 .map(String::from)
                                 .collect::<Pool>()
                         } else {

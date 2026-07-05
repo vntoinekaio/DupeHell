@@ -6,7 +6,7 @@
 
 use serde::Serialize;
 
-use crate::schema::{build_pipeline_config, DomainSchema};
+use crate::schema::{DomainSchema, build_pipeline_config};
 
 /// Noise destructiveness per column name pattern.
 fn contains_any(s: &str, patterns: &[&str]) -> bool {
@@ -24,20 +24,14 @@ fn match_utility(col_name: &str, col_type: &str) -> f64 {
                 0.0
             } else if lower.ends_with("_id") {
                 0.3
-            } else if contains_any(
-                &lower,
-                &["name", "email", "address", "phone", "ssn", "tax"],
-            ) {
+            } else if contains_any(&lower, &["name", "email", "address", "phone", "ssn", "tax"]) {
                 1.0
             } else if contains_any(
                 &lower,
                 &["date", "birth", "city", "country", "state", "postal"],
             ) {
                 0.7
-            } else if contains_any(
-                &lower,
-                &["company", "legal", "trading", "registration"],
-            ) {
+            } else if contains_any(&lower, &["company", "legal", "trading", "registration"]) {
                 0.8
             } else {
                 0.5
@@ -60,23 +54,29 @@ fn base_noise_damage(col_name: &str, col_type: &str) -> f64 {
             }
         }
         _ => {
-            if contains_any(
-                &lower,
-                &["email", "ssn", "phone", "mobile", "telephone"],
-            ) {
+            if contains_any(&lower, &["email", "ssn", "phone", "mobile", "telephone"]) {
                 0.8
             } else if contains_any(
                 &lower,
                 &[
-                    "tax_id", "registration", "national_id", "passport",
-                    "account", "barcode", "pan", "medicare",
+                    "tax_id",
+                    "registration",
+                    "national_id",
+                    "passport",
+                    "account",
+                    "barcode",
+                    "pan",
+                    "medicare",
                 ],
             ) {
                 0.6
             } else if contains_any(
                 &lower,
                 &[
-                    "first_name", "last_name", "given_name", "family_name",
+                    "first_name",
+                    "last_name",
+                    "given_name",
+                    "family_name",
                     "middle_name",
                 ],
             ) {
@@ -88,9 +88,9 @@ fn base_noise_damage(col_name: &str, col_type: &str) -> f64 {
                 0.5
             } else if contains_any(&lower, &["date", "birth", "dob"]) {
                 0.3
-            } else if contains_any(&lower, &["company", "legal", "trading"]) {
-                0.4
             } else {
+                // "company"/"legal"/"trading" and any other column fall back
+                // to the same default weight.
                 0.4
             }
         }
@@ -124,19 +124,18 @@ fn parse_hn_id_fields(config_json: &str) -> Vec<String> {
         address_fields: Vec<String>,
     }
 
-    let cfg: HnConfigLight =
-        serde_json::from_str(config_json).unwrap_or(HnConfigLight {
-            pattern: String::new(),
-            id_fields: vec![],
-            mix_field: String::new(),
-            first_name_col: String::new(),
-            last_name_col: String::new(),
-            dob_col: String::new(),
-            email_col: String::new(),
-            ssn_col: String::new(),
-            phone_col: String::new(),
-            address_fields: vec![],
-        });
+    let cfg: HnConfigLight = serde_json::from_str(config_json).unwrap_or(HnConfigLight {
+        pattern: String::new(),
+        id_fields: vec![],
+        mix_field: String::new(),
+        first_name_col: String::new(),
+        last_name_col: String::new(),
+        dob_col: String::new(),
+        email_col: String::new(),
+        ssn_col: String::new(),
+        phone_col: String::new(),
+        address_fields: vec![],
+    });
 
     match cfg.pattern.as_str() {
         "same_field" => cfg.id_fields,
@@ -227,7 +226,14 @@ pub fn estimate_difficulty(
 ) -> Result<DifficultyReport, String> {
     let run_id = format!("{}_{}", domain, crate::schema::chrono_now());
     let config = build_pipeline_config(
-        domain, size, seed, difficulty, hard_neg_ratio, schema, &run_id, "ipc",
+        domain,
+        size,
+        seed,
+        difficulty,
+        hard_neg_ratio,
+        schema,
+        &run_id,
+        "ipc",
     )?;
 
     // Build a map: entity_name -> HN id_fields
@@ -254,10 +260,8 @@ pub fn estimate_difficulty(
             .unwrap_or_default();
 
         // Parse columns from columns_json
-        let cols: Vec<ColDefLight> =
-            serde_json::from_str(&plan.columns_json).map_err(|e| {
-                format!("parse columns for '{}': {}", plan.name, e)
-            })?;
+        let cols: Vec<ColDefLight> = serde_json::from_str(&plan.columns_json)
+            .map_err(|e| format!("parse columns for '{}': {}", plan.name, e))?;
 
         // Count HN pairs targeting this entity
         let hn_pairs: usize = config

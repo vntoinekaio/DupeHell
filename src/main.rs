@@ -21,22 +21,37 @@ use dupehell::schema::{build_pipeline_config, load_schema};
     long_about = "Generates realistic synthetic datasets with controlled duplicate rates, \
                   hard negatives, and noise profiles for benchmarking record linkage systems. \
                   Supports 40 domains (kyc, healthcare, ecommerce, gaming, ...), \
-                  four difficulty levels, and outputs Arrow IPC or Parquet format.",
+                  four difficulty levels, and outputs Arrow IPC or Parquet format."
 )]
 struct Cli {
-    #[arg(long, default_value = "kyc", help = "Domain name (e.g. kyc, healthcare, gaming, ecommerce)")]
+    #[arg(
+        long,
+        default_value = "kyc",
+        help = "Domain name (e.g. kyc, healthcare, gaming, ecommerce)"
+    )]
     domain: String,
 
-    #[arg(long, default_value_t = 1_000_000, help = "Number of base records to generate (minimum 10)")]
+    #[arg(
+        long,
+        default_value_t = 1_000_000,
+        help = "Number of base records to generate (minimum 10)"
+    )]
     size: usize,
 
-    #[arg(long, default_value_t = 42, help = "Random seed for deterministic reproducibility")]
+    #[arg(
+        long,
+        default_value_t = 42,
+        help = "Random seed for deterministic reproducibility"
+    )]
     seed: u64,
 
     #[arg(long, default_value = "medium", value_parser = clap::builder::PossibleValuesParser::new(["light", "medium", "hard", "hell"]), help = "Difficulty level: light, medium, hard, or hell")]
     difficulty: String,
 
-    #[arg(long, help = "Estimate difficulty and F1 score without generating data")]
+    #[arg(
+        long,
+        help = "Estimate difficulty and F1 score without generating data"
+    )]
     estimate: bool,
 
     #[arg(long, help = "Output file format: ipc (Arrow IPC) or parquet")]
@@ -45,22 +60,42 @@ struct Cli {
     #[arg(long, action = clap::ArgAction::Count, help = "Shortcut for --output-format parquet")]
     parquet: u8,
 
-    #[arg(long, default_value = ".", help = "Output directory (created automatically if missing)")]
+    #[arg(
+        long,
+        default_value = ".",
+        help = "Output directory (created automatically if missing)"
+    )]
     output_dir: PathBuf,
 
-    #[arg(long, default_value_t = 0.3, help = "Hard-negative ratio relative to size (0.0 to 1.0+)")]
+    #[arg(
+        long,
+        default_value_t = 0.3,
+        help = "Hard-negative ratio relative to size (0.0 to 1.0+)"
+    )]
     hard_neg_ratio: f64,
 
-    #[arg(long, default_value_t = 0.10, help = "Fraction of masters with only one record (0.0 to 1.0)")]
+    #[arg(
+        long,
+        default_value_t = 0.10,
+        help = "Fraction of masters with only one record (0.0 to 1.0)"
+    )]
     singleton_master_fraction: f64,
 
     #[arg(long, default_value = "en", value_parser = clap::builder::PossibleValuesParser::new(["en", "fr", "de", "es", "it", "pt"]), help = "Locale for pool data (en, fr, de, es, it, pt)")]
     locale: String,
 
-    #[arg(long, default_value = "../dupehell/assets/pools", help = "Path to asset pools directory")]
+    #[arg(
+        long,
+        default_value = "../dupehell/assets/pools",
+        help = "Path to asset pools directory"
+    )]
     pools_dir: PathBuf,
 
-    #[arg(long, default_value = "schemas", help = "Path to schema JSON directory")]
+    #[arg(
+        long,
+        default_value = "schemas",
+        help = "Path to schema JSON directory"
+    )]
     schemas_dir: PathBuf,
 }
 

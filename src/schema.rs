@@ -122,8 +122,17 @@ fn list_available_domains(dir: &Path) -> String {
     let names: Vec<String> = match std::fs::read_dir(dir) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
-            .filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().to_string()))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "json")
+                    .unwrap_or(false)
+            })
+            .filter_map(|e| {
+                e.path()
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+            })
             .collect(),
         Err(_) => return "directory not found".to_string(),
     };
@@ -138,6 +147,7 @@ fn list_available_domains(dir: &Path) -> String {
 ///
 /// Validates `size >= 10`, distributes singleton/doublet/triplet records
 /// across entities, and assigns noise weights per difficulty setting.
+#[allow(clippy::too_many_arguments)]
 pub fn build_pipeline_config(
     domain: &str,
     size: usize,
@@ -254,33 +264,38 @@ pub fn build_pipeline_config(
             }
         }
 
-    // Infer identifier column: prefer {entity_name}_id, then id, then first _id column
-    let identifier_col: Option<String> = {
-        let entity_id_name = format!("{}_id", entity.name);
-        let col_names: Vec<&str> = entity.columns.iter()
-            .filter_map(|c| c.get("name").and_then(|v| v.as_str()))
-            .collect();
-        if col_names.contains(&entity_id_name.as_str()) {
-            Some(entity_id_name)
-        } else if col_names.contains(&"id") {
-            Some("id".to_string())
-        } else {
-            col_names.iter().find(|n| n.ends_with("_id")).map(|n| (*n).to_string())
-        }
-    };
+        // Infer identifier column: prefer {entity_name}_id, then id, then first _id column
+        let identifier_col: Option<String> = {
+            let entity_id_name = format!("{}_id", entity.name);
+            let col_names: Vec<&str> = entity
+                .columns
+                .iter()
+                .filter_map(|c| c.get("name").and_then(|v| v.as_str()))
+                .collect();
+            if col_names.contains(&entity_id_name.as_str()) {
+                Some(entity_id_name)
+            } else if col_names.contains(&"id") {
+                Some("id".to_string())
+            } else {
+                col_names
+                    .iter()
+                    .find(|n| n.ends_with("_id"))
+                    .map(|n| (*n).to_string())
+            }
+        };
 
-    let columns_json = serde_json::to_string(&entity.columns)
-        .map_err(|e| format!("serialize columns: {e}"))?;
+        let columns_json = serde_json::to_string(&entity.columns)
+            .map_err(|e| format!("serialize columns: {e}"))?;
 
-    entity_plans.push(serde_json::json!({
-        "name": entity.name,
-        "n_base": n_base,
-        "n_dup": n_dup,
-        "identifier_col": identifier_col,
-        "columns_json": columns_json,
-        "noise_types": noise_entries,
-        "fk_remaps": entity.fk_remaps,
-    }));
+        entity_plans.push(serde_json::json!({
+            "name": entity.name,
+            "n_base": n_base,
+            "n_dup": n_dup,
+            "identifier_col": identifier_col,
+            "columns_json": columns_json,
+            "noise_types": noise_entries,
+            "fk_remaps": entity.fk_remaps,
+        }));
     }
 
     let n_hard_neg = (size as f64 * hard_neg_ratio * 0.05) as usize;
