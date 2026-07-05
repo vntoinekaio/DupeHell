@@ -149,9 +149,9 @@ fn match_noise_columns(schema: &Schema, noise_type: &str, exclude_cols: &[String
         }
         let lower = field.name().to_lowercase();
         match noise_type {
-            "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "visual" | "homoglyph"
-            | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout" | "language_mix"
-            | "blocking_fail" => {
+            "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "visual"
+            | "homoglyph" | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout"
+            | "language_mix" | "blocking_fail" => {
                 // Skip email-like columns — typo/visual noise destroys '@'
                 if lower.contains("email") {
                     continue;
@@ -186,24 +186,51 @@ fn match_noise_columns(schema: &Schema, noise_type: &str, exclude_cols: &[String
                     matched.push(field.name().clone());
                 }
             }
-            "identifiers" | "corrupt_email" | "corrupt_phone" | "corrupt_national_id"
-            | "corrupt_siren" | "national_id_corrupt" | "phone_corrupt" | "email_corrupt"
+            "identifiers"
+            | "corrupt_email"
+            | "corrupt_phone"
+            | "corrupt_national_id"
+            | "corrupt_siren"
+            | "national_id_corrupt"
+            | "phone_corrupt"
+            | "email_corrupt"
             | "siren_corrupt" => {
-                if contains_any(&lower, &["email", "phone", "ssn", "pan", "passport", "account", "medicare", "license", "siren", "national_id"]) {
+                if contains_any(
+                    &lower,
+                    &[
+                        "email",
+                        "phone",
+                        "ssn",
+                        "pan",
+                        "passport",
+                        "account",
+                        "medicare",
+                        "license",
+                        "siren",
+                        "national_id",
+                    ],
+                ) {
                     matched.push(field.name().clone());
                 }
             }
-            "extra" | "name_null" | "dob_null" | "blocking_fail_initial"
-            | "blocking_fail_partial" | "fuzzy_match" | "phonetic" => {
+            "extra"
+            | "name_null"
+            | "dob_null"
+            | "blocking_fail_initial"
+            | "blocking_fail_partial"
+            | "fuzzy_match"
+            | "phonetic" => {
                 // Skip email-like columns — extra noise destroys '@'
                 if lower.contains("email") {
                     continue;
                 }
-                if contains_any(&lower, &[
-                    "name", "first", "last", "given", "family",
-                    "phone", "address", "street", "city",
-                    "company", "legal", "trading", "note", "comment",
-                ]) {
+                if contains_any(
+                    &lower,
+                    &[
+                        "name", "first", "last", "given", "family", "phone", "address", "street",
+                        "city", "company", "legal", "trading", "note", "comment",
+                    ],
+                ) {
                     matched.push(field.name().clone());
                 }
             }
@@ -484,7 +511,7 @@ pub fn run_pipeline(
         let mut fk_builder = arrow::array::StringBuilder::new();
         let mut hn_slices: Vec<RecordBatch> = Vec::new();
         let mut mids = Vec::with_capacity(plan.n_base);
-        let mut last_batch: Option<(RecordBatch, usize)> = None;
+        let mut last_batch: Option<(RecordBatch, usize, usize)> = None;
         let mut batch_rng = Rng::new(config.seed.wrapping_add(100));
         let mut fk_rng = Rng::new(config.seed.wrapping_add(42));
 
@@ -594,17 +621,17 @@ pub fn run_pipeline(
 
             global_rid_offset += batch_n;
             mids.extend(batch_mids);
-            last_batch = Some((rb, batch_n));
+            last_batch = Some((rb, batch_n, offset));
         }
 
         // Save FK pool for cross-entity remapping
-        if let Some(id_col) = &plan.identifier_col {
-            if fk_builder.len() > 0 {
-                let schema = Arc::new(Schema::new(vec![Field::new(id_col, DataType::Utf8, true)]));
-                let arr = Arc::new(fk_builder.finish()) as ArrayRef;
-                if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr]) {
-                    fk_pools.insert(plan.name.clone(), pool_rb);
-                }
+        if let Some(id_col) = &plan.identifier_col
+            && fk_builder.len() > 0
+        {
+            let schema = Arc::new(Schema::new(vec![Field::new(id_col, DataType::Utf8, true)]));
+            let arr = Arc::new(fk_builder.finish()) as ArrayRef;
+            if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr]) {
+                fk_pools.insert(plan.name.clone(), pool_rb);
             }
         }
 
@@ -632,7 +659,7 @@ pub fn run_pipeline(
 
         // ── Dups (use last_batch) ──────────────────────────────────────────
         let has_dups: bool = plan.noise_types.iter().any(|n| n.count > 0);
-        if has_dups && let Some((ref last_rb, last_n)) = last_batch {
+        if has_dups && let Some((ref last_rb, last_n, last_offset)) = last_batch {
             let t_d0 = std::time::Instant::now();
             let mut dup_batches: Vec<RecordBatch> = Vec::new();
             let mut dup_mids_buf: Vec<String> = Vec::new();
@@ -681,7 +708,10 @@ pub fn run_pipeline(
                         let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng, &exclude)?;
                         let mut mb = Vec::with_capacity(*cnt);
                         for j in 0..*cnt {
-                            mb.push(mslice[idxs.value(j) as usize % mslice.len()].clone());
+                            // `idxs` are local to `last_rb` (0..last_n); the matching
+                            // master_id lives at `last_offset + local_idx` in the
+                            // full per-entity master_id array, not at `local_idx`.
+                            mb.push(mslice[last_offset + idxs.value(j) as usize].clone());
                         }
                         Ok((noisy, mb))
                     }));
