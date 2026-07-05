@@ -26,4 +26,5 @@ test_seed_determinism.py
 run_all_tests.ps1
 demo/
 dupehell_pool_data_audit_checklist.md
+dupehell_final_audit_prompt.md
 benchmark/

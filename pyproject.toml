@@ -9,9 +9,6 @@ description = "Synthetic multi-domain dataset generator for record linkage bench
 license = "MIT"
 requires-python = ">=3.8"
 dependencies = ["pydantic>=2.0"]
-
-[project.optional-dependencies]
-demo = ["splink", "pandas", "pyarrow"]
 keywords = ["synthetic-data", "record-linkage", "entity-resolution", "deduplication", "benchmarking"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -25,6 +22,9 @@ classifiers = [
 authors = [
     { name = "DupeHell Contributors" },
 ]
+
+[project.optional-dependencies]
+demo = ["splink", "pandas", "pyarrow"]
 
 [project.urls]
 Repository = "https://github.com/vntoinekaio/DupeHell"
