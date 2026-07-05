@@ -51,15 +51,7 @@ impl ColumnDef {
         self
     }
 
-    pub fn with_nullable(mut self, nullable: bool) -> Self {
-        self.nullable = nullable;
-        self
-    }
 
-    pub fn with_null_rate(mut self, rate: f64) -> Self {
-        self.null_rate = rate;
-        self
-    }
 }
 
 // ── Int range lookup ──────────────────────────────────────────────────────
