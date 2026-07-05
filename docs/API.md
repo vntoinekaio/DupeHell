@@ -263,7 +263,7 @@ dupehell [OPTIONS]
 | `--hard-neg-ratio <FLOAT>` | `0.3` | Hard negative ratio |
 | `--singleton-master-fraction <FLOAT>` | `0.1` | Singleton fraction |
 | `--locale <LOCALE>` | `en` | Pool locale: `en`, `fr`, `de`, `es`, `it`, `pt` |
-| `--pools-dir <PATH>` | `../dupehell/assets/pools` | Pool data directory |
+| `--pools-dir <PATH>` | `assets/pools` | Pool data directory |
 | `--schemas-dir <PATH>` | `schemas` | Schema directory |
 
 ### Library

@@ -118,7 +118,8 @@ def generate(
         GenerateResult with paths and statistics.
 
     Raises:
-        ValueError: If ``size < 10`` or ``output_format`` is not ``"ipc"`` or ``"parquet"``.
+        ValueError: If ``size`` is out of ``[10, 500_000_000]`` or ``output_format``
+            is not ``"ipc"`` or ``"parquet"``.
         FileNotFoundError: If the schema file for *domain* is not found.
             Includes a list of available domains.
         ValidationError (pydantic): If the schema JSON is malformed.
@@ -133,6 +134,11 @@ def generate(
     """
     if size < 10:
         raise ValueError(f"size must be >= 10, got {size}")
+    if size > 500_000_000:
+        raise ValueError(
+            f"size must be <= 500000000 (500M), got {size}. Larger runs risk "
+            "exhausting memory in a single process; split into multiple runs instead."
+        )
     if output_format not in ("ipc", "parquet"):
         raise ValueError(f"output_format must be 'ipc' or 'parquet', got {output_format!r}")
     if schemas_dir is None:

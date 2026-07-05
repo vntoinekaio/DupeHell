@@ -777,7 +777,7 @@ pub fn run_pipeline(
         }
     }
     let t1e_elapsed = t1e.elapsed().as_secs_f64();
-    eprintln!("[sink_profile] write={_t_write:.3}s calls={_write_calls}");
+    log::debug!("[sink_profile] write={_t_write:.3}s calls={_write_calls}");
 
     // ── Phase 2: Hard negatives ────────────────────────────────────────────
     let t2 = std::time::Instant::now();
@@ -996,7 +996,7 @@ pub fn run_pipeline(
 
     let duration = t_start.elapsed().as_secs_f64();
 
-    eprintln!(
+    log::debug!(
         "[pipeline_timing] alloc={:.3}s  sink={:.3}s  hn={:.3}s  merge={:.3}s  meta={:.3}s/dup={:.3}s/write={:.3}s  gt(comp={:.3}s+write={:.3}s)={:.3}s  total={:.3}s",
         t_alloc,
         t1e_elapsed,

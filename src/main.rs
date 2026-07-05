@@ -86,7 +86,7 @@ struct Cli {
 
     #[arg(
         long,
-        default_value = "../dupehell/assets/pools",
+        default_value = "assets/pools",
         help = "Path to asset pools directory"
     )]
     pools_dir: PathBuf,
@@ -140,6 +140,16 @@ fn main() {
 
     if cli.size < 10 {
         eprintln!("Error: size must be >= 10, got {}", cli.size);
+        std::process::exit(1);
+    }
+    const MAX_SIZE: usize = 500_000_000;
+    if cli.size > MAX_SIZE {
+        eprintln!(
+            "Error: size must be <= {MAX_SIZE} (500M), got {}. \
+             Larger runs risk exhausting memory in a single process; \
+             split into multiple runs instead.",
+            cli.size
+        );
         std::process::exit(1);
     }
 
