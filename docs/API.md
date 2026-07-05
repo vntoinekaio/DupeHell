@@ -14,8 +14,12 @@ def generate(
     seed: int = 42,
     difficulty: str = "medium",
     output_dir: str = ".",
-    pools_dir: str = "./assets/pools",
-    schemas_dir: str = "./schemas",
+    locale: str = "en",
+    pools_dir: str | None = None,
+    schemas_dir: str | None = None,
+    output_format: str = "ipc",
+    hard_neg_ratio: float = 0.3,
+    singleton_master_fraction: float = 0.10,
 ) -> GenerateResult
 ```
 
@@ -30,8 +34,12 @@ Generate a synthetic dataset for a given domain.
 | `seed` | `int` | `42` | PRNG seed for deterministic output. |
 | `difficulty` | `str` | `"medium"` | One of `"light"`, `"medium"`, `"hard"`, `"hell"`. Controls duplicate ratios and noise intensity. |
 | `output_dir` | `str` | `"."` | Directory for output `.ipc` / `.parquet` files. |
-| `pools_dir` | `str` | `"./assets/pools"` | Path to pool data files. |
-| `schemas_dir` | `str` | `"./schemas"` | Path to domain schema files. |
+| `locale` | `str` | `"en"` | Pool locale: `"en"`, `"fr"`, `"de"`, `"es"`, `"it"`, `"pt"`. Falls back to `"en"` if unavailable in a pool file. |
+| `pools_dir` | `str \| None` | `None` | Path to pool data files. If `None`, tries `./assets/pools` then the package-installed path. |
+| `schemas_dir` | `str \| None` | `None` | Path to domain schema files. If `None`, tries `./schemas` then the package-installed path. |
+| `output_format` | `str` | `"ipc"` | `"ipc"` or `"parquet"`. |
+| `hard_neg_ratio` | `float` | `0.3` | Hard-negative ratio relative to `size`. |
+| `singleton_master_fraction` | `float` | `0.10` | Fraction of masters with only one record. |
 
 **Returns:** [`GenerateResult`](#generateresult)
 
@@ -63,7 +71,8 @@ def estimate_difficulty(
     size: int = 1_000_000,
     seed: int = 42,
     difficulty: str = "medium",
-    schemas_dir: str = "./schemas",
+    schemas_dir: str | None = None,
+    hard_neg_ratio: float = 0.3,
 ) -> DifficultyReport
 ```
 
@@ -78,7 +87,8 @@ generating data.
 | `size` | `int` | `1000000` | Number of base records |
 | `seed` | `int` | `42` | PRNG seed |
 | `difficulty` | `str` | `"medium"` | `light`, `medium`, `hard`, or `hell` |
-| `schemas_dir` | `str` | `"./schemas"` | Path to schema files |
+| `schemas_dir` | `str \| None` | `None` | Path to schema files. If `None`, tries `./schemas` then the package-installed path. |
+| `hard_neg_ratio` | `float` | `0.3` | Hard-negative ratio relative to `size` (must match the ratio used for actual generation for the estimate to be meaningful). |
 
 **Returns:** [`DifficultyReport`](#difficultyreport)
 
@@ -154,6 +164,7 @@ Load and validate a domain schema file with Pydantic.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `name` | `str` | Name of this HN type (informational) |
 | `entity_type` | `str` | Entity type for hard negatives |
 | `config_json` | `str` | JSON string with HN configuration |
 
@@ -222,11 +233,11 @@ print(f"Max F1: {report.f1_max:.3f}")               # e.g., 0.892
 print(f"Guaranteed FP: {report.guaranteed_fp}")       # e.g. 3200
 print(f"Guaranteed FN: {report.guaranteed_fn}")       # e.g. 5100
 
-# Per-entity breakdown
+# Per-entity breakdown (EntityDifficulty has no f1_max — only totals do)
 for ed in report.entities:
-    print(f"{ed.name}: F1_max={ed.f1_max:.3f}, "
-          f"guaranteed_FP={ed.guaranteed_fp}, "
-          f"guaranteed_FN={ed.guaranteed_fn}")
+    print(f"{ed.name}: true_pairs={ed.true_pairs}, "
+          f"guaranteed_fp={ed.guaranteed_fp}, "
+          f"guaranteed_fn={ed.guaranteed_fn}")
 ```
 
 ---
@@ -251,6 +262,7 @@ dupehell [OPTIONS]
 | `--output-dir <PATH>` | `.` | Output directory |
 | `--hard-neg-ratio <FLOAT>` | `0.3` | Hard negative ratio |
 | `--singleton-master-fraction <FLOAT>` | `0.1` | Singleton fraction |
+| `--locale <LOCALE>` | `en` | Pool locale: `en`, `fr`, `de`, `es`, `it`, `pt` |
 | `--pools-dir <PATH>` | `../dupehell/assets/pools` | Pool data directory |
 | `--schemas-dir <PATH>` | `schemas` | Schema directory |
 

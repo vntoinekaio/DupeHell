@@ -3,6 +3,10 @@
 Generates realistic synthetic datasets with controlled duplicate rates,
 hard negatives, and noise profiles for benchmarking record linkage systems.
 
+Educational and research use only — no real PII is used or generated. See
+https://github.com/vntoinekaio/DupeHell/blob/master/ETHICS.md for the full
+policy and prohibited uses.
+
 Quick start::
 
     >>> from dupehell import generate, estimate_difficulty, DOMAINS

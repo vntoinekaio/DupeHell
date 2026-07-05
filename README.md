@@ -4,7 +4,7 @@
 # DupeHell2
 
 **Synthetic data generator for record linkage benchmarking.**  
-Rust + Python — 40 domains, 500K+ rec/s, 110 tests.
+Rust + Python — 40 domains, 500K+ rec/s, 113 tests.
 
 Generate synthetic multi-entity datasets with realistic schemas, controlled duplicates,
 hard negatives, and ground-truth labels. Designed for benchmarking entity
@@ -95,7 +95,7 @@ See [docs/BENCHMARK.md](docs/BENCHMARK.md) for full details.
 ## Architecture
 
 ```
-lib.rs / main.rs → Context (132 pools) → PipelineConfig → run_pipeline()
+lib.rs / main.rs → Context (133 pools) → PipelineConfig → run_pipeline()
                                                           │
          ┌────────────────────────────────────────────────┼────────────────────┐
          ▼                                                ▼                    ▼
@@ -140,7 +140,7 @@ Technology · Telecom · Travel
 ## Development
 
 ```bash
-cargo test        # 110 tests, ~30s
+cargo test        # 113 tests, ~30s
 cargo build --release
 cargo clippy      # 0 warnings
 cargo fmt --check # all formatted

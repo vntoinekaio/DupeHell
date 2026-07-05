@@ -50,7 +50,7 @@ dupehell/
 │       └── extra.rs
 ├── pyproject.toml          # Python packaging (maturin)
 ├── schemas/*.json          # 40 domain schemas
-├── assets/pools/           # 132 pool files (multi-lang)
+├── assets/pools/           # 133 pool files (multi-lang)
 ├── docs/                  # Documentation
 └── CODE_OF_CONDUCT.md      # Contributor Covenant
 ```
@@ -60,7 +60,7 @@ dupehell/
 ## Testing
 
 ```bash
-cargo test          # 110 tests, ~30s
+cargo test          # 113 tests, ~30s
 ```
 
 ---

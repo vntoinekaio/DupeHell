@@ -1,3 +1,6 @@
+<!-- DupeHell -- MIT License . Educational Use Only -->
+<!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ../../ETHICS.md for prohibited uses. -->
+
 # Pool Distribution Notes
 
 ## Design choice: uniform sampling
@@ -28,3 +31,9 @@ via `rng.next_usize(len)`. This is intentional:
 
 - `gender.json` (6 values): Realistic short list for most domains
 - `gender_inclusive.json` (90+ values): Exhaustive diversity-oriented list
+
+## Ethical use
+
+These distribution choices exist for benchmarking fairness only — they are
+not a statement about real-world demographics. See [ETHICS.md](../../ETHICS.md)
+at the project root for the full policy and prohibited uses.
