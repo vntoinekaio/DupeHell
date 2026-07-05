@@ -213,10 +213,7 @@ mod tests {
     #[test]
     fn test_pool_values_lookup() {
         use crate::context::Context;
-        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("dupehell/assets/pools");
+        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/pools");
         let ctx = Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap();
         let mut rng = Rng::new(42);
         let arr = pool_values("first_name", 10, &mut rng, &ctx);
