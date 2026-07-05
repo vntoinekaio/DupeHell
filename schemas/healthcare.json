@@ -46,8 +46,7 @@
         {
           "name": "ssn",
           "type": "string",
-          "null_rate_default": 0.7,
-          "sensitivity": "high"
+          "null_rate_default": 0.7
         },
         {
           "name": "address_line1",
@@ -82,14 +81,12 @@
         {
           "name": "medicare_num",
           "type": "string",
-          "null_rate_default": 0.9,
-          "sensitivity": "medium"
+          "null_rate_default": 0.9
         },
         {
           "name": "medicaid_num",
           "type": "string",
-          "null_rate_default": 0.9,
-          "sensitivity": "medium"
+          "null_rate_default": 0.9
         },
         {
           "name": "cur_pcp_prov_id",

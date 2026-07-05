@@ -28,8 +28,7 @@
         {
           "name": "ssn",
           "type": "string",
-          "null_rate_default": 0.05,
-          "sensitivity": "high"
+          "null_rate_default": 0.05
         },
         {
           "name": "email",
