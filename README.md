@@ -4,7 +4,7 @@
 # DupeHell2
 
 **Synthetic data generator for record linkage benchmarking.**  
-Rust + Python — 41 domains, 500K+ rec/s, 110 tests.
+Rust + Python — 40 domains, 500K+ rec/s, 110 tests.
 
 Generate synthetic multi-entity datasets with realistic schemas, controlled duplicates,
 hard negatives, and ground-truth labels. Designed for benchmarking entity
@@ -61,8 +61,8 @@ Each run produces:
 
 ## Features
 
-- **41 domains** — KYC, publishing, fintech, blockchain, technology, banking,
-  healthcare, ecommerce, automotive, cybersecurity, gaming, and 31 more
+- **40 domains** — KYC, publishing, fintech, blockchain, technology, banking,
+  healthcare, ecommerce, automotive, cybersecurity, gaming, and 30 more
 - **Multi-entity schemas** — 3–5 entity types per domain (person, account,
   address, transaction)
 - **Controlled noise** — typos, OCR errors, homoglyphs, date swaps, phonetic
@@ -129,7 +129,7 @@ lib.rs / main.rs → Context (132 pools) → PipelineConfig → run_pipeline()
 
 Academia · Agriculture · Automotive · Aviation · Banking · Biotech ·
 Blockchain · Construction · CRM · Cybersecurity · Ecommerce · Education ·
-Energy · Fashion · Fintech · Food & Beverage · Gaming · Government ·
+Energy · Fashion · Fintech · Food & Beverage · Gaming ·
 Healthcare · Hospitality · HR · Insurance · KYC · Legal · Logistics ·
 Manufacturing · Maritime · Media · Mining · Nonprofit · Pharma · Publishing ·
 Real Estate · Renewable Energy · Retail · Social Media · Sports · Supply Chain ·

@@ -18,7 +18,7 @@ cargo test
 ## Architecture
 
 DupeHell2 generates synthetic datasets for record linkage benchmarking across
-41 domains. Available as a Rust CLI binary or a Python package (`pip install dupehell`).
+40 domains. Available as a Rust CLI binary or a Python package (`pip install dupehell`).
 
 ```
 dupehell/
@@ -49,7 +49,7 @@ dupehell/
 │       ├── companies.rs
 │       └── extra.rs
 ├── pyproject.toml          # Python packaging (maturin)
-├── schemas/*.json          # 41 domain schemas
+├── schemas/*.json          # 40 domain schemas
 ├── assets/pools/           # 132 pool files (multi-lang)
 ├── docs/                  # Documentation
 └── CODE_OF_CONDUCT.md      # Contributor Covenant

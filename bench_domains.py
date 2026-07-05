@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark dupehell across all 41 domains — one-shot per domain, mesure RAM + temps."""
+"""Benchmark dupehell across all 40 domains — one-shot per domain, mesure RAM + temps."""
 
 import argparse
 import json
@@ -16,7 +16,7 @@ from dupehell import DOMAINS, estimate_difficulty, generate
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Benchmark all 41 domains")
+    p = argparse.ArgumentParser(description="Benchmark all 40 domains")
     p.add_argument(
         "-n",
         type=int,
