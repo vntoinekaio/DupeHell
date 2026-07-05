@@ -28,8 +28,7 @@
         {
           "name": "ssn",
           "type": "string",
-          "null_rate_default": 0.7,
-          "sensitivity": "high"
+          "null_rate_default": 0.7
         },
         {
           "name": "birth_date",
@@ -49,8 +48,7 @@
         },
         {
           "name": "credit_score",
-          "type": "int",
-          "sensitivity": "medium"
+          "type": "int"
         },
         {
           "name": "risk_score",

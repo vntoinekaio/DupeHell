@@ -24,3 +24,4 @@ test_seed_determinism.py
 # Test infrastructure
 run_all_tests.ps1
 demo/
+dupehell_pool_data_audit_checklist.md
