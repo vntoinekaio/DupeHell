@@ -57,6 +57,25 @@ included.
 
 ---
 
+## What DupeHell is NOT
+
+- **Not** a tool for generating realistic PII for any real-world application
+- **Not** a substitute for real-world data evaluation — synthetic benchmarks measure algorithmic ceilings, not production readiness
+- **Not** suitable for training production ML models — synthetic distributions do not generalize to real record linkage scenarios
+- **Not** a compliance solution — it does not generate data that satisfies any privacy regulation (GDPR, CCPA, etc.)
+
+**Not** a source of demographic or identity-coded data — pool files in `assets/pools/` are intentionally **domain-agnostic** and contain no ethnic, national, religious, or identity-based coding. Do not use them to construct datasets targeting protected categories.
+
+---
+
+## Pool Data Integrity
+
+DupeHell pools are intentionally **domain-agnostic** and contain **no ethnic,
+national, religious, or identity-based coding**. All names are mixed across
+languages and locales; no pool is segmented by protected categories.
+
+---
+
 ## Attribution
 
 If you use DupeHell in your research, please cite the project:
