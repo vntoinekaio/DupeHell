@@ -31,11 +31,14 @@ impl Rng {
     }
 
     /// Return a random `usize` in `0..bound`.
+    ///
+    /// Uses Lemire's multiply-shift method instead of `% bound`, which would
+    /// otherwise skew low values for any `bound` that doesn't divide 2^64.
     pub fn next_usize(&mut self, bound: usize) -> usize {
         if bound <= 1 {
             return 0;
         }
-        (self.next_u64() as usize) % bound
+        ((self.next_u64() as u128 * bound as u128) >> 64) as usize
     }
 
     /// Return a random `f64` in `[0, 1)`.
