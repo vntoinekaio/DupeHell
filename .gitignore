@@ -8,6 +8,7 @@ __pycache__/
 ROADMAP.md
 test-agent.md
 metrics.md
+claude.md
 
 # Generated test reports
 *_report.json
@@ -25,3 +26,4 @@ test_seed_determinism.py
 run_all_tests.ps1
 demo/
 dupehell_pool_data_audit_checklist.md
+benchmark/

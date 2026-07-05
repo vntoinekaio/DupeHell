@@ -42,10 +42,13 @@ applicable laws and regulations in their jurisdiction.
 
 ## Responsible disclosure
 
-If you discover a security vulnerability or a potential misuse vector, please
-report it responsibly by opening an issue on GitHub or contacting the
-maintainers directly. Do not disclose vulnerabilities publicly until they have
-been addressed.
+If you discover a potential misuse vector in this project's design (e.g. a
+way the tool could be abused beyond its intended scope), please report it
+responsibly rather than disclosing it publicly first.
+
+For actual **security vulnerabilities** (code-level issues, dependency CVEs,
+etc.), do not open a public issue — see [SECURITY.md](docs/SECURITY.md) for
+the private reporting process.
 
 ---
 
@@ -64,15 +67,13 @@ included.
 - **Not** suitable for training production ML models — synthetic distributions do not generalize to real record linkage scenarios
 - **Not** a compliance solution — it does not generate data that satisfies any privacy regulation (GDPR, CCPA, etc.)
 
-**Not** a source of demographic or identity-coded data — pool files in `assets/pools/` are intentionally **domain-agnostic** and contain no ethnic, national, religious, or identity-based coding. Do not use them to construct datasets targeting protected categories.
-
----
-
-## Pool Data Integrity
-
-DupeHell pools are intentionally **domain-agnostic** and contain **no ethnic,
-national, religious, or identity-based coding**. All names are mixed across
-languages and locales; no pool is segmented by protected categories.
+**Not** a source of demographic or identity-coded data — pool files in
+`assets/pools/` are intentionally **domain-agnostic**: no pool is segmented
+by ethnicity, nationality, religion, or any other protected category, and
+names are mixed across languages and locales. Do not use them to construct
+datasets targeting protected categories. See
+[assets/pools/README.md](assets/pools/README.md) for the full data design
+principles.
 
 ---
 

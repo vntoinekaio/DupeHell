@@ -20,12 +20,12 @@ via `build_metadata_map()` in `src/pipeline.rs`.
 
 ### Injection points
 
-| File | Line | Mechanism |
-|------|------|-----------|
-| `src/pipeline.rs` | 1018 | `build_full_schema()` → `.with_metadata(build_metadata_map(config))` |
-| `src/pipeline.rs` | 394–395 | IPC FileWriter uses `full_arc` → metadata injected automatically |
-| `src/pipeline.rs` | 898–908 | IPC → Parquet conversion → `set_key_value_metadata(meta_kv)` |
-| `src/gt.rs` | 102, 154 | GT schema → `.with_metadata(metadata.clone())` |
+| File | Mechanism |
+|------|-----------|
+| `src/pipeline.rs` | `build_full_schema()` → `.with_metadata(build_metadata_map(config))` |
+| `src/pipeline.rs` | IPC `FileWriter` uses the metadata-carrying schema → injected automatically |
+| `src/pipeline.rs` | IPC → Parquet conversion → `set_key_value_metadata(meta_kv)` |
+| `src/gt.rs` | GT schema → `.with_metadata(metadata.clone())` (`write_gt_ipc` / `write_gt_parquet`) |
 
 ### Injected metadata
 
@@ -74,63 +74,52 @@ and a secret.
 
 ### Cryptography
 
-- New dependency: `sha2 = "0.10"` in `Cargo.toml`
-- Secret: `CANARY_SECRET = sha256("DupeHell-CANARY-v0.4-educational-use-only-2026")`
-- Signature for a run: `sig = sha256(CANARY_SECRET + domain + size.to_string() + seed.to_string())[:16 hex chars]`
+- Dependency: `sha2 = "0.10"` in `Cargo.toml`
+- Secret: `CANARY_SECRET = "DupeHell-CANARY-v0.4-educational-use-only-2026"`
+- Signature for a run: `sig = sha256(CANARY_SECRET + domain + size.to_string() + seed.to_string())`, hex-encoded, first 8 bytes (`compute_sig()` in `src/canary.rs`)
 
-### Canary schema
+### What's actually generated
 
-For each entity, inject `CANARY_COUNT` rows with:
+For each entity, `generate_all()` (`src/canary.rs`) generates `CANARY_COUNT = 3`
+rows through the **normal entity generator** (so they look like ordinary
+records), then overrides two fields:
 
 | Field | Value |
 |-------|-------|
-| `record_id` | `"CANARY-{i}-{sig[:8]}"` (i = canary index) |
-| `domain` | `config.domain` |
-| `entity_type` | `plan.name` |
-| `master_id` | `"CANARY-MASTER-{sig}"` |
-| `first_name` | `"DupeHellCanary"` |
-| `last_name` | `"Verify-{i}"` |
-| `email` | `"{sig[:12]}@canary.dupehell.data"` |
-| `dob` | `"2000-01-01"` |
-| `ssn` | `"000-00-{sig[:4]}"` |
-| `phone` | `"+1-000-000-{sig[:4]}"` |
-| *All other fields* | `NULL` or default |
+| `record_id` | normal record-id sequence (not canary-specific) |
+| `master_id` | `"CANARY-{sig}-{j:03}-{ent_idx}"` (`j` = canary index, `ent_idx` = entity index) |
+| `email` (whichever of `email_address`/`business_email`/`email` exists) | `"{sig}-{ent_idx}-{i}@canary.dupehell.data"` |
+| every other column | left as normally generated — **not** overridden |
 
-Canaries are aligned with the full schema via `add_metadata_and_align` → missing
-columns as NULL.
+Canaries are aligned with the full schema via `add_metadata_and_align`.
 
 ### Injection point
 
-In `src/pipeline.rs`, after the entity loop (Phase 1) and before Phase 2 (HN):
+In `src/pipeline.rs`, after the entity loop and before the ground-truth
+concat step, `canary::generate_all()` is called once per pipeline run:
 
-1. Build a `RecordBatch` with `CANARY_COUNT` rows per entity
-2. Pass through `add_metadata_and_align` for schema alignment
-3. `writer.write(&canary_rb)` — write to the IPC stream
-4. Canaries do not participate in GT (they get `match_type = singleton`)
+1. Generate `CANARY_COUNT` rows per entity via the normal entity generator
+2. Override the email column with the canary signature
+3. Align to the full schema and `writer.write(&aligned)` into the IPC stream
+4. Canaries get `match_type = "canary"` in the ground truth (excluded from
+   `exact_dup`/`hard_neg`/`unique` counts)
 
 ### Exclusions
 
-- Canaries MUST NOT be in FK pools (no FK references to them)
-- Canaries MUST NOT be in HN pools
+- Canaries are generated independently of the base entity loop — not
+  inserted into FK pools or HN pools
 - Canaries have no duplicates
-- GT treats them as natural singletons (unique master_id)
 
-### Verification
+### Manual verification
 
-```bash
-dupehell verify --dataset kyc_*.ipc
-# → ✓ Canary found: domain=kyc size=10000000 seed=42 (3 records)
-# → ✓ Signature valid: sig=4a1f... matches computed hash
-```
+There is no `verify` CLI subcommand — canaries are checked by inspecting the
+data directly:
 
-Verification algorithm:
-
-1. Read the file (IPC or Parquet)
-2. Filter rows where `email` ends with `@canary.dupehell.data`
-3. Extract `sig` from the email prefix
-4. Recompute `sha256(CANARY_SECRET + domain + size + seed)` from schema data
-5. Compare first 16 hex chars
-6. Verify `first_name == "DupeHellCanary"` and `last_name` pattern
+1. Filter rows where `email` ends with `@canary.dupehell.data`
+2. Extract `sig` from the email prefix
+3. Recompute `sha256(CANARY_SECRET + domain + size + seed)`, hex-encode, and
+   compare the first 16 hex chars
+4. Confirm `master_id` matches the `"CANARY-{sig}-..."` pattern
 
 ### Robustness
 
@@ -152,74 +141,55 @@ below 0.1 % per field.
 
 ### Watermarked fields
 
-| Generator | File | Line | Watermark position |
-|-----------|------|------|--------------------|
-| `gen_ssn` | `buf_gen.rs` | 110–127 | last 3 digits |
-| `gen_phone` | `buf_gen.rs` | 88–107 | last 3 digits |
-| `gen_pan` | `buf_gen.rs` | 144–163 | last 2 digits |
-| `gen_medicare` | `buf_gen.rs` | 166–184 | last 2 digits |
-| `gen_office_phone` | `buf_gen.rs` | 187–212 | last 3 digits |
-| `gen_passport` | `buf_gen.rs` | 215–228 | last 2 digits |
-| `gen_acct_num` | `buf_gen.rs` | 243–251 | last 2 digits |
-| `gen_barcode` | `fast_template.rs` | 220–224 | last 3 digits (via `buf_digits`) |
-| `gen_iccid` | `fast_template.rs` | 338–344 | last 3 digits (via `buf_digits`) |
-| `gen_upc` | `fast_template.rs` | 398–402 | last 2 digits (via `buf_digits`) |
+| Generator (`buf_gen.rs`) | Watermark position |
+|---------------------------|--------------------|
+| `buf_ssn` | last 3 digits |
+| `buf_phone` | last 3 digits |
+| `buf_pan` | last 2 digits |
+| `buf_medicare` | last 2 digits |
+| `buf_office_phone` | last 3 digits |
+| `buf_passport` | last 2 digits |
+| `buf_acct_num` | last 2 digits |
+
+Plus 3 templates in `fast_template.rs` (`gen_barcode`, `gen_iccid`, `gen_upc`)
+that call `buf_digits()` with the watermark mask.
 
 ### Algorithm
 
-```rust
-fn watermark_value(raw_value: u64, width: usize, col_seed: u64, config: &PipelineConfig) -> u64 {
-    let wm = compute_watermark(config, col_seed);
-    let wm_bits = watermark_bits(width);
-    let mask = 10u64.pow(wm_bits);
-    (raw_value / mask) * mask + (wm % mask)
-}
+`Context::enable_watermark(domain, size, seed)` (`src/context.rs`) computes,
+for each of the 10 field tags (fixed hex codes such as `0x53534e` for "SSN",
+`0x50484f4e` for "PHONE", …):
 
-fn compute_watermark(config: &PipelineConfig, col_seed: u64) -> u64 {
-    let input = format!(
-        "{}|{}|{}|{}|{}",
-        WATERMARK_SECRET, config.domain, config.size, config.seed, col_seed
-    );
-    let hash = sha256(input.as_bytes());
-    u64::from_le_bytes(hash[..8].try_into().unwrap())
-}
+```rust
+let input = format!("{secret}{domain}{size}{seed}{tag}");
+let hash = Sha256::digest(input.as_bytes());
+let wm = u64::from_le_bytes(hash[..8].try_into().unwrap());
 ```
 
-The `col_seed` is a per-generator constant (e.g. `42` for SSN, `137` for phone,
-etc.) → each column type receives a different watermark, making cross-column
-correlation impossible.
+and stores `wm` in `watermark_map: HashMap<tag, wm>`. Generators then fetch
+the masked digits for their tag via `ctx.watermark_3digits(tag)` (`wm % 1000`)
+or `ctx.watermark_2digits(tag)` (`wm % 100`) and splice them into the last N
+digits of the generated value through `buf_digits()`. Each tag hashes
+independently, so no two column types share the same watermark.
 
 ### Modified functions
 
-- **`context.rs`**: Stores `watermark_map` (HashMap <col_tag, masked_value>)
-  computed via `enable_watermark()`
-- **`buf_gen.rs`**: 10 generators call `ctx.watermark_3digits(tag)` or
-  `ctx.watermark_2digits(tag)` before `buf_digits`
-- **`fast_template.rs`**: 3 templates (barcode, ICCID, UPC) use
-  `ctx.watermark_3digits(tag)` via `buf_digits`
+- **`context.rs`**: `Context::enable_watermark()` builds the `watermark_map`;
+  `watermark_3digits()` / `watermark_2digits()` expose it to generators
+- **`buf_gen.rs`**: 7 generators (`buf_ssn`, `buf_phone`, `buf_pan`,
+  `buf_medicare`, `buf_office_phone`, `buf_passport`, `buf_acct_num`) call
+  `ctx.watermark_3digits()`/`watermark_2digits()` before `buf_digits()`
+- **`fast_template.rs`**: 3 templates (`gen_barcode`, `gen_iccid`, `gen_upc`)
+  do the same via `buf_digits()`
 
-### Watermark context passing
+`enable_watermark()` is called once in `main.rs` after building the pipeline
+config, before `run_pipeline()`.
 
-`WatermarkCtx` is stored in `Context` at startup
-(`ctx.enable_watermark(domain, size, seed)`) and accessible from all generators
-via `&Context`.
+### Manual verification
 
-### Verification
-
-```rust
-fn verify_watermark(rb: &RecordBatch, domain: &str, size: usize, seed: u64) -> bool {
-    for col_idx in WATERMARKED_COLUMNS {
-        let col = rb.column(col_idx);
-        // Extract last N digits from each value
-        // Verify sha256(secret + domain + size + seed + col_seed)
-    }
-}
-```
-
-```bash
-dupehell verify --dataset kyc_*.parquet
-# → ✓ Numeric watermark verified: 10/10 columns match
-```
+There is no `verify` CLI subcommand — checking a column means recomputing
+`sha256(secret + domain + size + seed + tag)` for the relevant field tag and
+comparing its masked digits against the last N digits of each value.
 
 ### Robustness
 
@@ -248,34 +218,8 @@ sha2 = "0.10"
 
 ---
 
-## Verification command
-
-```bash
-dupehell verify --dataset <path.ipc|path.parquet>
-```
-
-New clap subcommand in `src/main.rs`:
-
-```rust
-#[derive(Subcommand)]
-enum Commands {
-    Generate(CliGenerate),
-    Verify(VerifyArgs),
-}
-
-#[derive(Args)]
-struct VerifyArgs {
-    #[arg(long)]
-    dataset: String,
-}
-```
-
----
-
 ## Implementation order
 
 1. **Layer 1** (metadata) — 10 min, prerequisite for others
-2. **Layer 2** (canaries) — 30 min, adds `sha2`, `verify` subcommand, injection
-   + verification logic
-3. **Layer 3** (numeric watermark) — 1–2 h, modification of 10 generators,
-   extended verification
+2. **Layer 2** (canaries) — 30 min, adds `sha2`, injection logic
+3. **Layer 3** (numeric watermark) — 1–2 h, modification of 10 generators
