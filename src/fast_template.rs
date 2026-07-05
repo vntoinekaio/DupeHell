@@ -778,7 +778,13 @@ use std::collections::HashMap;
 static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| {
     let mut m: HashMap<&'static str, TemplateFn> = HashMap::new();
     // Email
-    for k in &["email", "email_address", "business_email", "personal_email", "support_email"] {
+    for k in &[
+        "email",
+        "email_address",
+        "business_email",
+        "personal_email",
+        "support_email",
+    ] {
         m.insert(*k, gen_email);
     }
     // Phone
@@ -1103,10 +1109,7 @@ mod tests {
     use arrow::array::AsArray;
 
     fn test_ctx() -> Context {
-        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("dupehell/assets/pools");
+        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/pools");
         Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap()
     }
 

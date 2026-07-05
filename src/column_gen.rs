@@ -50,8 +50,6 @@ impl ColumnDef {
         self.pool_name = Some(pool.to_string());
         self
     }
-
-
 }
 
 // ── Int range lookup ──────────────────────────────────────────────────────
@@ -365,10 +363,7 @@ mod tests {
     use arrow::array::{Array, AsArray};
 
     fn test_ctx() -> Context {
-        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("dupehell/assets/pools");
+        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/pools");
         Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap()
     }
 
@@ -400,7 +395,7 @@ mod tests {
         assert_eq!(a.len(), 10);
         for i in 0..10 {
             let v = a.value(i);
-            assert!(v >= 0 && v < 100000, "int64[{i}] = {v}");
+            assert!((0..100000).contains(&v), "int64[{i}] = {v}");
         }
     }
 
@@ -412,7 +407,7 @@ mod tests {
         assert_eq!(a.len(), 10);
         for i in 0..10 {
             let v = a.value(i);
-            assert!(v >= 300 && v <= 850, "credit_score[{i}] = {v}");
+            assert!((300..=850).contains(&v), "credit_score[{i}] = {v}");
         }
     }
 
@@ -427,7 +422,10 @@ mod tests {
         assert_eq!(a.len(), 10);
         for i in 0..10 {
             let v = a.value(i);
-            assert!(v >= 50000.0 && v <= 5_000_000.0, "sale_price[{i}] = {v}");
+            assert!(
+                (50000.0..=5_000_000.0).contains(&v),
+                "sale_price[{i}] = {v}"
+            );
         }
     }
 
@@ -506,7 +504,7 @@ mod tests {
         assert_eq!(a.len(), 10);
         for i in 0..10 {
             let v = a.value(i);
-            assert!(v >= 300 && v <= 850, "credit_score[{i}] = {v}");
+            assert!((300..=850).contains(&v), "credit_score[{i}] = {v}");
         }
     }
 
@@ -582,8 +580,8 @@ mod tests {
             let y: i64 = parts[0].parse().unwrap();
             let m: usize = parts[1].parse().unwrap();
             let d: usize = parts[2].parse().unwrap();
-            assert!(y >= 1940 && y <= 2005, "year {y} out of range");
-            assert!(m >= 1 && m <= 12, "month {m} out of range");
+            assert!((1940..=2005).contains(&y), "year {y} out of range");
+            assert!((1..=12).contains(&m), "month {m} out of range");
             let max = match m {
                 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
                 4 | 6 | 9 | 11 => 30,
@@ -596,17 +594,11 @@ mod tests {
                 }
                 _ => unreachable!(),
             };
-            assert!(
-                d >= 1 && d <= max,
-                "date[{i}] = {v}: day {d} > max {max}"
-            );
+            assert!(d >= 1 && d <= max, "date[{i}] = {v}: day {d} > max {max}");
             months_seen.insert(m);
             days_seen.insert(d);
         }
-        assert!(
-            months_seen.len() >= 11,
-            "only saw months: {months_seen:?}"
-        );
+        assert!(months_seen.len() >= 11, "only saw months: {months_seen:?}");
         assert!(days_seen.len() >= 28, "only saw days: {days_seen:?}");
     }
 
@@ -630,10 +622,7 @@ mod tests {
             months_seen.insert(m);
             days_seen.insert(d);
         }
-        assert!(
-            months_seen.len() >= 11,
-            "only saw months: {months_seen:?}"
-        );
+        assert!(months_seen.len() >= 11, "only saw months: {months_seen:?}");
         assert!(days_seen.len() >= 28, "only saw days: {days_seen:?}");
     }
 

@@ -493,10 +493,7 @@ mod tests {
     use arrow::array::{Array, AsArray};
 
     fn test_ctx() -> Context {
-        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("dupehell/assets/pools");
+        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/pools");
         Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap()
     }
 
