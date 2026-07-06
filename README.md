@@ -119,12 +119,12 @@ lib.rs / main.rs → Context (133 pools) → PipelineConfig → run_pipeline()
   entity_gen.rs                                    fk_remap.rs           hn_common.rs
   (batch gen)                                      (FK cross-ref)        (hard negatives)
          │                                                │                    │
-         └──────────────────────────────────────────────────────┴────────────────────┘
+         └────────────────────────────────────────────────┴────────────────────┘
                                                           ▼
-                                                  pipeline.rs
-                                           (merge + GT + IPC write)
+                                                     pipeline.rs
+                                               (merge + GT + IPC write)
                                                           ▼
-                                                 {domain}.ipc + GT.ipc
+                                               {domain}.ipc + GT.ipc
 ```
 
 ---
