@@ -97,7 +97,6 @@ fn estimate_difficulty(
 }
 
 #[pyfunction]
-#[allow(unused_variables)]
 #[allow(clippy::too_many_arguments)]
 fn generate(
     domain: &str,
@@ -123,13 +122,14 @@ fn generate(
 
     let mut ctx = Context::new(domain, locale, pools_dir).map_err(PyValueError::new_err)?;
 
-    let run_id = format!("{}_{}", domain, chrono_now());
+    let run_id = schema::deterministic_run_id(domain, size, seed, difficulty);
     let config = build_pipeline_config(
         domain,
         size,
         seed,
         difficulty,
         hard_neg_ratio,
+        singleton_master_fraction,
         &schema,
         &run_id,
         output_format,

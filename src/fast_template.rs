@@ -794,6 +794,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
         "home_phone",
         "prov_phone",
         "phone",
+        "support_phone",
         "destination_number",
     ] {
         m.insert(*k, gen_phone);

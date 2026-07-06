@@ -71,6 +71,10 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
     ),
 ];
 
+pub fn default_singleton_master_fraction(difficulty: &str) -> f64 {
+    difficulty_settings(difficulty).singleton
+}
+
 fn difficulty_settings(difficulty: &str) -> DifficultySettings {
     DIFFICULTY_MAP
         .iter()
@@ -96,6 +100,19 @@ pub fn chrono_now() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     format!("{:x}", start.as_secs())
+}
+
+/// Deterministic run ID derived from generation parameters, so the same
+/// (domain, size, seed, difficulty) always produces the same output filename
+/// regardless of output format (IPC vs Parquet) or how many times it's run.
+pub fn deterministic_run_id(domain: &str, size: usize, seed: u64, difficulty: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    domain.hash(&mut hasher);
+    size.hash(&mut hasher);
+    seed.hash(&mut hasher);
+    difficulty.hash(&mut hasher);
+    format!("{}_{:x}", domain, hasher.finish())
 }
 
 /// Load and parse a domain schema JSON file.
@@ -154,6 +171,7 @@ pub fn build_pipeline_config(
     seed: u64,
     difficulty: &str,
     hard_neg_ratio: f64,
+    singleton_master_fraction: f64,
     schema: &DomainSchema,
     run_id: &str,
     output_format: &str,
@@ -164,14 +182,26 @@ pub fn build_pipeline_config(
     if schema.entities.is_empty() {
         return Err(format!("schema for domain '{domain}' has no entities"));
     }
+    if !(0.0..=1.0).contains(&singleton_master_fraction) {
+        return Err(format!(
+            "singleton_master_fraction must be in [0.0, 1.0], got {singleton_master_fraction}"
+        ));
+    }
     let ds = difficulty_settings(difficulty);
     let total = size;
 
-    let n_singleton = (total as f64 * ds.singleton) as usize;
+    let n_singleton = (total as f64 * singleton_master_fraction) as usize;
     let n_doublet_float = total as f64 * ds.doublet;
     let mut n_doublet = n_doublet_float as usize;
     if !n_doublet.is_multiple_of(2) {
         n_doublet -= 1;
+    }
+    if n_singleton + n_doublet > total {
+        return Err(format!(
+            "singleton_master_fraction {singleton_master_fraction} leaves no room for this \
+             difficulty's doublet share ({:.2}); reduce singleton_master_fraction",
+            ds.doublet
+        ));
     }
     let mut n_triplet = total - n_singleton - n_doublet;
     let r = n_triplet % 3;

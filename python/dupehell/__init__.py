@@ -37,6 +37,9 @@ __all__ = [
 GenerateResult = _GenerateResult
 DifficultyReport = _DifficultyReport
 
+_VALID_DIFFICULTIES = {"light", "medium", "hard", "hell"}
+_VALID_LOCALES = {"en", "fr", "de", "es", "it", "pt"}
+
 
 def _default_schemas_dir() -> str:
     local = _Path("./schemas")
@@ -141,6 +144,10 @@ def generate(
         )
     if output_format not in ("ipc", "parquet"):
         raise ValueError(f"output_format must be 'ipc' or 'parquet', got {output_format!r}")
+    if difficulty not in _VALID_DIFFICULTIES:
+        raise ValueError(f"difficulty must be one of {_VALID_DIFFICULTIES}, got {difficulty!r}")
+    if locale.lower() not in _VALID_LOCALES:
+        raise ValueError(f"locale must be one of {_VALID_LOCALES}, got {locale!r}")
     if schemas_dir is None:
         schemas_dir = _default_schemas_dir()
     if pools_dir is None:

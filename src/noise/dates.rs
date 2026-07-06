@@ -45,26 +45,49 @@ pub fn noise_dates(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     Arc::new(builder.finish())
 }
 
+/// Splits a "YYYY-MM-DD HH:MM:SS"-style string into its date part and an
+/// optional " HH:MM:SS" time suffix, so date-only transforms never mangle
+/// the time component (a naive split on '-'/'/'  spills the time digits
+/// into the date fields, e.g. "01 20:00:00-07-2024").
+fn split_datetime(s: &str) -> (&str, Option<&str>) {
+    match s.split_once(' ') {
+        Some((date_part, time_part)) => (date_part, Some(time_part)),
+        None => (s, None),
+    }
+}
+
+fn rejoin_datetime(date_part: String, time_part: Option<&str>) -> String {
+    match time_part {
+        Some(t) => format!("{date_part} {t}"),
+        None => date_part,
+    }
+}
+
 /// Reformats DD-MM-YYYY to YYYY/MM/DD (or reverse).
 fn flip_format(s: &str) -> String {
+    let (date_part, time_part) = split_datetime(s);
     // Try DD-MM-YYYY → YYYY/MM/DD
-    let parts: Vec<&str> = s.split(['-', '/']).collect();
-    if parts.len() == 3 {
+    let parts: Vec<&str> = date_part.split(['-', '/']).collect();
+    let result = if parts.len() == 3 {
         if parts[0].len() == 2 && parts[2].len() == 4 {
             // DD-MM-YYYY → YYYY/MM/DD
-            return format!("{}/{}/{}", parts[2], parts[1], parts[0]);
-        }
-        if parts[0].len() == 4 {
+            format!("{}/{}/{}", parts[2], parts[1], parts[0])
+        } else if parts[0].len() == 4 {
             // YYYY/MM/DD → DD-MM-YYYY
-            return format!("{}-{}-{}", parts[2], parts[1], parts[0]);
+            format!("{}-{}-{}", parts[2], parts[1], parts[0])
+        } else {
+            date_part.to_string()
         }
-    }
-    s.to_string()
+    } else {
+        date_part.to_string()
+    };
+    rejoin_datetime(result, time_part)
 }
 
 /// Fuzz year by ±{10, 1, decade, year}, clamped 1930-2025.
 fn fuzz_year(s: &str, rng: &mut Rng) -> String {
-    let parts: Vec<&str> = s.split(['-', '/']).collect();
+    let (date_part, time_part) = split_datetime(s);
+    let parts: Vec<&str> = date_part.split(['-', '/']).collect();
     if parts.len() != 3 {
         return s.to_string();
     }
@@ -87,7 +110,7 @@ fn fuzz_year(s: &str, rng: &mut Rng) -> String {
         _ => -1,
     };
     let new_year = (year + offset).clamp(1930, 2025);
-    parts
+    let result = parts
         .iter()
         .enumerate()
         .map(|(j, p)| {
@@ -98,21 +121,24 @@ fn fuzz_year(s: &str, rng: &mut Rng) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("-")
+        .join("-");
+    rejoin_datetime(result, time_part)
 }
 
 /// Normalize separators to DD-MM-YYYY format.
 fn normalize_dash(s: &str) -> String {
-    s.replace('/', "-")
+    let (date_part, time_part) = split_datetime(s);
+    rejoin_datetime(date_part.replace('/', "-"), time_part)
 }
 
 /// Swap day and month in a date string.
 fn swap_dm(s: &str) -> String {
-    let mut parts: Vec<&str> = s.split(['-', '/']).collect();
+    let (date_part, time_part) = split_datetime(s);
+    let mut parts: Vec<&str> = date_part.split(['-', '/']).collect();
     if parts.len() == 3 && parts[0].len() <= 2 && parts[1].len() <= 2 {
         parts.swap(0, 1);
     }
-    parts.join("-")
+    rejoin_datetime(parts.join("-"), time_part)
 }
 
 /// Mix date formats: randomly choose one of 4 format variants.
@@ -131,7 +157,8 @@ pub fn noise_dates_mix(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
             continue;
         }
         let s = src.value(i);
-        let parts: Vec<&str> = s.split(['-', '/']).collect();
+        let (date_part, time_part) = split_datetime(s);
+        let parts: Vec<&str> = date_part.split(['-', '/']).collect();
         if parts.len() != 3 {
             builder.append_value(s);
             continue;
@@ -149,9 +176,9 @@ pub fn noise_dates_mix(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
             1 => format!("{}/{}/{}", month, day, year),
             2 => format!("{}/{}/{}", year, month, day),
             3 => format!("{}/{}/{}", day, month, year_short),
-            _ => s.to_string(),
+            _ => date_part.to_string(),
         };
-        builder.append_value(&result);
+        builder.append_value(rejoin_datetime(result, time_part));
     }
     *rng = rng2;
     Arc::new(builder.finish())
@@ -173,7 +200,8 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
             continue;
         }
         let s = src.value(i);
-        let parts: Vec<&str> = s.split(['-', '/']).collect();
+        let (date_part, time_part) = split_datetime(s);
+        let parts: Vec<&str> = date_part.split(['-', '/']).collect();
         if parts.len() != 3 {
             builder.append_value(s);
             continue;
@@ -200,7 +228,7 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
         };
         let mut new_parts: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
         new_parts[year_idx] = format!("{:04}", new_year);
-        builder.append_value(new_parts.join("-"));
+        builder.append_value(rejoin_datetime(new_parts.join("-"), time_part));
     }
     *rng = rng2;
     Arc::new(builder.finish())
