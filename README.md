@@ -78,7 +78,7 @@ Each run produces:
 
 ## Performance
 
-All runs on Lenovo ThinkPad P16 Gen 2 — Intel Core i7-13850HX (20C/28T),
+All runs on Lenovo ThinkPad P16 Gen 2 — Intel Core i7 13th,
 32 GB DDR5, SK Hynix 1 TB NVMe. Difficulty **hell**, IPC format.
 Throughput averaged across all 40 domains.
 
