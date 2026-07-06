@@ -28,3 +28,5 @@ run_all_tests.ps1
 dupehell_pool_data_audit_checklist.md
 dupehell_final_audit_prompt.md
 benchmark/
+
+docs/WATERMARK.md
