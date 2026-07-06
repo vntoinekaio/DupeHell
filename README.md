@@ -24,9 +24,9 @@ pip install dupehell
 from dupehell import generate
 
 r = generate(domain="publishing", size=10000, seed=42, difficulty="hard")
-print(r.dataset)       # ./data/publishing_<hash>.ipc
-print(r.ground_truth)  # ./data/publishing_<hash>_ground_truth.ipc
-print(r.total_records) # 1030
+print(r.dataset)       # ./publishing_<hash>.ipc
+print(r.ground_truth)  # ./publishing_<hash>_ground_truth.ipc
+print(r.total_records) # ~10150
 ```
 
 ### CLI (Rust)
