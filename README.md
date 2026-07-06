@@ -1,7 +1,7 @@
 <!-- DupeHell -- MIT License . Educational Use Only -->
 <!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
-# DupeHell
+### DupeHell
 
 <img src="docs/assets/logo_dupehell-3-w.png" alt="DupeHell Logo" width="400">
 
