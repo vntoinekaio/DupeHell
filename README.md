@@ -80,17 +80,32 @@ Each run produces:
 
 ## Performance
 
-Domain **kyc**, difficulty **medium**, single-thread.
+All runs on Lenovo ThinkPad P16 Gen 2 — Intel Core i7-13850HX (20C/28T),
+32 GB DDR5, SK Hynix 1 TB NVMe. Difficulty **hell**, IPC format.
+Throughput averaged across all 40 domains.
 
-| Size | Records | Time | rec/s |
-|------|---------|------|-------|
-| 100K | 101 506 | 2.6 s | 38 K |
-| 1M | 1 015 006 | 3.9 s | 261 K |
-| 10M | 10 150 006 | 17.3 s | 586 K |
-| 50M | 50 750 006 | 74.5 s | 681 K |
-| 75M | 76 125 006 | 121.1 s | 628 K |
+### Multi-domain throughput (hell, IPC)
 
-See [docs/BENCHMARK.md](docs/BENCHMARK.md) for full details.
+| Size | Ø rec/s | Fastest domain | Slowest domain | Range |
+|------|---------|----------------|----------------|-------|
+| 1M | 280,175 | academia 3.2s | supplychain 4.5s | 1.3s |
+| 5M | 632,487 | aviation 6.8s | crm 10.5s | 3.7s |
+| 10M | 677,579 | academia 11.8s | manufacturing 23.6s | 11.8s |
+| 20M | 746,520 | academia 21.6s | kyc 34.6s | 13.0s |
+
+### IPC vs Parquet
+
+Difficulty **hell**, domain-average throughput.
+
+| Size | IPC | Parquet |
+|------|-----|---------|
+| 1M | 280.2K rec/s | 228.6K rec/s |
+| 5M | 632.5K rec/s | 445.5K rec/s |
+| 10M | 677.6K rec/s | 456.1K rec/s |
+| 20M | 746.5K rec/s | — |
+
+See [docs/BENCHMARK.md](docs/BENCHMARK.md) for KYC medium-difficulty
+single-domain metrics and full per-domain breakdowns at all sizes.
 
 ---
 
