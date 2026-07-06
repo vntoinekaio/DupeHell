@@ -7,7 +7,7 @@ name = "dupehell"
 version = "0.4.0"
 description = "Synthetic multi-domain dataset generator for record linkage benchmarking — Educational Use Only"
 license = "MIT"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = ["pydantic>=2.0"]
 keywords = ["synthetic-data", "record-linkage", "entity-resolution", "deduplication", "benchmarking"]
 classifiers = [

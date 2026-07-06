@@ -1,13 +1,13 @@
 <!-- DupeHell -- MIT License . Educational Use Only -->
 <!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
-# Contributing to DupeHell2
+# Contributing to DupeHell
 
 ## Quick start
 
 ```bash
 git clone https://github.com/vntoinekaio/DupeHell
-cd dupehell2
+cd dupehell
 cargo build --release
 cargo test
 ./target/release/dupehell --domain kyc --size 1000 --seed 42
@@ -17,7 +17,7 @@ cargo test
 
 ## Architecture
 
-DupeHell2 generates synthetic datasets for record linkage benchmarking across
+DupeHell generates synthetic datasets for record linkage benchmarking across
 40 domains. Available as a Rust CLI binary or a Python package (`pip install dupehell`).
 
 ```

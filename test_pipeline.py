@@ -1,4 +1,4 @@
-"""Pipeline correctness tests for dupehell2."""
+"""Pipeline correctness tests for dupehell."""
 import sys, subprocess, os, tempfile, hashlib, glob, shutil
 import polars as pl
 from dupehell import generate, estimate_difficulty
@@ -6,7 +6,7 @@ from dupehell import generate, estimate_difficulty
 BASE = tempfile.mkdtemp(prefix="dh_test_")
 print(f"Working in {BASE}")
 
-REPO = r"C:\Users\Admin\Desktop\dupehell2"
+REPO = r"C:\Users\Admin\Desktop\dupehell"
 SCHEMAS = os.path.join(REPO, "schemas")
 POOLS = os.path.join(REPO, "assets", "pools")
 EXE = os.path.join(REPO, "target", "release", "dupehell.exe")

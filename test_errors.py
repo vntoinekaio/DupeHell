@@ -1,4 +1,4 @@
-"""Exhaustive error path tests for dupehell2 CLI and Python API."""
+"""Exhaustive error path tests for dupehell CLI and Python API."""
 
 import subprocess
 import sys
@@ -7,7 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 
-BINARY = r"C:\Users\Admin\Desktop\dupehell2\target\release\dupehell.exe"
+BINARY = r"C:\Users\Admin\Desktop\dupehell\target\release\dupehell.exe"
 FRENCH_WORDS = [
     "Le chemin", "introuvable", "système", "fichier",
     "erreur", "accès", "refusé", "non trouvé", "impossible",

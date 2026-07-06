@@ -15,7 +15,7 @@ pip install dupehell
 
 ```bash
 git clone https://github.com/vntoinekaio/DupeHell
-cd dupehell2
+cd dupehell
 cargo build --release
 ./target/release/dupehell --domain kyc --size 1000 --seed 42
 ```

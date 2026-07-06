@@ -1,7 +1,9 @@
 <!-- DupeHell -- MIT License . Educational Use Only -->
 <!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
-# DupeHell2
+# DupeHell
+
+<img src="docs/assets/logo_dupehell-3.png" alt="DupeHell Logo" width="400">
 
 **Synthetic data generator for record linkage benchmarking.**  
 Rust + Python — 40 domains, 500K+ rec/s, 113 tests.
@@ -134,6 +136,19 @@ Healthcare · Hospitality · HR · Insurance · KYC · Legal · Logistics ·
 Manufacturing · Maritime · Media · Mining · Nonprofit · Pharma · Publishing ·
 Real Estate · Renewable Energy · Retail · Social Media · Sports · Supply Chain ·
 Technology · Telecom · Travel
+
+---
+
+## Roadmap
+
+- **Graph generation** — model entity relationships as property graphs
+  (nodes, edges, attributes) for graph-based entity resolution and
+  community detection benchmarking
+- **Synthetic identity module** — generate realistic digital identities
+  (browser fingerprints, device profiles, network patterns) for
+  cybersecurity simulation and threat detection research
+- **Performance** — continue pushing throughput via smarter batching,
+  column-level parallelism, and reduced allocations
 
 ---
 
