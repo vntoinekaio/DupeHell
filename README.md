@@ -3,7 +3,7 @@
 
 # DupeHell
 
-<img src="docs/assets/logo_dupehell-3.png" alt="DupeHell Logo" width="400">
+<img src="docs/assets/logo_dupehell-3-w.png" alt="DupeHell Logo" width="400">
 
 **Synthetic data generator for record linkage benchmarking.**  
 Rust + Python — 40 domains, 500K+ rec/s, 113 tests.
@@ -138,7 +138,6 @@ lib.rs / main.rs → Context (133 pools) → PipelineConfig → run_pipeline()
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Architecture, development workflow |
 | [docs/BENCHMARK.md](docs/BENCHMARK.md) | Performance metrics (up to 75M records) |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security policy & vulnerability reporting |
-| [docs/WATERMARK.md](docs/WATERMARK.md) | Watermarking & provenance layers |
 
 ---
 
