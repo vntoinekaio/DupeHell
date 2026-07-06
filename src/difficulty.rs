@@ -224,13 +224,15 @@ pub fn estimate_difficulty(
     hard_neg_ratio: f64,
     schema: &DomainSchema,
 ) -> Result<DifficultyReport, String> {
-    let run_id = format!("{}_{}", domain, crate::schema::chrono_now());
+    let run_id = crate::schema::deterministic_run_id(domain, size, seed, difficulty);
+    let singleton_master_fraction = crate::schema::default_singleton_master_fraction(difficulty);
     let config = build_pipeline_config(
         domain,
         size,
         seed,
         difficulty,
         hard_neg_ratio,
+        singleton_master_fraction,
         schema,
         &run_id,
         "ipc",

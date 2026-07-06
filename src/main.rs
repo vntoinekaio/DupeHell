@@ -172,13 +172,15 @@ fn main() {
         std::process::exit(1);
     }
 
-    let run_id = format!("{}_{}", cli.domain, dupehell::schema::chrono_now());
+    let run_id =
+        dupehell::schema::deterministic_run_id(&cli.domain, cli.size, cli.seed, &cli.difficulty);
     let config = match build_pipeline_config(
         &cli.domain,
         cli.size,
         cli.seed,
         &cli.difficulty,
         cli.hard_neg_ratio,
+        cli.singleton_master_fraction,
         &schema,
         &run_id,
         &effective_format,

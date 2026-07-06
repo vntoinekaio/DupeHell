@@ -238,46 +238,33 @@ pub fn generate_null_mask(n: usize, rate: f64, rng: &mut Rng) -> BooleanArray {
     builder.finish()
 }
 
-/// Apply nulls to a StringArray based on rate.
-/// Returns a new StringArray with some entries nulled.
+/// Apply nulls to any Arrow array based on rate.
+/// Works for all column types (String, Date/Datetime as strings, Int, Float, Boolean).
 pub fn apply_null_rate(arr: &dyn arrow::array::Array, rate: f64, rng: &mut Rng) -> ArrayRef {
-    use arrow::array::StringArray;
     if rate <= 0.0 {
         return arr.slice(0, arr.len());
     }
     let n = arr.len();
-    let mask = generate_null_mask(n, rate, rng);
-    let src = arr.as_any().downcast_ref::<StringArray>().unwrap();
-    // Ensure first element is not null (Polars inference)
-    let needs_swap = mask.value(0);
-    let mut builder = StringBuilder::with_capacity(n, 16);
-    if needs_swap {
-        // Find first non-null, swap with index 0
-        let swap_idx = (1..n).find(|&i| !mask.value(i)).unwrap_or(0);
+    let raw_mask = generate_null_mask(n, rate, rng);
+    // Ensure first element is not null (Polars schema inference reads row 0).
+    let mask = if raw_mask.value(0) {
+        let swap_idx = (1..n).find(|&i| !raw_mask.value(i));
+        let mut builder = BooleanArray::builder(n);
         for i in 0..n {
             let is_null = if i == 0 {
                 false
-            } else if i == swap_idx {
+            } else if Some(i) == swap_idx {
                 true
             } else {
-                mask.value(i)
+                raw_mask.value(i)
             };
-            if is_null {
-                builder.append_null();
-            } else {
-                builder.append_value(src.value(i));
-            }
+            builder.append_value(is_null);
         }
+        builder.finish()
     } else {
-        for i in 0..n {
-            if mask.value(i) {
-                builder.append_null();
-            } else {
-                builder.append_value(src.value(i));
-            }
-        }
-    }
-    Arc::new(builder.finish())
+        raw_mask
+    };
+    arrow::compute::nullif(arr, &mask).expect("nullif: mask length must match array length")
 }
 
 // ── Main dispatch ─────────────────────────────────────────────────────────
@@ -309,7 +296,7 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
     }
 
     // Stage 3: Type-based dispatch
-    match col.col_type {
+    let arr: ArrayRef = match col.col_type {
         ColType::Boolean => gen_boolean(n, rng),
         ColType::Int => gen_int64(&col.name, n, rng),
         ColType::Float => gen_float64(&col.name, n, rng),
@@ -318,42 +305,27 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
         ColType::String => {
             // Pool lookup
             if let Some(ref pn) = col.pool_name {
-                let arr = pool_values(pn, n, rng, ctx);
-                return if col.nullable && col.null_rate > 0.0 {
-                    apply_null_rate(&*arr, col.null_rate, rng)
-                } else {
-                    arr
-                };
-            }
-            if let Some(pn) = guess_pool_name(&col.name) {
-                let arr = pool_values(pn, n, rng, ctx);
-                return if col.nullable && col.null_rate > 0.0 {
-                    apply_null_rate(&*arr, col.null_rate, rng)
-                } else {
-                    arr
-                };
-            }
-            // _id fallback (after pool lookup, before word fallback)
-            if col.name.ends_with("_id") || col.name == "id" {
+                pool_values(pn, n, rng, ctx)
+            } else if let Some(pn) = guess_pool_name(&col.name) {
+                pool_values(pn, n, rng, ctx)
+            } else if col.name.ends_with("_id") || col.name == "id" {
+                // _id fallback (after pool lookup, before word fallback)
                 let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
                 let mut builder = StringBuilder::with_capacity(n, 12);
                 for i in 0..n {
                     builder.append_value(format!("{}-{:07}", prefix, i));
                 }
-                return if col.nullable && col.null_rate > 0.0 {
-                    apply_null_rate(&*Arc::new(builder.finish()), col.null_rate, rng)
-                } else {
-                    Arc::new(builder.finish())
-                };
-            }
-            // Fallback: "word" pool
-            let arr = pool_values("word", n, rng, ctx);
-            if col.nullable && col.null_rate > 0.0 {
-                apply_null_rate(&*arr, col.null_rate, rng)
+                Arc::new(builder.finish())
             } else {
-                arr
+                // Fallback: "word" pool
+                pool_values("word", n, rng, ctx)
             }
         }
+    };
+    if col.nullable && col.null_rate > 0.0 {
+        apply_null_rate(&*arr, col.null_rate, rng)
+    } else {
+        arr
     }
 }
 
