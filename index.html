@@ -200,11 +200,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
       <img src="docs/assets/logo_dupehell-3.png" alt="DupeHell" class="hero-logo">
     </div>
     <p class="hero-tagline">Synthetic data generator for record linkage benchmarking</p>
-    <div class="hero-badges">
-      <div class="hero-badge"><span class="num">40</span><span class="lbl">Domains</span></div>
-      <div class="hero-badge"><span class="num">500K+</span><span class="lbl">rec/s throughput</span></div>
-      <div class="hero-badge"><span class="num">113</span><span class="lbl">Tests</span></div>
-    </div>
+
     <div class="install-bar">
       <code>pip install dupehell</code>
       <button class="copy-btn" data-copy="pip install dupehell">Copy</button>
@@ -224,10 +220,16 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
           <span class="label">Python</span>
         </div>
         <pre><span class="kw">from</span> dupehell <span class="kw">import</span> <span class="fn">generate</span>
-<span class="fn">generate</span>(
+
+<span class="fn">r</span> = <span class="fn">generate</span>(
     <span class="flag">domain</span>=<span class="str">"publishing"</span>,
-    <span class="flag">size</span>=<span class="num">10000</span>
-)</pre>
+    <span class="flag">size</span>=<span class="num">10000</span>,
+    <span class="flag">seed</span>=<span class="num">42</span>,
+    <span class="flag">difficulty</span>=<span class="str">"hard"</span>
+)
+<span class="fn">print</span>(<span class="fn">r</span>.dataset)
+<span class="fn">print</span>(<span class="fn">r</span>.ground_truth)
+<span class="fn">print</span>(<span class="fn">r</span>.total_records)</pre>
       </div>
       <div class="code-panel">
         <div class="panel-head">
@@ -236,7 +238,8 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
         </div>
         <pre><span class="prompt">$</span> cargo run --release -- \
     <span class="flag">--domain</span> kyc \
-    <span class="flag">--size</span> <span class="num">100000</span></pre>
+    <span class="flag">--size</span> <span class="num">100000</span> \
+    <span class="flag">--seed</span> <span class="num">42</span></pre>
       </div>
     </div>
   </div>
