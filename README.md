@@ -71,8 +71,6 @@ Each run produces:
 - **Ground truth** — full match labels (exact_dup, hard_neg, singleton) with
   cluster statistics
 - **Deterministic** — seeded RNG (`rand_pcg`) for reproducible output
-- **Watermarking** — SHA256-based 3-layer fingerprinting (metadata, canary
-  records, numeric steganography)
 
 ---
 
