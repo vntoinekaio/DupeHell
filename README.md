@@ -1,7 +1,7 @@
 <!-- DupeHell -- MIT License . Educational Use Only -->
 <!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
-<img src="docs/assets/logo_dupehell-3-w.png" alt="DupeHell Logo" width="400">
+<img src="https://raw.githubusercontent.com/vntoinekaio/DupeHell/master/docs/assets/logo_dupehell-3-w.png" alt="DupeHell Logo" width="400">
 
 **Synthetic data generator for record linkage benchmarking.**  
 Rust + Python — 40 domains, 500K+ rec/s, 113 tests.
