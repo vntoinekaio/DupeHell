@@ -148,6 +148,8 @@ def generate(
         raise ValueError(f"difficulty must be one of {_VALID_DIFFICULTIES}, got {difficulty!r}")
     if locale.lower() not in _VALID_LOCALES:
         raise ValueError(f"locale must be one of {_VALID_LOCALES}, got {locale!r}")
+    if hard_neg_ratio < 0.0:
+        raise ValueError(f"hard_neg_ratio must be >= 0.0, got {hard_neg_ratio}")
     if schemas_dir is None:
         schemas_dir = _default_schemas_dir()
     if pools_dir is None:
@@ -207,6 +209,10 @@ def estimate_difficulty(
         >>> f"{est.f1_max:.1%}"
         '83.3%'
     """
+    if difficulty not in _VALID_DIFFICULTIES:
+        raise ValueError(f"difficulty must be one of {_VALID_DIFFICULTIES}, got {difficulty!r}")
+    if hard_neg_ratio < 0.0:
+        raise ValueError(f"hard_neg_ratio must be >= 0.0, got {hard_neg_ratio}")
     if schemas_dir is None:
         schemas_dir = _default_schemas_dir()
     raw = _estimate(domain, size, seed, difficulty, schemas_dir, hard_neg_ratio)
