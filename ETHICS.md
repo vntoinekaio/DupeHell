@@ -92,6 +92,3 @@ If you use DupeHell in your research, please cite the project:
 ```
 
 ---
-
-*This document reflects the ethical stance of the DupeHell project and may be
-updated as the project evolves.*
