@@ -33,7 +33,18 @@ pub struct HnSchema {
 struct DifficultySettings {
     singleton: f64,
     doublet: f64,
-    dup_noise_count: usize,
+    /// Noise types active for this difficulty, weighted equally. Curated
+    /// explicitly per level (rather than derived from a truncated,
+    /// order-dependent countdown) so that "broad" noise types — `typo` and
+    /// `visual`, which both corrupt name+address+phone+company on the same
+    /// record at once (see `pipeline::noise_type_targets_column`) — never
+    /// end up a *larger* share of the mix at a lower difficulty than at a
+    /// higher one. A prior countdown-weight scheme caused exactly that:
+    /// medium (4 active types) put 70% of its noise budget on typo+visual,
+    /// vs. only ~42% for hell (8 active types), making medium duplicates
+    /// *more* likely to have every strong matching field wiped out at once
+    /// than hell duplicates, despite medium being meant as the easier tier.
+    noise_types: &'static [&'static str],
 }
 
 const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
@@ -42,7 +53,7 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
         DifficultySettings {
             singleton: 0.50,
             doublet: 0.30,
-            dup_noise_count: 2,
+            noise_types: &["names", "dates"],
         },
     ),
     (
@@ -50,7 +61,7 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
         DifficultySettings {
             singleton: 0.30,
             doublet: 0.40,
-            dup_noise_count: 4,
+            noise_types: &["typo", "names", "dates", "identifiers"],
         },
     ),
     (
@@ -58,7 +69,16 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
         DifficultySettings {
             singleton: 0.20,
             doublet: 0.30,
-            dup_noise_count: 8,
+            noise_types: &[
+                "typo",
+                "visual",
+                "names",
+                "dates",
+                "identifiers",
+                "addresses",
+                "companies",
+                "extra",
+            ],
         },
     ),
     (
@@ -66,7 +86,16 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
         DifficultySettings {
             singleton: 0.10,
             doublet: 0.20,
-            dup_noise_count: 12,
+            noise_types: &[
+                "typo",
+                "visual",
+                "names",
+                "dates",
+                "identifiers",
+                "addresses",
+                "companies",
+                "extra",
+            ],
         },
     ),
 ];
@@ -82,17 +111,6 @@ fn difficulty_settings(difficulty: &str) -> DifficultySettings {
         .map(|(_, s)| s.clone())
         .unwrap_or_else(|| DIFFICULTY_MAP[1].1.clone())
 }
-
-const NOISE_TYPES: &[&str] = &[
-    "typo",
-    "visual",
-    "names",
-    "dates",
-    "identifiers",
-    "addresses",
-    "companies",
-    "extra",
-];
 
 /// Generate a domain-unique run ID based on the current Unix timestamp (hex).
 pub fn chrono_now() -> String {
@@ -262,10 +280,8 @@ pub fn build_pipeline_config(
         }
     }
 
-    let noise_count = ds.dup_noise_count.min(NOISE_TYPES.len());
-    let noise_weights_str: Vec<f64> = (0..noise_count).map(|i| (noise_count - i) as f64).collect();
-    let w_sum: f64 = noise_weights_str.iter().sum();
-    let noise_weights: Vec<f64> = noise_weights_str.iter().map(|w| w / w_sum).collect();
+    let noise_count = ds.noise_types.len();
+    let noise_weights: Vec<f64> = vec![1.0 / noise_count as f64; noise_count];
 
     let mut entity_plans = Vec::new();
     for entity in &schema.entities {
@@ -282,7 +298,7 @@ pub fn build_pipeline_config(
             if count_sum < n_dup {
                 *counts.last_mut().unwrap_or(&mut 0) += n_dup - count_sum;
             }
-            for (i, noise_type) in NOISE_TYPES.iter().enumerate().take(noise_count) {
+            for (i, noise_type) in ds.noise_types.iter().enumerate() {
                 if counts[i] == 0 {
                     continue;
                 }

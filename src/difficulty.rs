@@ -277,15 +277,26 @@ pub fn estimate_difficulty(
         let n_dup: usize = plan.noise_types.iter().map(|n| n.count).sum();
         let true_pairs = n_dup / 2;
 
-        // Column analysis: noise intensity scales with how many noise plan entries apply
-        let noise_intensity = (plan.noise_types.len() as f64 / 8.0).clamp(0.0, 1.0);
+        // Column analysis: each duplicate is hit by exactly one of `plan.noise_types`
+        // (see `pipeline::apply_noise_to_batch`), so a column's chance of being
+        // touched is the summed weight of the active types that actually target it
+        // — not a flat scalar. Reuses `pipeline::noise_type_targets_column`, the
+        // same predicate real generation uses, so this can't drift from reality.
+        let n_dup_f = n_dup.max(1) as f64;
         let mut col_reliability = Vec::new();
         let mut best_fn_reliability = 0.0f64;
         let mut best_fp_reliability = 0.0f64; // higher = more FP-safe
 
         for col in &cols {
             let base_damage = base_noise_damage(&col.name, &col.col_type);
-            let damage = base_damage * noise_intensity;
+            let p_touched: f64 = plan
+                .noise_types
+                .iter()
+                .filter(|n| crate::pipeline::noise_type_targets_column(&n.noise_type, &col.name))
+                .map(|n| n.count as f64 / n_dup_f)
+                .sum::<f64>()
+                .min(1.0);
+            let damage = base_damage * p_touched;
             let util = match_utility(&col.name, &col.col_type);
             let is_hn_id = poisoned.contains(&col.name);
             let hn_risk = if is_hn_id { 1.0 } else { 0.0 };
