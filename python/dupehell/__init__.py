@@ -45,9 +45,14 @@ def _default_schemas_dir() -> str:
     local = _Path("./schemas")
     if local.is_dir():
         return "./schemas"
-    pkg = _Path(__file__).resolve().parent.parent.parent / "schemas"
-    if pkg.is_dir():
-        return str(pkg)
+    # Installed wheel layout: schemas/ bundled as a sibling of the dupehell/ package dir.
+    installed = _Path(__file__).resolve().parent.parent / "schemas"
+    if installed.is_dir():
+        return str(installed)
+    # Source checkout layout: python/dupehell/__init__.py -> repo root.
+    repo = _Path(__file__).resolve().parent.parent.parent / "schemas"
+    if repo.is_dir():
+        return str(repo)
     return "./schemas"
 
 
@@ -55,9 +60,12 @@ def _default_pools_dir() -> str:
     local = _Path("./assets/pools")
     if local.is_dir():
         return "./assets/pools"
-    pkg = _Path(__file__).resolve().parent.parent.parent / "assets" / "pools"
-    if pkg.is_dir():
-        return str(pkg)
+    installed = _Path(__file__).resolve().parent.parent / "assets" / "pools"
+    if installed.is_dir():
+        return str(installed)
+    repo = _Path(__file__).resolve().parent.parent.parent / "assets" / "pools"
+    if repo.is_dir():
+        return str(repo)
     return "./assets/pools"
 
 
