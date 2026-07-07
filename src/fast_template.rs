@@ -784,6 +784,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
         "business_email",
         "personal_email",
         "support_email",
+        "owner_email",
     ] {
         m.insert(*k, gen_email);
     }
