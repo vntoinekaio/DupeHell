@@ -136,8 +136,99 @@ struct HnPool {
 
 // ── Noise column matching ─────────────────────────────────────────────────
 
-/// Heuristic: determine target columns for a noise type based on name patterns.
-/// Used when plan_cols is empty (legacy configs without column lists).
+/// Does this noise category ever target a column with this (lowercased) name?
+///
+/// Pure name-pattern predicate shared with `estimate_difficulty` (see
+/// `crate::difficulty`) so the theoretical column-reliability model can never
+/// silently drift from what real generation actually does to each column.
+pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> bool {
+    let lower = col_name.to_lowercase();
+    match noise_type {
+        "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "visual" | "homoglyph"
+        | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout" | "language_mix"
+        | "blocking_fail" => {
+            // Skip email-like columns — typo/visual noise destroys '@'
+            if lower.contains("email") {
+                return false;
+            }
+            contains_any(
+                &lower,
+                &[
+                    "name", "first", "last", "given", "family", "address", "street", "city",
+                    "phone", "company", "legal", "trading",
+                ],
+            )
+        }
+        "names" | "nickname" | "initials" | "partial" | "name_compound" | "swap" | "full_swap" => {
+            contains_any(&lower, &["name", "first", "last", "given", "family"])
+        }
+        "dates" | "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
+            contains_any(&lower, &["date", "birth", "incorporation", "founding"])
+        }
+        "missing" | "missing_pattern" => {
+            contains_any(&lower, &["phone", "email", "mobile", "address", "street"])
+        }
+        "identifiers"
+        | "corrupt_email"
+        | "corrupt_phone"
+        | "corrupt_national_id"
+        | "corrupt_siren"
+        | "national_id_corrupt"
+        | "phone_corrupt"
+        | "email_corrupt"
+        | "siren_corrupt" => contains_any(
+            &lower,
+            &[
+                "email",
+                "phone",
+                "ssn",
+                "pan",
+                "passport",
+                "account",
+                "medicare",
+                "license",
+                "siren",
+                "national_id",
+            ],
+        ),
+        "extra"
+        | "name_null"
+        | "dob_null"
+        | "blocking_fail_initial"
+        | "blocking_fail_partial"
+        | "fuzzy_match"
+        | "phonetic" => {
+            // Skip email-like columns — extra noise destroys '@'
+            if lower.contains("email") {
+                return false;
+            }
+            contains_any(
+                &lower,
+                &[
+                    "name", "first", "last", "given", "family", "phone", "address", "street",
+                    "city", "company", "legal", "trading", "note", "comment",
+                ],
+            )
+        }
+        "companies" | "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
+            contains_any(&lower, &["company", "legal", "trading", "name"])
+        }
+        "addresses" | "address_scramble" | "postal_corrupt" => {
+            contains_any(&lower, &["address", "street", "postal", "city"])
+        }
+        "exact" | "english_name" | "estonian_name" | "lithuanian_name" | "slovak_name"
+        | "serbian_name" | "norwegian_name" | "swedish_name" | "dutch_name" | "czech_name"
+        | "albanian_name" | "polish_name" | "romanian_name" | "hungarian_name" | "german_name"
+        | "italian_name" | "spanish_name" | "portuguese_name" | "combo_hard" | "combo_extreme"
+        | "combo_ultimate" | "french_address" => {
+            // These noise types are handled inline or are no-ops
+            false
+        }
+        // Default: applies to all string columns (except FK columns)
+        _ => true,
+    }
+}
+
 fn match_noise_columns(schema: &Schema, noise_type: &str, exclude_cols: &[String]) -> Vec<String> {
     let mut matched: Vec<String> = Vec::new();
     for field in schema.fields() {
@@ -147,114 +238,8 @@ fn match_noise_columns(schema: &Schema, noise_type: &str, exclude_cols: &[String
         if exclude_cols.contains(field.name()) {
             continue;
         }
-        let lower = field.name().to_lowercase();
-        match noise_type {
-            "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "visual"
-            | "homoglyph" | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout"
-            | "language_mix" | "blocking_fail" => {
-                // Skip email-like columns — typo/visual noise destroys '@'
-                if lower.contains("email") {
-                    continue;
-                }
-                if contains_any(
-                    &lower,
-                    &[
-                        "name", "first", "last", "given", "family", "address", "street", "city",
-                        "phone", "company", "legal", "trading",
-                    ],
-                ) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "names" | "nickname" | "initials" | "partial" | "name_compound" => {
-                if contains_any(&lower, &["name", "first", "last", "given", "family"]) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "swap" | "full_swap" => {
-                if contains_any(&lower, &["name", "first", "last", "given", "family"]) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "dates" | "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
-                if contains_any(&lower, &["date", "birth", "incorporation", "founding"]) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "missing" | "missing_pattern" => {
-                if contains_any(&lower, &["phone", "email", "mobile", "address", "street"]) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "identifiers"
-            | "corrupt_email"
-            | "corrupt_phone"
-            | "corrupt_national_id"
-            | "corrupt_siren"
-            | "national_id_corrupt"
-            | "phone_corrupt"
-            | "email_corrupt"
-            | "siren_corrupt" => {
-                if contains_any(
-                    &lower,
-                    &[
-                        "email",
-                        "phone",
-                        "ssn",
-                        "pan",
-                        "passport",
-                        "account",
-                        "medicare",
-                        "license",
-                        "siren",
-                        "national_id",
-                    ],
-                ) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "extra"
-            | "name_null"
-            | "dob_null"
-            | "blocking_fail_initial"
-            | "blocking_fail_partial"
-            | "fuzzy_match"
-            | "phonetic" => {
-                // Skip email-like columns — extra noise destroys '@'
-                if lower.contains("email") {
-                    continue;
-                }
-                if contains_any(
-                    &lower,
-                    &[
-                        "name", "first", "last", "given", "family", "phone", "address", "street",
-                        "city", "company", "legal", "trading", "note", "comment",
-                    ],
-                ) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "companies" | "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
-                if contains_any(&lower, &["company", "legal", "trading", "name"]) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "addresses" | "address_scramble" | "postal_corrupt" => {
-                if contains_any(&lower, &["address", "street", "postal", "city"]) {
-                    matched.push(field.name().clone());
-                }
-            }
-            "exact" | "english_name" | "estonian_name" | "lithuanian_name" | "slovak_name"
-            | "serbian_name" | "norwegian_name" | "swedish_name" | "dutch_name" | "czech_name"
-            | "albanian_name" | "polish_name" | "romanian_name" | "hungarian_name"
-            | "german_name" | "italian_name" | "spanish_name" | "portuguese_name"
-            | "combo_hard" | "combo_extreme" | "combo_ultimate" | "french_address" => {
-                // These noise types are handled inline or are no-ops — skip
-            }
-            _ => {
-                // Default: apply to all string columns (except FK columns)
-                matched.push(field.name().clone());
-            }
+        if noise_type_targets_column(noise_type, field.name()) {
+            matched.push(field.name().clone());
         }
     }
     // For swap, keep exactly 2 columns

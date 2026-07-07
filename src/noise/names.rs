@@ -43,7 +43,10 @@ pub fn apply_nickname(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
                 builder.append_value(s.to_uppercase());
             }
         } else {
-            builder.append_value(s);
+            // No known nickname variant (map only covers a handful of French
+            // first names) — still apply the uppercase fallback instead of
+            // silently passing the value through unchanged.
+            builder.append_value(s.to_uppercase());
         }
     }
     *rng = rng2;
