@@ -21,6 +21,9 @@ test_fk_sweep.py
 test_schema_edge_cases.py
 test_schema_interop.py
 test_seed_determinism.py
+bench_domains.py
+test_errors.py
+test_pipeline.py
 
 # Test infrastructure
 run_all_tests.ps1
@@ -31,3 +34,4 @@ benchmark/
 
 docs/WATERMARK.md
 BUGS.md
+ARTICLE_DRAFT_EN.md
