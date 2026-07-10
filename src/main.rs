@@ -16,7 +16,7 @@ use dupehell::schema::{build_pipeline_config, load_schema};
 #[derive(Parser)]
 #[command(
     name = "dupehell",
-    version = "0.4.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "Synthetic record linkage dataset generator",
     long_about = "Generates realistic synthetic datasets with controlled duplicate rates, \
                   hard negatives, and noise profiles for benchmarking record linkage systems. \
