@@ -4,7 +4,7 @@
 <img src="https://raw.githubusercontent.com/vntoinekaio/DupeHell/master/docs/assets/logo_dupehell-3-w.png" alt="DupeHell Logo" width="400">
 
 **Synthetic data generator for record linkage benchmarking.**  
-Rust + Python — 40 domains, 500K+ rec/s, 113 tests.
+Rust + Python — 40 domains, 500K+ rec/s.
 
 Generate synthetic multi-entity datasets with realistic schemas, controlled duplicates,
 hard negatives, and ground-truth labels. Designed for benchmarking entity
