@@ -229,4 +229,16 @@ fn main() {
     );
     eprintln!("  Dataset: {}", output.output_files[0]);
     eprintln!("  GT:      {}", output.gt_file);
+
+    let id_cols: Vec<&str> = config
+        .entity_plans
+        .iter()
+        .filter_map(|p| p.identifier_col.as_deref())
+        .collect();
+    if !id_cols.is_empty() {
+        eprintln!(
+            "  Note: {} are structural join keys (stable across all duplicates by design) — exclude them from ER match attributes, use record_id instead.",
+            id_cols.join(", ")
+        );
+    }
 }

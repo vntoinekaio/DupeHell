@@ -65,6 +65,29 @@ Each run produces:
 | IPC (Arrow) | `.ipc` | Default, fastest write |
 | Parquet | `.parquet` | Via `--parquet` or `--output-format parquet` |
 
+### `{entity}_id` columns are structural keys, not attributes to match on
+
+Every entity carries a primary-key column named `{entity}_id` (e.g.
+`researcher_id`, `vehicle_id`). It plays two roles at once:
+
+1. It is the foreign key that ties an entity's flattened child tables back
+   together (e.g. `publication.researcher_id` → `researcher.researcher_id`).
+2. It is also emitted as a plain column on the entity's own rows.
+
+Because of role (1), this column is **never** noised and stays byte-identical
+across every duplicate of the same `master_id`, including at `hell`
+difficulty — noising it would break the join to the entity's child tables.
+
+This means `{entity}_id` is not a realistic stand-in for a cross-source
+record-linkage attribute: two independent source systems would never share
+the same internal ID. If you feed it into an ER model as a candidate
+matching field, you will get a free, unrealistic signal that inflates
+recall/precision relative to what a true cross-source scenario would allow.
+**Exclude `{entity}_id` columns from ER feature/blocking inputs** — use
+`record_id` (which does vary per duplicate row) as the row identifier
+instead, and treat `{entity}_id` purely as a structural join key for
+reassembling an entity's child tables.
+
 ---
 
 ## Schema validation
