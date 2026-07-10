@@ -1045,7 +1045,27 @@ fn build_metadata_map(config: &PipelineConfig) -> HashMap<String, String> {
         ("dupehell.seed".into(), config.seed.to_string()),
         ("dupehell.run_id".into(), config.run_id.clone()),
         ("dupehell.timestamp".into(), ts),
+        (
+            "dupehell.structural_key_columns".into(),
+            structural_key_columns_note(config),
+        ),
     ])
+}
+
+/// Lists the `{entity}_id` columns that are structural join keys (linking an
+/// entity's rows to its flattened child tables), not attributes to feed an
+/// ER model — they never receive noise and stay identical across all
+/// duplicates of the same master_id, unlike `record_id`.
+fn structural_key_columns_note(config: &PipelineConfig) -> String {
+    let cols: Vec<&str> = config
+        .entity_plans
+        .iter()
+        .filter_map(|p| p.identifier_col.as_deref())
+        .collect();
+    format!(
+        "{} — structural keys for joining child tables, not ER match attributes; use record_id as the row identifier instead",
+        cols.join(", ")
+    )
 }
 
 // ── Schema alignment ───────────────────────────────────────────────────────
