@@ -136,6 +136,52 @@ struct HnPool {
 
 // ── Noise column matching ─────────────────────────────────────────────────
 
+/// Column-name fragments for columns holding a person's name as free text,
+/// even when the column isn't literally called `*_name` (e.g. `operator`,
+/// `technician`, populated from the `first_name` pool across several
+/// domain schemas — see the 40-domain schema audit in the 2026-07 session).
+const PERSON_NAME_WORDS: &[&str] = &[
+    "name",
+    "first",
+    "last",
+    "given",
+    "family",
+    "operator",
+    "technician",
+    "inspector",
+    "claimant",
+    "consignee",
+    "investigator",
+    "collected_by",
+    "performed_by",
+    "assigned_to",
+];
+
+/// Column-name fragments for columns holding a company/organization name,
+/// even when the column isn't literally called `*_name`/`company*` (e.g.
+/// `supplier`, `manufacturer`, populated from the `company` pool across
+/// several domain schemas — see the 40-domain schema audit in the 2026-07
+/// session).
+const COMPANY_NAME_WORDS: &[&str] = &[
+    "company",
+    "legal",
+    "trading",
+    "name",
+    "supplier",
+    "manufacturer",
+    "sponsor",
+    "institution",
+    "journal",
+    "funder",
+    "employer",
+    "law_firm",
+    "affiliation",
+    "reported_by",
+    "buyer",
+    "shipper",
+    "airline",
+];
+
 /// Does this noise category ever target a column with this (lowercased) name?
 ///
 /// Pure name-pattern predicate shared with `estimate_difficulty` (see
@@ -151,16 +197,12 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             if lower.contains("email") {
                 return false;
             }
-            contains_any(
-                &lower,
-                &[
-                    "name", "first", "last", "given", "family", "address", "street", "city",
-                    "phone", "company", "legal", "trading",
-                ],
-            )
+            contains_any(&lower, &["address", "street", "city", "phone"])
+                || contains_any(&lower, PERSON_NAME_WORDS)
+                || contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "names" | "nickname" | "initials" | "partial" | "name_compound" | "swap" | "full_swap" => {
-            contains_any(&lower, &["name", "first", "last", "given", "family"])
+            contains_any(&lower, PERSON_NAME_WORDS)
         }
         "dates" | "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
             contains_any(&lower, &["date", "birth", "incorporation", "founding"])
@@ -204,14 +246,12 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             }
             contains_any(
                 &lower,
-                &[
-                    "name", "first", "last", "given", "family", "phone", "address", "street",
-                    "city", "company", "legal", "trading", "note", "comment",
-                ],
-            )
+                &["phone", "address", "street", "city", "note", "comment"],
+            ) || contains_any(&lower, PERSON_NAME_WORDS)
+                || contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "companies" | "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
-            contains_any(&lower, &["company", "legal", "trading", "name"])
+            contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "addresses" | "address_scramble" | "postal_corrupt" => {
             contains_any(&lower, &["address", "street", "postal", "city"])
