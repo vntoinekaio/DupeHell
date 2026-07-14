@@ -100,6 +100,7 @@ struct Cli {
 }
 
 fn main() {
+    env_logger::init();
     let cli = Cli::parse();
 
     let schema = match load_schema(&cli.domain, &cli.schemas_dir) {
