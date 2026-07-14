@@ -105,9 +105,7 @@ pub fn generate_all(
             .map(|f| rb.schema().column_with_name(f.name()).map(|(idx, _)| idx))
             .collect();
 
-        let canary_rids: Vec<String> = (0..n)
-            .map(|j| ids.record_ids[*global_rid_offset + j].clone())
-            .collect();
+        let canary_rids = ids.record_id_strs(*global_rid_offset..*global_rid_offset + n);
         let canary_mids: Vec<String> = (0..n)
             .map(|j| format!("CANARY-{}-{:03}-{}", sig, j, ent_idx))
             .collect();

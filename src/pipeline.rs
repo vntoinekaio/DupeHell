@@ -82,35 +82,61 @@ pub struct PipelineStats {
 
 // ── Pre-allocated ID pools ─────────────────────────────────────────────────
 
+// Fixed-width ASCII IDs ("R-" + 13 digits, and 13 digits) — stored as two
+// contiguous byte buffers indexed by fixed stride instead of a `Vec<String>`
+// per ID. At tens of millions of records, materializing one heap allocation
+// per ID (and freeing them individually on drop) measurably dominates wall
+// time — see [drop_profile] in the debug logs: ~48s of a 295s run at 100M
+// records was spent solely freeing two such `Vec<String>`. Two big
+// allocations instead of 2×N small ones fixes both the build and the drop
+// side of that cost.
+const RID_LEN: usize = 15; // "R-" + 13 digits
+const PAD_LEN: usize = 13; // 13 digits
+
 pub(crate) struct IdPools {
-    pub(crate) record_ids: Vec<String>,
-    pub(crate) pad_7: Vec<String>,
+    record_ids: Vec<u8>,
+    pad_7: Vec<u8>,
+}
+
+impl IdPools {
+    #[inline]
+    pub(crate) fn record_id(&self, i: usize) -> &str {
+        let s = i * RID_LEN;
+        std::str::from_utf8(&self.record_ids[s..s + RID_LEN]).unwrap()
+    }
+
+    #[inline]
+    pub(crate) fn pad(&self, i: usize) -> &str {
+        let s = i * PAD_LEN;
+        std::str::from_utf8(&self.pad_7[s..s + PAD_LEN]).unwrap()
+    }
+
+    /// Borrowed `&str` view over `range`, for callers that need a slice.
+    pub(crate) fn record_id_strs(&self, range: std::ops::Range<usize>) -> Vec<&str> {
+        range.map(|i| self.record_id(i)).collect()
+    }
 }
 
 fn preallocate_ids(total: usize) -> IdPools {
-    let mut record_ids = Vec::with_capacity(total);
-    let mut pad_7 = Vec::with_capacity(total);
-
-    // Reusable buffers — write digits manually, avoid format! overhead
-    let mut rid_buf: Vec<u8> = b"R-0000000000000".to_vec();
-    let mut pad_buf: Vec<u8> = b"0000000000000".to_vec();
+    let mut record_ids = vec![0u8; total * RID_LEN];
+    let mut pad_7 = vec![0u8; total * PAD_LEN];
 
     for i in 0..total {
-        // Write 13-digit counter into rid_buf[2..15]
+        let rbase = i * RID_LEN;
+        record_ids[rbase] = b'R';
+        record_ids[rbase + 1] = b'-';
         let mut n = i;
-        for j in (2..15).rev() {
-            rid_buf[j] = b'0' + (n % 10) as u8;
+        for j in (rbase + 2..rbase + RID_LEN).rev() {
+            record_ids[j] = b'0' + (n % 10) as u8;
             n /= 10;
         }
-        record_ids.push(String::from_utf8(rid_buf.clone()).unwrap());
 
-        // Write 13-digit counter into pad_buf
+        let pbase = i * PAD_LEN;
         let mut n = i;
-        for j in (0..13).rev() {
-            pad_buf[j] = b'0' + (n % 10) as u8;
+        for j in (pbase..pbase + PAD_LEN).rev() {
+            pad_7[j] = b'0' + (n % 10) as u8;
             n /= 10;
         }
-        pad_7.push(String::from_utf8(pad_buf.clone()).unwrap());
     }
 
     IdPools { record_ids, pad_7 }
@@ -612,19 +638,18 @@ pub fn run_pipeline(
 
             // Master IDs for this batch
             let batch_mids: Vec<String> = (offset..offset + batch_n)
-                .map(|i| format!("{}-{}", prefix, ids.pad_7[i]))
+                .map(|i| format!("{}-{}", prefix, ids.pad(i)))
                 .collect();
             let batch_mids_slice = &batch_mids[..];
 
             // Add metadata + IPC write
-            let rid_slice: &[String] =
-                &ids.record_ids[global_rid_offset..global_rid_offset + batch_n];
+            let rid_slice = ids.record_id_strs(global_rid_offset..global_rid_offset + batch_n);
             let t_m0 = std::time::Instant::now();
             let base_rb = add_metadata_and_align(
                 &rb,
                 &config.domain,
                 &plan.name,
-                rid_slice,
+                &rid_slice,
                 batch_mids_slice,
                 &full_arc,
                 col_lookup.as_ref().unwrap(),
@@ -755,8 +780,7 @@ pub fn run_pipeline(
             // Write dups
             if !dup_batches.is_empty() {
                 let dup_total = dup_mids_buf.len();
-                let dup_rids: &[String] =
-                    &ids.record_ids[global_rid_offset..global_rid_offset + dup_total];
+                let dup_rids = ids.record_id_strs(global_rid_offset..global_rid_offset + dup_total);
 
                 let concated = if dup_batches.len() == 1 {
                     dup_batches.into_iter().next().unwrap()
@@ -780,7 +804,7 @@ pub fn run_pipeline(
                     &concated,
                     &config.domain,
                     &plan.name,
-                    dup_rids,
+                    &dup_rids,
                     &dup_mids_buf,
                     &full_arc,
                     col_lookup.as_ref().unwrap(),
@@ -835,7 +859,7 @@ pub fn run_pipeline(
             continue;
         }
 
-        let hn_rids: &[String] = &ids.record_ids[global_rid_offset..global_rid_offset + n_hn];
+        let hn_rids = ids.record_id_strs(global_rid_offset..global_rid_offset + n_hn);
 
         let mut hn_mid_rng = Rng::new(config.seed.wrapping_add(300 + hn_idx as u64));
         let hn_mids: Vec<String> = (0..n_hn)
@@ -858,7 +882,7 @@ pub fn run_pipeline(
             &hn_rb,
             &config.domain,
             &hn_cfg.entity_type,
-            hn_rids,
+            &hn_rids,
             &hn_mids,
             &full_arc,
             &hn_col_lookup,
@@ -1036,9 +1060,15 @@ pub fn run_pipeline(
         duration,
     );
 
-    let master_set: std::collections::HashSet<&str> = (0..master_id_arr.len())
+    let t_masters0 = std::time::Instant::now();
+    let master_set: rustc_hash::FxHashSet<&str> = (0..master_id_arr.len())
         .map(|i| master_id_arr.value(i))
         .collect();
+    log::debug!(
+        "[masters_profile] hashset_build={:.3}s n={}",
+        t_masters0.elapsed().as_secs_f64(),
+        master_id_arr.len()
+    );
 
     let stats = PipelineStats {
         total_records: global_rid_offset,
@@ -1047,6 +1077,14 @@ pub fn run_pipeline(
         uniques: n_unique,
         masters: master_set.len(),
     };
+
+    let t_drop0 = std::time::Instant::now();
+    drop(master_set);
+    drop(ids);
+    log::debug!(
+        "[drop_profile] ids+master_set drop={:.3}s",
+        t_drop0.elapsed().as_secs_f64()
+    );
 
     Ok(PipelineOutput {
         output_files: vec![dataset_path],
@@ -1154,7 +1192,7 @@ pub(crate) fn add_metadata_and_align(
     rb: &RecordBatch,
     domain: &str,
     entity_type: &str,
-    record_ids: &[String],
+    record_ids: &[&str],
     master_ids: &[String],
     full_arc: &Arc<Schema>,
     col_lookup: &[Option<usize>],
@@ -1168,9 +1206,7 @@ pub(crate) fn add_metadata_and_align(
         entity_type,
         n,
     ))) as ArrayRef;
-    let rid_arr = Arc::new(StringArray::from_iter_values(
-        record_ids.iter().map(|s| s.as_str()),
-    )) as ArrayRef;
+    let rid_arr = Arc::new(StringArray::from_iter_values(record_ids.iter().copied())) as ArrayRef;
     let mid_arr = Arc::new(StringArray::from_iter_values(
         master_ids.iter().map(|s| s.as_str()),
     )) as ArrayRef;
