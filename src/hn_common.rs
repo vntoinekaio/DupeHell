@@ -67,12 +67,17 @@ fn default_s() -> String {
 /// * `config_json` - JSON string with `pattern`, `id_fields`, `attr_fields`, etc.
 /// * `count` - Number of hard negative records to generate
 /// * `seed` - RNG seed
+/// * `track_src` - When true, also return the sampled `idx_a` indices and the
+///   HN `pattern` so callers can emit `hard_neg` edges. RNG consumption is
+///   identical either way.
+#[allow(clippy::type_complexity)]
 pub fn generate_hard_negatives(
     pool: &RecordBatch,
     config_json: &str,
     count: usize,
     seed: u64,
-) -> Result<RecordBatch, String> {
+    track_src: bool,
+) -> Result<(RecordBatch, Option<(Vec<usize>, String)>), String> {
     let config: HnConfig =
         serde_json::from_str(config_json).map_err(|e| format!("HN config parse error: {e}"))?;
 
@@ -99,7 +104,8 @@ pub fn generate_hard_negatives(
     let idx_a = UInt64Array::from_iter_values(idx_a_raw.iter().map(|&i| i as u64));
     let idx_b = UInt64Array::from_iter_values(idx_b_raw.iter().map(|&i| i as u64));
 
-    match config.pattern.as_str() {
+    let pattern = config.pattern.clone();
+    let batch = match config.pattern.as_str() {
         "same_field" => same_field(pool, &config, &idx_a, &idx_b, n),
         "mix_identifier" => mix_identifier(pool, &config, &idx_a, &idx_b, &mut rng, n),
         "same_name_different_everything" => {
@@ -111,7 +117,14 @@ pub fn generate_hard_negatives(
         "same_address" => factory_same_address(pool, &config, &idx_a, &idx_b, n),
         "same_name_dob" => factory_same_name_dob(pool, &config, &idx_a, &idx_b, n),
         _ => Err(format!("Unknown HN pattern: {}", config.pattern)),
-    }
+    }?;
+
+    let src = if track_src {
+        Some((idx_a_raw, pattern))
+    } else {
+        None
+    };
+    Ok((batch, src))
 }
 
 // ── Core primitive ────────────────────────────────────────────────
@@ -412,7 +425,9 @@ mod tests {
     fn test_same_field_basic() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_field","id_fields":["email"],"attr_fields":["given_name","family_name","birth_date"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 3, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 3, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2); // clamped to n_base/2 = 2
         assert_eq!(rb.num_columns(), 4); // email + given_name + family_name + birth_date
     }
@@ -421,7 +436,9 @@ mod tests {
     fn test_same_field_email() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_field","id_fields":["email","ssn"],"attr_fields":["given_name","family_name","birth_date","city"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 3, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 3, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2); // clamped to n_base/2 = 2
         // id_fields(2) + attr_fields(4) minus overlap = 6
         assert_eq!(rb.num_columns(), 6);
@@ -435,7 +452,9 @@ mod tests {
     fn test_mix_identifier() {
         let pool = make_pool();
         let config = r#"{"pattern":"mix_identifier","mix_field":"ssn","attr_fields":["given_name","family_name","birth_date"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 10, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 10, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2); // n_base/2 = 5/2 = 2
         assert_eq!(rb.num_columns(), 4);
         assert!(rb.column_by_name("ssn").is_some());
@@ -445,7 +464,9 @@ mod tests {
     fn test_same_name_diff_everything() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_name_different_everything","first_name_col":"given_name","last_name_col":"family_name","attr_fields":["email","birth_date","address_line1","city"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 2, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 2, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2);
         assert_eq!(rb.num_columns(), 6);
     }
@@ -454,7 +475,9 @@ mod tests {
     fn test_same_email() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_email","email_col":"email","attr_fields":["given_name","family_name","birth_date"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 2, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 2, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2);
     }
 
@@ -463,7 +486,9 @@ mod tests {
         let pool = make_pool();
         let config =
             r#"{"pattern":"same_ssn","ssn_col":"ssn","attr_fields":["given_name","family_name"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 2, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 2, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2);
     }
 
@@ -471,7 +496,9 @@ mod tests {
     fn test_same_phone() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_phone","phone_col":"phone","attr_fields":["given_name","family_name"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 2, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 2, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2);
     }
 
@@ -479,7 +506,9 @@ mod tests {
     fn test_same_address() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_address","address_fields":["address_line1","postal_code","city"],"attr_fields":["given_name","family_name","email"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 2, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 2, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2);
     }
 
@@ -487,7 +516,9 @@ mod tests {
     fn test_same_name_dob() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_name_dob","first_name_col":"given_name","last_name_col":"family_name","dob_col":"birth_date","attr_fields":["email","phone","address_line1","city"]}"#;
-        let rb = generate_hard_negatives(&pool, config, 2, 42).unwrap();
+        let rb = generate_hard_negatives(&pool, config, 2, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(rb.num_rows(), 2);
     }
 
@@ -495,8 +526,12 @@ mod tests {
     fn test_deterministic() {
         let pool = make_pool();
         let config = r#"{"pattern":"same_field","id_fields":["email"],"attr_fields":["given_name","family_name"]}"#;
-        let a = generate_hard_negatives(&pool, config, 5, 42).unwrap();
-        let b = generate_hard_negatives(&pool, config, 5, 42).unwrap();
+        let a = generate_hard_negatives(&pool, config, 5, 42, false)
+            .unwrap()
+            .0;
+        let b = generate_hard_negatives(&pool, config, 5, 42, false)
+            .unwrap()
+            .0;
         assert_eq!(a.num_rows(), b.num_rows());
         let sa = a.column_by_name("email").unwrap().as_string::<i32>();
         let sb = b.column_by_name("email").unwrap().as_string::<i32>();
@@ -510,7 +545,7 @@ mod tests {
         let pool = make_pool();
         let config =
             r#"{"pattern":"same_field","id_fields":["email"],"attr_fields":["given_name"]}"#;
-        let result = generate_hard_negatives(&pool, config, 0, 42);
+        let result = generate_hard_negatives(&pool, config, 0, 42, false);
         assert!(result.is_err());
     }
 
@@ -519,7 +554,7 @@ mod tests {
         let pool = make_pool();
         let config =
             r#"{"pattern":"nonexistent","id_fields":["email"],"attr_fields":["given_name"]}"#;
-        let result = generate_hard_negatives(&pool, config, 2, 42);
+        let result = generate_hard_negatives(&pool, config, 2, 42, false);
         assert!(result.is_err());
     }
 }

@@ -32,6 +32,9 @@ pub struct PipelineConfig {
     pub hard_neg_types: Vec<HnTypeConfig>,
 
     pub hard_neg_ratio: f64,
+
+    pub graph_enabled: bool,
+    pub graph_format: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +72,8 @@ pub struct PipelineOutput {
     pub output_files: Vec<String>,
     pub gt_file: String,
     pub stats: PipelineStats,
+    pub nodes: Option<String>,
+    pub edges: Option<String>,
 }
 
 #[derive(Debug)]
@@ -138,6 +143,9 @@ type FkPoolMap = HashMap<String, RecordBatch>;
 struct HnPool {
     batch: RecordBatch,
     total_count: usize,
+    // Global record_ids aligned positionally with `batch` rows (only populated
+    // when graph output is enabled). Used to emit `hard_neg` edges.
+    record_ids: Vec<String>,
 }
 
 // ── Noise column matching ─────────────────────────────────────────────────
@@ -515,6 +523,30 @@ pub fn run_pipeline(
     let mut gt_acc = crate::gt::GtAccumulator::new(&gt_draft_path)?;
 
     let mut global_rid_offset = 0usize;
+
+    // ── Graph output (opt-in via --graph) ───────────────────────────────
+    const GRAPH_MAX_CLUSTER_EDGES: usize = 10_000;
+    let graph_fmt = crate::graph_gen::GraphFormat::from_str(&config.graph_format);
+    let mut node_writer: Option<crate::graph_gen::NodeWriter> = None;
+    let mut edge_writer: Option<crate::graph_gen::EdgeWriter> = None;
+    let mut graph_nodes_path: Option<String> = None;
+    let mut graph_edges_path: Option<String> = None;
+    if config.graph_enabled {
+        let nodes_ipc = format!("{}/{}_nodes.ipc", output_dir, config.run_id);
+        let edges_ipc = format!("{}/{}_edges.ipc", output_dir, config.run_id);
+        let meta = build_metadata_map(config);
+        node_writer = Some(
+            crate::graph_gen::NodeWriter::new(&nodes_ipc, &full_arc, &meta)
+                .map_err(|e| format!("init node writer: {e}"))?,
+        );
+        edge_writer = Some(
+            crate::graph_gen::EdgeWriter::new(&edges_ipc)
+                .map_err(|e| format!("init edge writer: {e}"))?,
+        );
+        graph_nodes_path = Some(nodes_ipc);
+        graph_edges_path = Some(edges_ipc);
+    }
+
     let mut _t_write = 0.0f64;
     let mut _t_meta = 0.0f64;
     let mut _t_dup = 0.0f64;
@@ -559,6 +591,7 @@ pub fn run_pipeline(
         // Per-entity streaming state
         let fk_targeted = fk_targets.contains(plan.name.as_str());
         let mut fk_builder = arrow::array::StringBuilder::new();
+        let mut fk_rid_builder = arrow::array::StringBuilder::new();
         let mut fk_count: usize = 0;
         // Only entities actually referenced by a `hard_neg_types` entry ever
         // have their HN pool read (see `hn_pools.get(&hn_cfg.entity_type)`
@@ -566,6 +599,7 @@ pub fn run_pipeline(
         // Arrow buffers in `hn_pools` for the rest of the run for nothing.
         let hn_targeted = hn_pool_sizing.contains_key(plan.name.as_str());
         let mut hn_slices: Vec<RecordBatch> = Vec::new();
+        let mut hn_slice_rids: Vec<Vec<String>> = Vec::new();
         let mut last_batch: Option<(RecordBatch, usize, usize)> = None;
         let mut batch_rng = Rng::new(config.seed.wrapping_add(100));
         let mut fk_rng = Rng::new(config.seed.wrapping_add(42));
@@ -592,16 +626,24 @@ pub fn run_pipeline(
             let rb = crate::entity_gen::generate_entity_batch(ctx, &request_json)?;
 
             // FK remap (uses pools from previously processed entities)
+            let mut fk_edges_by_remap: Vec<(String, Vec<String>)> = Vec::new();
             let rb = if !plan.fk_remaps.is_empty() {
                 let mut r = rb;
                 for remap in &plan.fk_remaps {
                     if let Some(pool) = fk_pools.get(&remap.target_entity) {
-                        r = crate::fk_remap::fk_remap_batch(
+                        let (remapped, target_rids) = crate::fk_remap::fk_remap_batch(
                             &r,
                             pool,
                             &remap.source_col,
                             &mut fk_rng,
+                            config.graph_enabled,
                         )?;
+                        r = remapped;
+                        if config.graph_enabled
+                            && let Some(rids) = target_rids
+                        {
+                            fk_edges_by_remap.push((remap.source_col.clone(), rids));
+                        }
                     }
                 }
                 r
@@ -623,6 +665,9 @@ pub fn run_pipeline(
                     }
                     if !s.is_null(i) {
                         fk_builder.append_value(s.value(i));
+                        if config.graph_enabled {
+                            fk_rid_builder.append_value(record_id_string(global_rid_offset + i));
+                        }
                         fk_count += 1;
                     }
                 }
@@ -633,6 +678,12 @@ pub fn run_pipeline(
             if hn_targeted && hn_accum < hn_max_pool {
                 let take = (hn_max_pool - hn_accum).min(batch_n);
                 hn_slices.push(rb.slice(0, take));
+                // Capture the global record_ids for these sliced rows so the
+                // HN pool can later resolve `hard_neg` edge targets. Use
+                // `global_rid_offset`, never the per-entity `offset`.
+                if config.graph_enabled {
+                    hn_slice_rids.push(record_id_strs(global_rid_offset..global_rid_offset + take));
+                }
             }
 
             // Build col_lookup from first batch's schema
@@ -670,6 +721,20 @@ pub fn run_pipeline(
             );
             _t_meta += t_m0.elapsed().as_secs_f64();
 
+            // Graph: write base nodes + FK edges (only when --graph)
+            if config.graph_enabled
+                && let (Some(nw), Some(ew)) = (node_writer.as_mut(), edge_writer.as_mut())
+            {
+                nw.write_batch(&base_rb)
+                    .map_err(|e| format!("write node: {e}"))?;
+                for i in 0..batch_n {
+                    for (subtype, target_rids) in &fk_edges_by_remap {
+                        ew.push(&rid_slice[i], &target_rids[i], "fk", subtype, 1.0)
+                            .map_err(|e| format!("push fk edge: {e}"))?;
+                    }
+                }
+            }
+
             let t_w0 = std::time::Instant::now();
             writer
                 .write(&base_rb)
@@ -688,10 +753,24 @@ pub fn run_pipeline(
         if let Some(id_col) = &plan.identifier_col
             && fk_builder.len() > 0
         {
-            let schema = Arc::new(Schema::new(vec![Field::new(id_col, DataType::Utf8, true)]));
             let arr = Arc::new(fk_builder.finish()) as ArrayRef;
-            if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr]) {
-                fk_pools.insert(plan.name.clone(), pool_rb);
+            if config.graph_enabled {
+                // Graph mode: also persist the target record_ids (column 1)
+                // so FK edges can be emitted by later-source entities. Same
+                // bounds as the identifier column above (FK_POOL_CAP gated).
+                let rid_arr = Arc::new(fk_rid_builder.finish()) as ArrayRef;
+                let schema = Arc::new(Schema::new(vec![
+                    Field::new(id_col, DataType::Utf8, true),
+                    Field::new("record_id", DataType::Utf8, true),
+                ]));
+                if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr, rid_arr]) {
+                    fk_pools.insert(plan.name.clone(), pool_rb);
+                }
+            } else {
+                let schema = Arc::new(Schema::new(vec![Field::new(id_col, DataType::Utf8, true)]));
+                if let Ok(pool_rb) = RecordBatch::try_new(schema, vec![arr]) {
+                    fk_pools.insert(plan.name.clone(), pool_rb);
+                }
             }
         }
 
@@ -719,7 +798,20 @@ pub fn run_pipeline(
                 }
                 RecordBatch::try_new(schema, concat_arrays).expect("hn pool concat batch")
             };
-            hn_pools.insert(plan.name.clone(), HnPool { batch, total_count });
+            // `record_ids` aligns positionally with the concatenated pool rows.
+            let record_ids = if config.graph_enabled {
+                hn_slice_rids.into_iter().flatten().collect::<Vec<String>>()
+            } else {
+                Vec::new()
+            };
+            hn_pools.insert(
+                plan.name.clone(),
+                HnPool {
+                    batch,
+                    total_count,
+                    record_ids,
+                },
+            );
         }
 
         // ── Dups (use last_batch) ──────────────────────────────────────────
@@ -835,6 +927,14 @@ pub fn run_pipeline(
                 _t_write += t_wd.elapsed().as_secs_f64();
                 _write_calls += 1;
 
+                // Graph: write duplicate nodes (edges emitted post-GT)
+                if config.graph_enabled
+                    && let Some(nw) = node_writer.as_mut()
+                {
+                    nw.write_batch(&dup_rb_full)
+                        .map_err(|e| format!("write dup node: {e}"))?;
+                }
+
                 gt_acc.push_dup_batch(
                     dup_rb_full.column(0),
                     dup_rb_full.column(2),
@@ -867,11 +967,12 @@ pub fn run_pipeline(
             continue;
         }
 
-        let hn_rb = crate::hn_common::generate_hard_negatives(
+        let (hn_rb, hn_src) = crate::hn_common::generate_hard_negatives(
             pool_rb,
             &hn_cfg.config_json,
             n_hn_max,
             config.seed.wrapping_add(200),
+            config.graph_enabled,
         )?;
 
         let n_hn = hn_rb.num_rows();
@@ -917,6 +1018,22 @@ pub fn run_pipeline(
         _t_write += t_wh.elapsed().as_secs_f64();
         _write_calls += 1;
 
+        // Graph: write HN nodes + hard_neg edges (source = HN rid,
+        // target = the pool row referenced by idx_a)
+        if config.graph_enabled
+            && let (Some(nw), Some(ew)) = (node_writer.as_mut(), edge_writer.as_mut())
+        {
+            nw.write_batch(&hn_rb_full)
+                .map_err(|e| format!("write hn node: {e}"))?;
+            if let Some((idx_a, pattern)) = hn_src {
+                for i in 0..n_hn {
+                    let tgt = &pool_data.record_ids[idx_a[i]];
+                    ew.push(&hn_rids[i], tgt, "hard_neg", &pattern, 1.0)
+                        .map_err(|e| format!("push hn edge: {e}"))?;
+                }
+            }
+        }
+
         // Phase 13: collect ArrayRefs instead of per-row StringBuilder
         gt_acc.push_other_batch(
             hn_rb_full.column(0),
@@ -941,6 +1058,7 @@ pub fn run_pipeline(
             &mut global_rid_offset,
             &fk_pools,
             &mut writer,
+            &mut node_writer,
             &mut gt_acc,
         )?;
     }
@@ -955,7 +1073,13 @@ pub fn run_pipeline(
     let t3b = std::time::Instant::now();
     let _gt_meta = build_metadata_map(config);
     let t_gt0 = std::time::Instant::now();
-    let (n_exact_dup, n_hard_neg, n_unique, n_masters) = gt_acc.finish(
+    let crate::gt::GtResult {
+        n_exact_dup,
+        n_hard_neg,
+        n_unique,
+        n_masters,
+        cluster_map,
+    } = gt_acc.finish(
         config.difficulty.as_str(),
         &config.output_format,
         &gt_path,
@@ -965,6 +1089,14 @@ pub fn run_pipeline(
     let _t_gt_write = t_gt0.elapsed().as_secs_f64();
     let t3b_elapsed = t3b.elapsed().as_secs_f64();
     let _t3_elapsed = t3.elapsed().as_secs_f64();
+
+    // ── Graph: emit duplicate-cluster edges from the post-GT cluster_map ──
+    if config.graph_enabled
+        && let Some(ew) = edge_writer.as_mut()
+    {
+        crate::graph_gen::push_dup_clusters(ew, &cluster_map, GRAPH_MAX_CLUSTER_EDGES)
+            .map_err(|e| format!("push dup clusters: {e}"))?;
+    }
 
     // ── Phase 3b: Materialize IPC → Parquet (Rust, no Polars) ───────────
     if config.output_format == "parquet" {
@@ -1041,11 +1173,81 @@ pub fn run_pipeline(
         masters: n_masters,
     };
 
+    // ── Finalize graph writers (base nodes + FK edges emitted so far) ──
+    let mut graph_nodes_final: Option<String> = None;
+    let mut graph_edges_final: Option<String> = None;
+    if let (Some(nw), Some(ew)) = (node_writer, edge_writer) {
+        nw.finish()
+            .map_err(|e| format!("finish node writer: {e}"))?;
+        ew.finish()
+            .map_err(|e| format!("finish edge writer: {e}"))?;
+        let mut np = graph_nodes_path.clone().unwrap();
+        let mut ep = graph_edges_path.clone().unwrap();
+        if graph_fmt == crate::graph_gen::GraphFormat::Parquet {
+            let np_pq = format!("{}/{}_nodes.parquet", output_dir, config.run_id);
+            let ep_pq = format!("{}/{}_edges.parquet", output_dir, config.run_id);
+            convert_ipc_to_parquet(&np, &np_pq).map_err(|e| format!("graph nodes parquet: {e}"))?;
+            convert_ipc_to_parquet(&ep, &ep_pq).map_err(|e| format!("graph edges parquet: {e}"))?;
+            std::fs::remove_file(&np).ok();
+            std::fs::remove_file(&ep).ok();
+            np = np_pq;
+            ep = ep_pq;
+        }
+        graph_nodes_final = Some(np);
+        graph_edges_final = Some(ep);
+    }
+
     Ok(PipelineOutput {
         output_files: vec![dataset_path],
         gt_file: gt_path,
         stats,
+        nodes: graph_nodes_final,
+        edges: graph_edges_final,
     })
+}
+
+/// IPC → Parquet (ZSTD) conversion for graph files, mirroring the dataset
+/// conversion above. The node IPC already carries the `dupehell.*` metadata,
+/// which is forwarded to the Parquet key/value metadata.
+fn convert_ipc_to_parquet(ipc_path: &str, parquet_path: &str) -> Result<(), String> {
+    use arrow::ipc::reader::FileReader;
+
+    let ipc_file =
+        std::fs::File::open(ipc_path).map_err(|e| format!("open IPC {ipc_path}: {e}"))?;
+    let ipc_reader =
+        FileReader::try_new(ipc_file, None).map_err(|e| format!("IPC reader {ipc_path}: {e}"))?;
+    let schema = ipc_reader.schema();
+
+    let parquet_file =
+        std::fs::File::create(parquet_path).map_err(|e| format!("create {parquet_path}: {e}"))?;
+    let zstd_level = parquet::basic::ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
+    let meta_kv: Vec<parquet::file::metadata::KeyValue> = schema
+        .metadata()
+        .iter()
+        .map(|(k, v)| parquet::file::metadata::KeyValue {
+            key: k.clone(),
+            value: Some(v.clone()),
+        })
+        .collect();
+    let props = parquet::file::properties::WriterProperties::builder()
+        .set_compression(parquet::basic::Compression::ZSTD(zstd_level))
+        .set_max_row_group_row_count(Some(1_000_000))
+        .set_key_value_metadata(Some(meta_kv))
+        .build();
+    let mut parquet_writer =
+        parquet::arrow::ArrowWriter::try_new(parquet_file, schema, Some(props))
+            .map_err(|e| format!("ArrowWriter {parquet_path}: {e}"))?;
+
+    for batch_result in ipc_reader {
+        let batch = batch_result.map_err(|e| format!("IPC batch {ipc_path}: {e}"))?;
+        parquet_writer
+            .write(&batch)
+            .map_err(|e| format!("write parquet {parquet_path}: {e}"))?;
+    }
+    parquet_writer
+        .close()
+        .map_err(|e| format!("close parquet {parquet_path}: {e}"))?;
+    Ok(())
 }
 
 // ── Metadata injection ──────────────────────────────────────────────────────

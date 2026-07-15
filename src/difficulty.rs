@@ -236,6 +236,8 @@ pub fn estimate_difficulty(
         schema,
         &run_id,
         "ipc",
+        false,
+        "ipc",
     )?;
 
     // Build a map: entity_name -> HN id_fields
