@@ -489,8 +489,14 @@ pub fn run_pipeline(
     // without storing all entity batches in memory.
     let t1e = std::time::Instant::now();
 
+    // Metadata (including the `dupehell.timestamp` snapshot) is computed
+    // once here and reused for every output file (dataset, graph, GT,
+    // parquet conversions) — computing it per-file let `SystemTime::now()`
+    // drift across a Unix-second boundary on longer runs, making
+    // `dupehell.timestamp` inconsistent between files from the same run.
+    let metadata = build_metadata_map(config);
     // Build the full schema once (union of all entity columns + metadata)
-    let full_arc = Arc::new(build_full_schema(config));
+    let full_arc = Arc::new(build_full_schema(config, &metadata));
     let mut dataset_path = format!("{}/{}.ipc", output_dir, config.run_id);
     let out_file =
         std::fs::File::create(&dataset_path).map_err(|e| format!("create {dataset_path}: {e}"))?;
@@ -534,13 +540,12 @@ pub fn run_pipeline(
     if config.graph_enabled {
         let nodes_ipc = format!("{}/{}_nodes.ipc", output_dir, config.run_id);
         let edges_ipc = format!("{}/{}_edges.ipc", output_dir, config.run_id);
-        let meta = build_metadata_map(config);
         node_writer = Some(
-            crate::graph_gen::NodeWriter::new(&nodes_ipc, &full_arc, &meta)
+            crate::graph_gen::NodeWriter::new(&nodes_ipc, &full_arc, &metadata)
                 .map_err(|e| format!("init node writer: {e}"))?,
         );
         edge_writer = Some(
-            crate::graph_gen::EdgeWriter::new(&edges_ipc, &meta)
+            crate::graph_gen::EdgeWriter::new(&edges_ipc, &metadata)
                 .map_err(|e| format!("init edge writer: {e}"))?,
         );
         graph_nodes_path = Some(nodes_ipc);
@@ -1071,7 +1076,6 @@ pub fn run_pipeline(
     let t3a_elapsed = t3.elapsed().as_secs_f64();
 
     let t3b = std::time::Instant::now();
-    let _gt_meta = build_metadata_map(config);
     let t_gt0 = std::time::Instant::now();
     let crate::gt::GtResult {
         n_exact_dup,
@@ -1083,7 +1087,7 @@ pub fn run_pipeline(
         config.difficulty.as_str(),
         &config.output_format,
         &gt_path,
-        &_gt_meta,
+        &metadata,
     )?;
     let _t_gt_compute = 0.0f64;
     let _t_gt_write = t_gt0.elapsed().as_secs_f64();
@@ -1112,7 +1116,8 @@ pub fn run_pipeline(
         let parquet_file = std::fs::File::create(&parquet_path)
             .map_err(|e| format!("create {parquet_path}: {e}"))?;
         let zstd_level = parquet::basic::ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
-        let meta_kv: Vec<parquet::file::metadata::KeyValue> = build_metadata_map(config)
+        let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata
+            .clone()
             .into_iter()
             .map(|(k, v)| parquet::file::metadata::KeyValue {
                 key: k,
@@ -1306,7 +1311,7 @@ fn structural_key_columns_note(config: &PipelineConfig) -> String {
 // ── Schema alignment ───────────────────────────────────────────────────────
 
 /// Build the union schema from all entity plans (all columns + metadata).
-fn build_full_schema(config: &PipelineConfig) -> Schema {
+fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>) -> Schema {
     let mut field_map: Vec<(String, DataType, bool)> = Vec::new();
     let metadata_fields = ["record_id", "domain", "entity_type", "master_id"];
     for mf in &metadata_fields {
@@ -1328,7 +1333,7 @@ fn build_full_schema(config: &PipelineConfig) -> Schema {
         .into_iter()
         .map(|(n, dt, nullable)| Field::new(&n, dt, nullable))
         .collect();
-    Schema::new(fields).with_metadata(build_metadata_map(config))
+    Schema::new(fields).with_metadata(metadata.clone())
 }
 
 /// Map a column's JSON type string to Arrow DataType.
