@@ -540,7 +540,7 @@ pub fn run_pipeline(
                 .map_err(|e| format!("init node writer: {e}"))?,
         );
         edge_writer = Some(
-            crate::graph_gen::EdgeWriter::new(&edges_ipc)
+            crate::graph_gen::EdgeWriter::new(&edges_ipc, &meta)
                 .map_err(|e| format!("init edge writer: {e}"))?,
         );
         graph_nodes_path = Some(nodes_ipc);

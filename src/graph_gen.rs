@@ -86,14 +86,17 @@ impl NodeWriter {
     }
 }
 
-fn edge_schema() -> Arc<Schema> {
-    Arc::new(Schema::new(vec![
-        Field::new("source_node_id", DataType::Utf8, false),
-        Field::new("target_node_id", DataType::Utf8, false),
-        Field::new("edge_type", DataType::Utf8, false),
-        Field::new("subtype", DataType::Utf8, false),
-        Field::new("weight", DataType::Float64, false),
-    ]))
+fn edge_schema(metadata: &HashMap<String, String>) -> Arc<Schema> {
+    Arc::new(
+        Schema::new(vec![
+            Field::new("source_node_id", DataType::Utf8, false),
+            Field::new("target_node_id", DataType::Utf8, false),
+            Field::new("edge_type", DataType::Utf8, false),
+            Field::new("subtype", DataType::Utf8, false),
+            Field::new("weight", DataType::Float64, false),
+        ])
+        .with_metadata(metadata.clone()),
+    )
 }
 
 /// Writes `_edges.{ext}` directly; flushes in bounded batches.
@@ -111,8 +114,8 @@ pub struct EdgeWriter {
 const EDGE_FLUSH: usize = 100_000;
 
 impl EdgeWriter {
-    pub fn new(path: &str) -> Result<Self, String> {
-        let schema = edge_schema();
+    pub fn new(path: &str, metadata: &HashMap<String, String>) -> Result<Self, String> {
+        let schema = edge_schema(metadata);
         let file = File::create(path).map_err(|e| format!("create edge file {path}: {e}"))?;
         let writer = FileWriter::try_new(file, &schema)
             .map_err(|e| format!("edge FileWriter {path}: {e}"))?;
@@ -261,7 +264,7 @@ mod tests {
     fn push_dup_clusters_complete() {
         let path = temp_path("edges_complete.ipc");
         let _ = std::fs::remove_file(&path);
-        let mut ew = EdgeWriter::new(&path).unwrap();
+        let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
         let mut clusters = HashMap::new();
         clusters.insert(
             "M1".to_string(),
@@ -285,7 +288,7 @@ mod tests {
     fn push_dup_clusters_spanning_tree() {
         let path = temp_path("edges_spanning.ipc");
         let _ = std::fs::remove_file(&path);
-        let mut ew = EdgeWriter::new(&path).unwrap();
+        let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
         let mut clusters = HashMap::new();
         let ids: Vec<String> = (0..200).map(|i| format!("R{i:04}")).collect();
         clusters.insert("M-BIG".to_string(), ids);
@@ -319,7 +322,7 @@ mod tests {
     fn push_dup_clusters_skips_singletons() {
         let path = temp_path("edges_singleton.ipc");
         let _ = std::fs::remove_file(&path);
-        let mut ew = EdgeWriter::new(&path).unwrap();
+        let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
         let mut clusters = HashMap::new();
         clusters.insert("M-ONLY".to_string(), vec!["R1".into()]);
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
