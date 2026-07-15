@@ -97,6 +97,20 @@ struct Cli {
         help = "Path to schema JSON directory"
     )]
     schemas_dir: PathBuf,
+
+    #[arg(
+        long,
+        help = "Generate property-graph output (nodes + edges) in addition to tabular data"
+    )]
+    graph: bool,
+
+    #[arg(
+        long,
+        default_value = "ipc",
+        value_parser = clap::builder::PossibleValuesParser::new(["ipc", "parquet"]),
+        help = "Graph output format: ipc or parquet (requires --graph)"
+    )]
+    graph_format: String,
 }
 
 fn main() {
@@ -177,6 +191,8 @@ fn main() {
         &schema,
         &run_id,
         &effective_format,
+        cli.graph,
+        &cli.graph_format,
     ) {
         Ok(c) => c,
         Err(e) => {
@@ -222,6 +238,12 @@ fn main() {
     );
     eprintln!("  Dataset: {}", output.output_files[0]);
     eprintln!("  GT:      {}", output.gt_file);
+    if let Some(nodes) = &output.nodes {
+        eprintln!("  Nodes:  {nodes}");
+    }
+    if let Some(edges) = &output.edges {
+        eprintln!("  Edges:  {edges}");
+    }
 
     let id_cols: Vec<&str> = config
         .entity_plans

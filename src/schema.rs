@@ -193,6 +193,8 @@ pub fn build_pipeline_config(
     schema: &DomainSchema,
     run_id: &str,
     output_format: &str,
+    graph_enabled: bool,
+    graph_format: &str,
 ) -> Result<PipelineConfig, String> {
     if size < 10 {
         return Err(format!("size must be >= 10, got {size}"));
@@ -368,6 +370,8 @@ pub fn build_pipeline_config(
         "entity_plans": entity_plans,
         "hard_neg_types": hard_neg_types,
         "hard_neg_ratio": hard_neg_ratio,
+        "graph_enabled": graph_enabled,
+        "graph_format": graph_format,
     });
 
     serde_json::from_value(config).map_err(|e| format!("build PipelineConfig: {e}"))
