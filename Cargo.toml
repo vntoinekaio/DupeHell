@@ -1,6 +1,6 @@
 [package]
 name = "dupehell"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 license = "MIT"
 description = "Synthetic multi-domain dataset generator for record linkage benchmarking — Educational Use Only"
