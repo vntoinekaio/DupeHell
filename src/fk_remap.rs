@@ -31,9 +31,10 @@ pub fn fk_remap_batch(
         return Err("FK pool is empty".into());
     }
 
-    // Generate random indices into the FK pool
-    let indices: Vec<usize> = (0..n).map(|_| rng.next_usize(pool_n)).collect();
-    let idx_arr = UInt64Array::from_iter_values(indices.iter().copied().map(|i| i as u64));
+    // Generate random indices into the FK pool, directly as a `UInt64Array`
+    // (same RNG sequence, one pass instead of a transient `Vec<usize>`
+    // followed by a conversion pass).
+    let idx_arr = UInt64Array::from_iter_values((0..n).map(|_| rng.next_usize(pool_n) as u64));
 
     // Sample values from pool using Arrow take kernel
     let remapped: ArrayRef = take(pool_col, &idx_arr, None)

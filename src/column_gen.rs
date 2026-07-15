@@ -6,10 +6,11 @@
 
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, BooleanArray, Int64Array, StringBuilder};
+use arrow::array::{ArrayRef, BooleanArray, Int64Array};
 
+use crate::buf_gen::build_string_array;
 use crate::context::Context;
-use crate::fast_template::get_template;
+use crate::fast_template::{get_template, write_zpad};
 use crate::pool_lookup::{guess_pool_name, pool_values, strip_prefix};
 use crate::rng::Rng;
 
@@ -162,7 +163,7 @@ fn gen_int64(col_name: &str, n: usize, rng: &mut Rng) -> ArrayRef {
 fn gen_float64(col_name: &str, n: usize, rng: &mut Rng) -> ArrayRef {
     let (lo, hi) = float_range(col_name).unwrap_or((0.0, 10000.0));
     let is_gpa = col_name.to_lowercase().contains("gpa");
-    let mut builder = arrow::array::Float64Builder::new();
+    let mut builder = arrow::array::Float64Builder::with_capacity(n);
     if is_gpa {
         for _ in 0..n {
             let v = (rng.next_f64() * (hi - lo) + lo) * 100.0;
@@ -200,28 +201,35 @@ fn days_in_month(year: i64, month: usize) -> usize {
 }
 
 fn gen_date(n: usize, rng: &mut Rng) -> ArrayRef {
-    let mut builder = StringBuilder::with_capacity(n, 10);
-    for _ in 0..n {
+    build_string_array(n, 10, |buf| {
         let y = 1940 + rng.next_usize(66);
         let m = rng.next_usize(12) + 1;
         let max_days = days_in_month(y as i64, m);
         let d = rng.next_usize(max_days) + 1;
-        builder.append_value(format!("{y:04}-{m:02}-{d:02}"));
-    }
-    Arc::new(builder.finish())
+        write_zpad(buf, y, 4);
+        buf.push(b'-');
+        write_zpad(buf, m, 2);
+        buf.push(b'-');
+        write_zpad(buf, d, 2);
+    })
 }
 
 fn gen_datetime(n: usize, rng: &mut Rng) -> ArrayRef {
-    let mut builder = StringBuilder::with_capacity(n, 19);
-    for _ in 0..n {
+    build_string_array(n, 19, |buf| {
         let y = 2020 + rng.next_usize(6);
         let m = rng.next_usize(12) + 1;
         let max_days = days_in_month(y as i64, m);
         let d = rng.next_usize(max_days) + 1;
         let hr = rng.next_usize(24);
-        builder.append_value(format!("{y:04}-{m:02}-{d:02} {hr:02}:00:00"));
-    }
-    Arc::new(builder.finish())
+        write_zpad(buf, y, 4);
+        buf.push(b'-');
+        write_zpad(buf, m, 2);
+        buf.push(b'-');
+        write_zpad(buf, d, 2);
+        buf.push(b' ');
+        write_zpad(buf, hr, 2);
+        buf.extend_from_slice(b":00:00");
+    })
 }
 
 // ── Null mask ─────────────────────────────────────────────────────────────
@@ -309,13 +317,19 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
             } else if let Some(pn) = guess_pool_name(&col.name) {
                 pool_values(pn, n, rng, ctx)
             } else if col.name.ends_with("_id") || col.name == "id" {
-                // _id fallback (after pool lookup, before word fallback)
+                // _id fallback (after pool lookup, before word fallback).
+                // `i` is a per-batch row index (< BATCH_SIZE = 500_000), so
+                // it always fits within the 7-digit zero-padded width below
+                // — `write_zpad` truncates rather than widens, unlike
+                // `format!("{:07}", i)`, but that only matters past 10M.
                 let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
-                let mut builder = StringBuilder::with_capacity(n, 12);
-                for i in 0..n {
-                    builder.append_value(format!("{}-{:07}", prefix, i));
-                }
-                Arc::new(builder.finish())
+                let mut i: usize = 0;
+                build_string_array(n, 12, |buf| {
+                    buf.extend_from_slice(prefix.as_bytes());
+                    buf.push(b'-');
+                    write_zpad(buf, i, 7);
+                    i += 1;
+                })
             } else {
                 // Fallback: "word" pool
                 pool_values("word", n, rng, ctx)

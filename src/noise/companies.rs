@@ -18,7 +18,7 @@ pub fn drop_legal_form(arr: &dyn Array) -> ArrayRef {
     let src = arr.as_string::<i32>();
     let n = src.len();
 
-    let mut builder = StringBuilder::with_capacity(n, 32);
+    let mut builder = StringBuilder::with_capacity(n, n * 32);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -44,7 +44,7 @@ pub fn apply_word_dropout(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 32);
+    let mut builder = StringBuilder::with_capacity(n, n * 32);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -93,7 +93,7 @@ pub fn apply_company_scramble(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 32);
+    let mut builder = StringBuilder::with_capacity(n, n * 32);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -123,7 +123,7 @@ pub fn apply_acronym(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();

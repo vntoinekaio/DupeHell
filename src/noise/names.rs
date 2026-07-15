@@ -28,7 +28,7 @@ pub fn apply_nickname(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -59,7 +59,7 @@ pub fn apply_initials(arr: &dyn Array) -> ArrayRef {
     let src = arr.as_string::<i32>();
     let n = src.len();
 
-    let mut builder = StringBuilder::with_capacity(n, 8);
+    let mut builder = StringBuilder::with_capacity(n, n * 8);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -87,7 +87,7 @@ pub fn apply_partial(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 8);
+    let mut builder = StringBuilder::with_capacity(n, n * 8);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -114,7 +114,7 @@ pub fn apply_name_compound(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();

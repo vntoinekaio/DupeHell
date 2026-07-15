@@ -111,34 +111,28 @@ pub fn apply_typos_str(arr: &dyn arrow::array::Array, rng: &mut Rng, max_dist: u
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    // Pre-allocate random arrays
+    // Pre-allocate random arrays, flattened to one `Vec` each (n * max_dist)
+    // instead of a `Vec<Vec<_>>` (n+1 heap allocations) — row-major order
+    // preserves the exact same RNG draw sequence, `base + j` replaces `[i][j]`.
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(max_dist) + 1).collect();
-    let ops: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..max_dist).map(|_| rng2.next_usize(3)).collect())
-        .collect();
-    let positions: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..max_dist).map(|_| rng2.next_usize(30)).collect())
-        .collect();
-    let rand_chars: Vec<Vec<char>> = (0..n)
-        .map(|_| {
-            (0..max_dist)
-                .map(|_| rng2.next_usize(26) as u8 + 97)
-                .map(|c| c as char)
-                .collect()
-        })
+    let ops: Vec<usize> = (0..n * max_dist).map(|_| rng2.next_usize(3)).collect();
+    let positions: Vec<usize> = (0..n * max_dist).map(|_| rng2.next_usize(30)).collect();
+    let rand_chars: Vec<char> = (0..n * max_dist)
+        .map(|_| (rng2.next_usize(26) as u8 + 97) as char)
         .collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
+    for (i, &n_op) in n_ops.iter().enumerate() {
         match get_chars(src, i, MIN_LEN_TYPO) {
             Some(mut chars) => {
-                for j in 0..n_ops[i].min(max_dist) {
-                    let pos = positions[i][j] % chars.len();
-                    let op_idx = ops[i][j] % 3;
+                let base = i * max_dist;
+                for j in 0..n_op.min(max_dist) {
+                    let pos = positions[base + j] % chars.len();
+                    let op_idx = ops[base + j] % 3;
                     match op_idx {
                         0 => op_delete_pop(&mut chars, pos),
-                        1 => op_replace(&mut chars, pos, rand_chars[i][j]),
-                        2 => op_insert(&mut chars, pos, rand_chars[i][j]),
+                        1 => op_replace(&mut chars, pos, rand_chars[base + j]),
+                        2 => op_insert(&mut chars, pos, rand_chars[base + j]),
                         _ => {}
                     }
                 }
@@ -165,35 +159,25 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
     let mut rng2 = rng.fork();
 
     let n_swap: Vec<usize> = (0..n).map(|_| rng2.next_usize(2) + 1).collect();
-    let swap_pos: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..2).map(|_| rng2.next_usize(28)).collect())
-        .collect();
+    let swap_pos: Vec<usize> = (0..n * 2).map(|_| rng2.next_usize(28)).collect();
     let n_typo: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 2).collect();
-    let typo_ops: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..5).map(|_| rng2.next_usize(4)).collect())
-        .collect();
-    let typo_pos: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..5).map(|_| rng2.next_usize(30)).collect())
-        .collect();
-    let typo_chars: Vec<Vec<char>> = (0..n)
-        .map(|_| {
-            (0..5)
-                .map(|_| (rng2.next_usize(26) as u8 + 97) as char)
-                .collect()
-        })
+    let typo_ops: Vec<usize> = (0..n * 5).map(|_| rng2.next_usize(4)).collect();
+    let typo_pos: Vec<usize> = (0..n * 5).map(|_| rng2.next_usize(30)).collect();
+    let typo_chars: Vec<char> = (0..n * 5)
+        .map(|_| (rng2.next_usize(26) as u8 + 97) as char)
         .collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         match get_chars(src, i, MIN_LEN_AGGR) {
             Some(mut chars) => {
-                apply_swaps(&mut chars, n_swap[i], &swap_pos[i]);
+                apply_swaps(&mut chars, n_swap[i], &swap_pos[i * 2..i * 2 + 2]);
                 apply_ops_with_randchar(
                     &mut chars,
                     n_typo[i],
-                    &typo_ops[i],
-                    &typo_pos[i],
-                    &typo_chars[i],
+                    &typo_ops[i * 5..i * 5 + 5],
+                    &typo_pos[i * 5..i * 5 + 5],
+                    &typo_chars[i * 5..i * 5 + 5],
                 );
                 builder.append_value(chars.into_iter().collect::<String>());
             }
@@ -218,33 +202,26 @@ pub fn apply_typos_extreme(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(4) + 4).collect();
-    let ops: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..8).map(|_| rng2.next_usize(5)).collect())
-        .collect();
-    let positions: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..8).map(|_| rng2.next_usize(30)).collect())
-        .collect();
-    let rand_chars: Vec<Vec<char>> = (0..n)
-        .map(|_| {
-            (0..8)
-                .map(|_| (rng2.next_usize(26) as u8 + 97) as char)
-                .collect()
-        })
+    let ops: Vec<usize> = (0..n * 8).map(|_| rng2.next_usize(5)).collect();
+    let positions: Vec<usize> = (0..n * 8).map(|_| rng2.next_usize(30)).collect();
+    let rand_chars: Vec<char> = (0..n * 8)
+        .map(|_| (rng2.next_usize(26) as u8 + 97) as char)
         .collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
+    for (i, &n_op) in n_ops.iter().enumerate() {
         match get_chars(src, i, MIN_LEN_EXTREME) {
             Some(mut chars) => {
-                for j in 0..n_ops[i].min(8) {
+                let base = i * 8;
+                for j in 0..n_op.min(8) {
                     if chars.is_empty() {
                         break;
                     }
-                    let pos = positions[i][j] % chars.len();
-                    match ops[i][j] % 5 {
+                    let pos = positions[base + j] % chars.len();
+                    match ops[base + j] % 5 {
                         0 => op_delete_pop(&mut chars, pos),
-                        1 => op_replace(&mut chars, pos, rand_chars[i][j]),
-                        2 => op_insert(&mut chars, pos, rand_chars[i][j]),
+                        1 => op_replace(&mut chars, pos, rand_chars[base + j]),
+                        2 => op_insert(&mut chars, pos, rand_chars[base + j]),
                         3 => op_duplicate(&mut chars, pos),
                         4 => op_swap(&mut chars, pos),
                         _ => {}
@@ -273,15 +250,13 @@ pub fn apply_qwerty_azerty(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(2) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..2).map(|_| rng2.next_usize(30)).collect())
-        .collect();
+    let positions: Vec<usize> = (0..n * 2).map(|_| rng2.next_usize(30)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         match get_chars(src, i, MIN_LEN_TYPO) {
             Some(mut chars) => {
-                for &p in positions[i].iter().take(n_ops[i].min(2)) {
+                for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
                     let pos = p % chars.len();
                     if let Some(&replacement) = QWERTY_AZERTY.get(&chars[pos]) {
                         chars[pos] = replacement;

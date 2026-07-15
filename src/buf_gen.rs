@@ -23,7 +23,7 @@ const ALPHA_UPPER: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /// Build a StringArray by appending rows using a closure that writes into &mut Vec<u8>.
-fn build_string_array<F>(n: usize, avg_width: usize, mut build_row: F) -> ArrayRef
+pub(crate) fn build_string_array<F>(n: usize, avg_width: usize, mut build_row: F) -> ArrayRef
 where
     F: FnMut(&mut Vec<u8>),
 {

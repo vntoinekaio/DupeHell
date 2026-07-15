@@ -18,7 +18,7 @@ pub fn pool_values(pool_name: &str, n: usize, rng: &mut Rng, ctx: &Context) -> A
     let pool = match ctx.pool_store.get(pool_name) {
         Some(p) => p,
         None => {
-            let mut builder = StringBuilder::with_capacity(n, 4);
+            let mut builder = StringBuilder::with_capacity(n, n * 4);
             for _ in 0..n {
                 builder.append_value("");
             }
@@ -26,14 +26,14 @@ pub fn pool_values(pool_name: &str, n: usize, rng: &mut Rng, ctx: &Context) -> A
         }
     };
     if pool.is_empty() {
-        let mut builder = StringBuilder::with_capacity(n, 4);
+        let mut builder = StringBuilder::with_capacity(n, n * 4);
         for _ in 0..n {
             builder.append_value("");
         }
         return Arc::new(builder.finish());
     }
     let len = pool.len();
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for _ in 0..n {
         builder.append_value(&pool[rng.next_usize(len)]);
     }

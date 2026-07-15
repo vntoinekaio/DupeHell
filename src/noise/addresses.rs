@@ -4,29 +4,30 @@
 // EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 
 use crate::rng::Rng;
 
-static FR_TO_EN: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-    m.insert("Rue", "Street");
-    m.insert("Avenue", "Avenue");
-    m.insert("Boulevard", "Boulevard");
-    m.insert("Place", "Square");
-    m.insert("Chemin", "Road");
-    m.insert("Route", "Route");
-    m.insert("Allée", "Lane");
-    m.insert("Passage", "Passage");
-    m.insert("de la", "of the");
-    m.insert("du", "of the");
-    m.insert("des", "of the");
-    m
-});
+/// Ordered (not a HashMap) so iteration order — and therefore RNG
+/// consumption in `apply_language_mix` — is deterministic across processes.
+/// `std::collections::HashMap` randomizes its iteration order per process
+/// (RandomState), which previously made `apply_language_mix` non-reproducible
+/// across runs sharing the same `--seed`.
+static FR_TO_EN: &[(&str, &str)] = &[
+    ("Rue", "Street"),
+    ("Avenue", "Avenue"),
+    ("Boulevard", "Boulevard"),
+    ("Place", "Square"),
+    ("Chemin", "Road"),
+    ("Route", "Route"),
+    ("Allée", "Lane"),
+    ("Passage", "Passage"),
+    ("de la", "of the"),
+    ("du", "of the"),
+    ("des", "of the"),
+];
 
 /// Randomize the street number portion of an address.
 pub fn apply_address_scramble(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
@@ -35,7 +36,7 @@ pub fn apply_address_scramble(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 32);
+    let mut builder = StringBuilder::with_capacity(n, n * 32);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -65,7 +66,7 @@ pub fn apply_language_mix(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 32);
+    let mut builder = StringBuilder::with_capacity(n, n * 32);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -73,7 +74,7 @@ pub fn apply_language_mix(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
         }
         let s = src.value(i);
         let mut result = s.to_string();
-        for (fr, en) in FR_TO_EN.iter() {
+        for &(fr, en) in FR_TO_EN.iter() {
             if result.contains(fr) && rng2.next_f64() < 0.3 {
                 result = result.replacen(fr, en, 1);
             }
@@ -91,7 +92,7 @@ pub fn apply_postal_corrupt(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();

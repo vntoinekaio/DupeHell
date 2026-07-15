@@ -10,7 +10,7 @@ use arrow::array::{ArrayRef, StringBuilder};
 
 use crate::buf_gen::{
     buf_acct_num, buf_branch, buf_digits, buf_email, buf_medicare, buf_office_phone, buf_pan,
-    buf_passport, buf_phone, buf_ssn, buf_ssn_last4, bytes_strings,
+    buf_passport, buf_phone, buf_ssn, buf_ssn_last4, build_string_array, bytes_strings,
 };
 use crate::context::Context;
 use crate::rng::Rng;
@@ -22,7 +22,7 @@ pub type TemplateFn = fn(usize, &mut Rng, &Context) -> ArrayRef;
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /// Write `val` zero-padded to `width` digits into `buf`.
-fn write_zpad(buf: &mut Vec<u8>, val: usize, width: usize) {
+pub(crate) fn write_zpad(buf: &mut Vec<u8>, val: usize, width: usize) {
     let start = buf.len();
     buf.resize(start + width, b'0');
     let mut v = val;
@@ -30,22 +30,6 @@ fn write_zpad(buf: &mut Vec<u8>, val: usize, width: usize) {
         buf[i] = b'0' + (v % 10) as u8;
         v /= 10;
     }
-}
-
-/// Build a StringArray by calling `build_row` for each row.
-/// The closure captures `&mut Rng` from the outer scope.
-fn build<F>(n: usize, avg_width: usize, mut build_row: F) -> ArrayRef
-where
-    F: FnMut(&mut Vec<u8>),
-{
-    let mut builder = StringBuilder::with_capacity(n, n * avg_width);
-    let mut buf = Vec::with_capacity(avg_width.max(32));
-    for _ in 0..n {
-        buf.clear();
-        build_row(&mut buf);
-        builder.append_value(std::str::from_utf8(&buf).unwrap());
-    }
-    Arc::new(builder.finish())
 }
 
 // ── Template generators ───────────────────────────────────────────────────
@@ -98,7 +82,7 @@ fn gen_street(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let suffixes = [
         "St", "Ave", "Blvd", "Dr", "Ln", "Rd", "Way", "Ct", "Pl", "Cir",
     ];
-    build(n, 32, |buf| {
+    build_string_array(n, 32, |buf| {
         let num = rng.next_usize(9900) + 100; // 100-9999
         write_zpad(buf, num, 4);
         buf.push(b' ');
@@ -113,15 +97,20 @@ fn gen_street(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 fn gen_url(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let first = ctx.pool_store.get("first_name").unwrap();
     let last = ctx.pool_store.get("last_name").unwrap();
-    let names: Vec<&str> = first
-        .iter()
-        .chain(last.iter())
-        .map(|s| s.as_str())
-        .collect();
+    // Index the union of the two pools directly instead of materializing a
+    // concatenated `Vec<&str>` (a copy of every pointer in both pools) on
+    // every call — `k < first.len()` picks the same element `names[k]`
+    // would have under `first.iter().chain(last.iter())`.
+    let total = first.len() + last.len();
     let tlds = [".com", ".org", ".net", ".io"];
-    build(n, 28, |buf| {
+    build_string_array(n, 28, |buf| {
         buf.extend_from_slice(b"www.");
-        let name = names[rng.next_usize(names.len())].as_bytes();
+        let k = rng.next_usize(total);
+        let name = if k < first.len() {
+            first[k].as_bytes()
+        } else {
+            last[k - first.len()].as_bytes()
+        };
         for c in name {
             buf.push(c.to_ascii_lowercase());
         }
@@ -132,7 +121,7 @@ fn gen_url(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 
 fn gen_username(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let prefixes = ["user", "admin", "guest", "member", "player", "fan"];
-    build(n, 12, |buf| {
+    build_string_array(n, 12, |buf| {
         let p = prefixes[rng.next_usize(prefixes.len())];
         buf.extend_from_slice(p.as_bytes());
         let num = rng.next_usize(9900) + 100;
@@ -141,7 +130,7 @@ fn gen_username(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 6, |buf| {
+    build_string_array(n, 6, |buf| {
         let maj = rng.next_usize(4) + 1;
         let min = rng.next_usize(20);
         let pat = rng.next_usize(10);
@@ -156,14 +145,16 @@ fn gen_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_linkedin(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let first = ctx.pool_store.get("first_name").unwrap();
     let last = ctx.pool_store.get("last_name").unwrap();
-    let names: Vec<&str> = first
-        .iter()
-        .chain(last.iter())
-        .map(|s| s.as_str())
-        .collect();
-    build(n, 48, |buf| {
+    // See `gen_url` above: index the union directly, no concatenated Vec.
+    let total = first.len() + last.len();
+    build_string_array(n, 48, |buf| {
         buf.extend_from_slice(b"https://linkedin.com/in/");
-        let name = names[rng.next_usize(names.len())].as_bytes();
+        let k = rng.next_usize(total);
+        let name = if k < first.len() {
+            first[k].as_bytes()
+        } else {
+            last[k - first.len()].as_bytes()
+        };
         for c in name {
             buf.push(c.to_ascii_lowercase());
         }
@@ -174,7 +165,7 @@ fn gen_linkedin(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_mid_init(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 1, |buf| {
+    build_string_array(n, 1, |buf| {
         buf.push(b'A' + rng.next_usize(26) as u8);
     })
 }
@@ -200,7 +191,7 @@ fn gen_acct_name(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         "Logistics",
         "Ventures",
     ];
-    build(n, 24, |buf| {
+    build_string_array(n, 24, |buf| {
         let p = prefixes[rng.next_usize(prefixes.len())];
         buf.extend_from_slice(p.as_bytes());
         buf.push(b' ');
@@ -214,7 +205,7 @@ fn gen_doc_num(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         .pool_store
         .get("document_number_prefixes")
         .expect("pool 'document_number_prefixes' not found");
-    build(n, 12, |buf| {
+    build_string_array(n, 12, |buf| {
         let p = prefixes[rng.next_usize(prefixes.len())].as_str();
         buf.extend_from_slice(p.as_bytes());
         buf.push(b'-');
@@ -224,7 +215,7 @@ fn gen_doc_num(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_npi(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 9, |buf| {
+    build_string_array(n, 9, |buf| {
         buf.push(b'1');
         let num = rng.next_usize(90000000) + 10000000;
         write_zpad(buf, num, 8);
@@ -232,7 +223,7 @@ fn gen_npi(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_license(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 8, |buf| {
+    build_string_array(n, 8, |buf| {
         buf.push(b'A' + rng.next_usize(20) as u8);
         let num = rng.next_usize(900000) + 100000;
         write_zpad(buf, num, 6);
@@ -240,7 +231,7 @@ fn gen_license(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_ip(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 15, |buf| {
+    build_string_array(n, 15, |buf| {
         let o1 = rng.next_usize(254) + 1;
         let o2 = rng.next_usize(254) + 1;
         let o3 = rng.next_usize(254) + 1;
@@ -265,7 +256,7 @@ fn gen_barcode(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_sku(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 8, |buf| {
+    build_string_array(n, 8, |buf| {
         buf.push(b'A' + rng.next_usize(26) as u8);
         buf.push(b'-');
         let num = rng.next_usize(99000) + 1000;
@@ -282,7 +273,7 @@ fn gen_cc(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_reg(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         let l1 = b'A' + rng.next_usize(20) as u8;
         let l2 = b'A' + rng.next_usize(20) as u8;
         buf.push(l1);
@@ -296,7 +287,7 @@ fn gen_reg(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_variant(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let sizes = ["Small", "Medium", "Large", "XL", "One Size"];
     let colors = ["Black", "White", "Red", "Blue", "Green", "Gray"];
-    build(n, 14, |buf| {
+    build_string_array(n, 14, |buf| {
         let s = sizes[rng.next_usize(sizes.len())];
         let c = colors[rng.next_usize(colors.len())];
         buf.extend_from_slice(s.as_bytes());
@@ -307,7 +298,7 @@ fn gen_variant(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_order_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let prefixes = ["ORD", "INV", "SUB"];
-    build(n, 13, |buf| {
+    build_string_array(n, 13, |buf| {
         buf.push(b'#');
         let p = prefixes[rng.next_usize(prefixes.len())];
         buf.extend_from_slice(p.as_bytes());
@@ -322,7 +313,7 @@ fn gen_vin(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_routing(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 9, |buf| {
+    build_string_array(n, 9, |buf| {
         let a = rng.next_usize(9) * 10000000 + 21000000;
         let b = rng.next_usize(9000000) + 1000000;
         write_zpad(buf, a + b, 9);
@@ -330,7 +321,7 @@ fn gen_routing(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_serial(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 13, |buf| {
+    build_string_array(n, 13, |buf| {
         buf.extend_from_slice(b"MTR-");
         let num = rng.next_usize(90000000) + 10000000;
         write_zpad(buf, num, 8);
@@ -338,7 +329,7 @@ fn gen_serial(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_inv_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 11, |buf| {
+    build_string_array(n, 11, |buf| {
         buf.extend_from_slice(b"INV-");
         let num = rng.next_usize(900000) + 100000;
         write_zpad(buf, num, 6);
@@ -354,7 +345,7 @@ fn gen_jersey(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_plate(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 8, |buf| {
+    build_string_array(n, 8, |buf| {
         for _ in 0..3 {
             buf.push(b'A' + rng.next_usize(26) as u8);
         }
@@ -365,7 +356,7 @@ fn gen_plate(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_imei(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 15, |buf| {
+    build_string_array(n, 15, |buf| {
         let g1 = rng.next_usize(90000000) + 10000000;
         let g2 = rng.next_usize(9000000) + 1000000;
         write_zpad(buf, g1, 8);
@@ -374,7 +365,7 @@ fn gen_imei(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_imsi(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 15, |buf| {
+    build_string_array(n, 15, |buf| {
         let g1 = rng.next_usize(990) + 10;
         let g2 = rng.next_usize(9000000000) + 1000000000;
         buf.extend_from_slice(b"310");
@@ -393,7 +384,7 @@ fn gen_iccid(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_policy_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         buf.push(b'A' + rng.next_usize(20) as u8);
         let num = rng.next_usize(90000000) + 10000000;
         write_zpad(buf, num, 8);
@@ -401,7 +392,7 @@ fn gen_policy_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_bol(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 13, |buf| {
+    build_string_array(n, 13, |buf| {
         buf.extend_from_slice(b"BOL-");
         buf.push(b'A' + rng.next_usize(20) as u8);
         let num = rng.next_usize(90000000) + 10000000;
@@ -411,7 +402,7 @@ fn gen_bol(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_tracking(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let alnum = b"ABCDEFGHJKLMNPRSTUVWXYZ0123456789";
-    build(n, 18, |buf| {
+    build_string_array(n, 18, |buf| {
         buf.extend_from_slice(b"1Z");
         for _ in 0..16 {
             buf.push(alnum[rng.next_usize(alnum.len())]);
@@ -420,7 +411,7 @@ fn gen_tracking(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_scac(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 4, |buf| {
+    build_string_array(n, 4, |buf| {
         for _ in 0..4 {
             buf.push(b'A' + rng.next_usize(26) as u8);
         }
@@ -428,7 +419,7 @@ fn gen_scac(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_apn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 12, |buf| {
+    build_string_array(n, 12, |buf| {
         let g1 = rng.next_usize(900) + 100;
         let g2 = rng.next_usize(9000) + 1000;
         let g3 = rng.next_usize(900) + 100;
@@ -441,7 +432,7 @@ fn gen_apn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_mls(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 11, |buf| {
+    build_string_array(n, 11, |buf| {
         buf.extend_from_slice(b"MLS");
         let num = rng.next_usize(90000000) + 10000000;
         write_zpad(buf, num, 8);
@@ -458,7 +449,7 @@ fn gen_upc(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_case_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 16, |buf| {
+    build_string_array(n, 16, |buf| {
         buf.extend_from_slice(b"CASE-2024-");
         let num = rng.next_usize(90000) + 10000;
         write_zpad(buf, num, 5);
@@ -467,7 +458,7 @@ fn gen_case_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_court_room(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let wings = ["A", "B", "C", "D", "E", "N", "S", "W"];
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         buf.extend_from_slice(b"Room ");
         let w = wings[rng.next_usize(wings.len())];
         buf.extend_from_slice(w.as_bytes());
@@ -478,7 +469,7 @@ fn gen_court_room(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_orcid(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let alnum = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    build(n, 19, |buf| {
+    build_string_array(n, 19, |buf| {
         buf.extend_from_slice(b"0000-");
         for _ in 0..3 {
             for _ in 0..4 {
@@ -493,7 +484,7 @@ fn gen_orcid(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_doi(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 12, |buf| {
+    build_string_array(n, 12, |buf| {
         let prefix = rng.next_usize(9000) + 1000;
         let suffix = rng.next_usize(90000) + 10000;
         buf.extend_from_slice(b"10.");
@@ -504,7 +495,7 @@ fn gen_doi(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_isbn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 18, |buf| {
+    build_string_array(n, 18, |buf| {
         let g2 = rng.next_usize(90) + 10;
         let g3 = rng.next_usize(900) + 100;
         let g4 = rng.next_usize(90000) + 10000;
@@ -521,7 +512,7 @@ fn gen_isbn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_issn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 9, |buf| {
+    build_string_array(n, 9, |buf| {
         let g1 = rng.next_usize(9000) + 1000;
         let g2 = rng.next_usize(9000) + 1000;
         write_zpad(buf, g1, 4);
@@ -531,7 +522,7 @@ fn gen_issn(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_pages(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 9, |buf| {
+    build_string_array(n, 9, |buf| {
         let start = rng.next_usize(499) + 1;
         let span = rng.next_usize(27) + 3;
         let end = start + span;
@@ -542,7 +533,7 @@ fn gen_pages(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_part_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         buf.extend_from_slice(b"PRT-");
         let num = rng.next_usize(90000) + 10000;
         write_zpad(buf, num, 5);
@@ -550,7 +541,7 @@ fn gen_part_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_batch_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 12, |buf| {
+    build_string_array(n, 12, |buf| {
         buf.extend_from_slice(b"BATCH-");
         let num = rng.next_usize(90000) + 10000;
         write_zpad(buf, num, 5);
@@ -558,7 +549,7 @@ fn gen_batch_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_nct(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 11, |buf| {
+    build_string_array(n, 11, |buf| {
         buf.extend_from_slice(b"NCT");
         let num = rng.next_usize(90000000) + 1000000;
         write_zpad(buf, num, 8);
@@ -566,7 +557,7 @@ fn gen_nct(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_subj_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         buf.extend_from_slice(b"SUB-");
         let num = rng.next_usize(90000) + 10000;
         write_zpad(buf, num, 5);
@@ -575,7 +566,7 @@ fn gen_subj_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_dosage(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let units = ["mg", "mcg", "g", "mL", "IU", "mg/kg"];
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         let val = rng.next_usize(999) + 1;
         let u = units[rng.next_usize(units.len())];
         write_zpad(buf, val, 1);
@@ -585,7 +576,7 @@ fn gen_dosage(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_lot(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         buf.push(b'L');
         buf.push(b'A' + rng.next_usize(20) as u8);
         buf.push(b'-');
@@ -595,7 +586,7 @@ fn gen_lot(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_po(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 9, |buf| {
+    build_string_array(n, 9, |buf| {
         buf.extend_from_slice(b"PO-");
         let num = rng.next_usize(900000) + 100000;
         write_zpad(buf, num, 6);
@@ -603,7 +594,7 @@ fn gen_po(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_duns(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 10, |buf| {
+    build_string_array(n, 10, |buf| {
         let g1 = rng.next_usize(90) + 10;
         let g2 = rng.next_usize(900) + 100;
         let g3 = rng.next_usize(9000) + 1000;
@@ -616,7 +607,7 @@ fn gen_duns(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_season(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build(n, 9, |buf| {
+    build_string_array(n, 9, |buf| {
         let y = rng.next_usize(5) + 2020;
         write_zpad(buf, y, 4);
         buf.push(b'-');
@@ -626,7 +617,7 @@ fn gen_season(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_power(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let choices = [3, 6, 9, 12, 15, 18, 24, 30, 36];
-    build(n, 7, |buf| {
+    build_string_array(n, 7, |buf| {
         let v = choices[rng.next_usize(choices.len())];
         write_zpad(buf, v, 1);
         buf.extend_from_slice(b" kVA");
@@ -635,7 +626,7 @@ fn gen_power(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_suffix(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["Jr.", "Sr.", "III", "II", "IV", "MD", "PhD", "Esq."];
-    let mut builder = StringBuilder::with_capacity(n, 4);
+    let mut builder = StringBuilder::with_capacity(n, n * 4);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -653,7 +644,7 @@ fn gen_lead_source(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         "social_media",
         "webinar",
     ];
-    let mut builder = StringBuilder::with_capacity(n, 14);
+    let mut builder = StringBuilder::with_capacity(n, n * 14);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -668,7 +659,7 @@ fn gen_semester(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         "Fall 2025",
         "Spring 2026",
     ];
-    let mut builder = StringBuilder::with_capacity(n, 11);
+    let mut builder = StringBuilder::with_capacity(n, n * 11);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -679,7 +670,7 @@ fn gen_grade(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = [
         "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F", "W", "I", "P",
     ];
-    let mut builder = StringBuilder::with_capacity(n, 2);
+    let mut builder = StringBuilder::with_capacity(n, n * 2);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -696,7 +687,7 @@ fn gen_revenue_range(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         "$500M-$1B",
         "$1B+",
     ];
-    let mut builder = StringBuilder::with_capacity(n, 12);
+    let mut builder = StringBuilder::with_capacity(n, n * 12);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -705,7 +696,7 @@ fn gen_revenue_range(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_source_system(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["CRM", "ERP", "HRIS", "PORTAL", "LEGACY", "EXTERNAL"];
-    let mut builder = StringBuilder::with_capacity(n, 8);
+    let mut builder = StringBuilder::with_capacity(n, n * 8);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -721,7 +712,7 @@ fn gen_os_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         "HarmonyOS 4",
         "iPadOS 17",
     ];
-    let mut builder = StringBuilder::with_capacity(n, 11);
+    let mut builder = StringBuilder::with_capacity(n, n * 11);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -741,7 +732,7 @@ fn gen_reviewer_notes(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         "Above average contribution",
         "Shows initiative and drive",
     ];
-    let mut builder = StringBuilder::with_capacity(n, 38);
+    let mut builder = StringBuilder::with_capacity(n, n * 38);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -750,7 +741,7 @@ fn gen_reviewer_notes(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_currency(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "CNY"];
-    let mut builder = StringBuilder::with_capacity(n, 3);
+    let mut builder = StringBuilder::with_capacity(n, n * 3);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -759,7 +750,7 @@ fn gen_currency(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 
 fn gen_address_type(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let pool = ["shipping", "billing", "home", "work", "mailing"];
-    let mut builder = StringBuilder::with_capacity(n, 8);
+    let mut builder = StringBuilder::with_capacity(n, n * 8);
     for _ in 0..n {
         builder.append_value(pool[rng.next_usize(pool.len())]);
     }
@@ -1058,7 +1049,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     m.insert("address_type", gen_address_type);
     // Volume
     m.insert("volume", |n, rng, _| {
-        let mut builder = StringBuilder::with_capacity(n, 2);
+        let mut builder = StringBuilder::with_capacity(n, n * 2);
         for _ in 0..n {
             builder.append_value((rng.next_usize(50) + 1).to_string());
         }
@@ -1066,7 +1057,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     });
     // Issue
     m.insert("issue", |n, rng, _| {
-        let mut builder = StringBuilder::with_capacity(n, 2);
+        let mut builder = StringBuilder::with_capacity(n, n * 2);
         for _ in 0..n {
             builder.append_value((rng.next_usize(12) + 1).to_string());
         }
@@ -1075,7 +1066,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     // Option1, Option2, Option3
     m.insert("option1", |n, rng, _| {
         let pool = ["Small", "Medium", "Large", "XL", "XXL"];
-        let mut builder = StringBuilder::with_capacity(n, 5);
+        let mut builder = StringBuilder::with_capacity(n, n * 5);
         for _ in 0..n {
             builder.append_value(pool[rng.next_usize(pool.len())]);
         }
@@ -1083,7 +1074,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     });
     m.insert("option2", |n, rng, _| {
         let pool = ["Black", "White", "Red", "Blue", "Green", "Gray", "Navy"];
-        let mut builder = StringBuilder::with_capacity(n, 5);
+        let mut builder = StringBuilder::with_capacity(n, n * 5);
         for _ in 0..n {
             builder.append_value(pool[rng.next_usize(pool.len())]);
         }
@@ -1091,7 +1082,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     });
     m.insert("option3", |n, rng, _| {
         let pool = ["Cotton", "Polyester", "Wool", "Linen", "Silk"];
-        let mut builder = StringBuilder::with_capacity(n, 10);
+        let mut builder = StringBuilder::with_capacity(n, n * 10);
         for _ in 0..n {
             builder.append_value(pool[rng.next_usize(pool.len())]);
         }

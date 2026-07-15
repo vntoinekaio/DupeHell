@@ -37,7 +37,7 @@ pub fn apply_missing(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 8);
+    let mut builder = StringBuilder::with_capacity(n, n * 8);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -56,32 +56,17 @@ pub fn apply_missing(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
 
 /// Set all values to null (name_null / dob_null).
 pub fn apply_nullify(arr: &dyn Array, _rng: &mut Rng) -> ArrayRef {
-    use arrow::array::AsArray;
-    let src = arr.as_string::<i32>();
-    let n = src.len();
-
-    let mut builder = StringBuilder::with_capacity(n, 0);
-    for _ in 0..n {
-        builder.append_null();
-    }
-    Arc::new(builder.finish())
+    // Same logical values (every entry null) as the previous per-row
+    // `StringBuilder` loop, built directly via Arrow's native null-array
+    // constructor instead of appending n nulls one at a time.
+    arrow::array::new_null_array(&arrow::datatypes::DataType::Utf8, arr.len())
 }
 
 /// No-op — return input unchanged.
 pub fn apply_exact(arr: &dyn Array, _rng: &mut Rng) -> ArrayRef {
-    use arrow::array::AsArray;
-    let src = arr.as_string::<i32>();
-    let n = src.len();
-
-    let mut builder = StringBuilder::with_capacity(n, 8);
-    for i in 0..n {
-        if src.is_null(i) {
-            builder.append_null();
-        } else {
-            builder.append_value(src.value(i));
-        }
-    }
-    Arc::new(builder.finish())
+    // Zero-copy: same values, same validity bitmap, no per-row rebuild —
+    // mirrors the non-Utf8 branch of `hn_common::mix_arrays`.
+    arr.slice(0, arr.len())
 }
 
 /// "John Doe" → "J. D." — replace words with initial+dot.
@@ -90,7 +75,7 @@ pub fn apply_blocking_initial(arr: &dyn Array, _rng: &mut Rng) -> ArrayRef {
     let src = arr.as_string::<i32>();
     let n = src.len();
 
-    let mut builder = StringBuilder::with_capacity(n, 8);
+    let mut builder = StringBuilder::with_capacity(n, n * 8);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -119,7 +104,7 @@ pub fn apply_blocking_partial(arr: &dyn Array, _rng: &mut Rng) -> ArrayRef {
     let src = arr.as_string::<i32>();
     let n = src.len();
 
-    let mut builder = StringBuilder::with_capacity(n, 4);
+    let mut builder = StringBuilder::with_capacity(n, n * 4);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -140,7 +125,7 @@ pub fn apply_fuzzy_match(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();
@@ -180,7 +165,7 @@ pub fn apply_phonetic(arr: &dyn Array, _rng: &mut Rng) -> ArrayRef {
     let src = arr.as_string::<i32>();
     let n = src.len();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();

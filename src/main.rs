@@ -131,14 +131,6 @@ fn main() {
         return;
     }
 
-    let schema = match load_schema(&cli.domain, &cli.schemas_dir) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
-        }
-    };
-
     if cli.size < 10 {
         eprintln!("Error: size must be >= 10, got {}", cli.size);
         std::process::exit(1);
