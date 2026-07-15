@@ -15,7 +15,7 @@ use arrow::record_batch::RecordBatch;
 
 use crate::context::Context;
 use crate::entity_gen;
-use crate::pipeline::{self, IdPools, PipelineConfig};
+use crate::pipeline::{self, PipelineConfig};
 
 const CANARY_COUNT: usize = 3;
 const CANARY_SECRET: &str = "DupeHell-CANARY-v0.4-educational-use-only-2026";
@@ -43,13 +43,11 @@ pub fn generate_all(
     config: &PipelineConfig,
     full_arc: &Arc<Schema>,
     null_cache: &mut HashMap<(DataType, usize), ArrayRef>,
+    const_arr_cache: &mut HashMap<(String, usize), ArrayRef>,
     global_rid_offset: &mut usize,
-    ids: &IdPools,
     fk_pools: &HashMap<String, RecordBatch>,
     writer: &mut arrow::ipc::writer::FileWriter<std::fs::File>,
-    gt_record_id_arrs: &mut Vec<ArrayRef>,
-    gt_entity_type_arrs: &mut Vec<ArrayRef>,
-    gt_master_id_arrs: &mut Vec<ArrayRef>,
+    gt_acc: &mut crate::gt::GtAccumulator,
 ) -> Result<(), String> {
     let sig = compute_sig(&config.domain, config.size, config.seed);
     let canary_seed = u64::from_str_radix(&sig, 16).unwrap();
@@ -105,7 +103,7 @@ pub fn generate_all(
             .map(|f| rb.schema().column_with_name(f.name()).map(|(idx, _)| idx))
             .collect();
 
-        let canary_rids = ids.record_id_strs(*global_rid_offset..*global_rid_offset + n);
+        let canary_rids = pipeline::record_id_strs(*global_rid_offset..*global_rid_offset + n);
         let canary_mids: Vec<String> = (0..n)
             .map(|j| format!("CANARY-{}-{:03}-{}", sig, j, ent_idx))
             .collect();
@@ -119,15 +117,14 @@ pub fn generate_all(
             full_arc,
             &col_lookup,
             null_cache,
+            const_arr_cache,
         );
 
         writer
             .write(&aligned)
             .map_err(|e| format!("write canary batch: {e}"))?;
 
-        gt_record_id_arrs.push(aligned.column(0).clone());
-        gt_entity_type_arrs.push(aligned.column(2).clone());
-        gt_master_id_arrs.push(aligned.column(3).clone());
+        gt_acc.push_other_batch(aligned.column(0), aligned.column(2), aligned.column(3))?;
 
         *global_rid_offset += n;
     }

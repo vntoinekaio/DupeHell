@@ -67,15 +67,13 @@ pub fn apply_homoglyph(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(2) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..2).map(|_| rng2.next_usize(30)).collect())
-        .collect();
+    let positions: Vec<usize> = (0..n * 2).map(|_| rng2.next_usize(30)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         match get_chars(src, i, 2) {
             Some(mut chars) => {
-                for &p in positions[i].iter().take(n_ops[i].min(2)) {
+                for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
                     let pos = p % chars.len();
                     if let Some(alternatives) = HOMOGLYPHS.get(&chars[pos]) {
                         let idx = rng2.next_usize(alternatives.len());
@@ -105,24 +103,20 @@ pub fn apply_unicode_pollution(arr: &dyn arrow::array::Array, rng: &mut Rng) -> 
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..31).map(|_| rng2.next_usize(31)).collect())
-        .collect();
-    let zw_idx: Vec<Vec<usize>> = (0..n)
-        .map(|_| {
-            (0..3)
-                .map(|_| rng2.next_usize(ZERO_WIDTH_CHARS.len()))
-                .collect()
-        })
+    let positions: Vec<usize> = (0..n * 31).map(|_| rng2.next_usize(31)).collect();
+    let zw_idx: Vec<usize> = (0..n * 3)
+        .map(|_| rng2.next_usize(ZERO_WIDTH_CHARS.len()))
         .collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
-    for i in 0..n {
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
+    for (i, &n_op) in n_ops.iter().enumerate() {
         match get_chars(src, i, MIN_LEN_UNICODE) {
             Some(mut chars) => {
-                for j in 0..n_ops[i].min(3) {
-                    let pos = positions[i][j] % (chars.len() + 1);
-                    let zc = ZERO_WIDTH_CHARS[zw_idx[i][j] % ZERO_WIDTH_CHARS.len()];
+                let pos_base = i * 31;
+                let zw_base = i * 3;
+                for j in 0..n_op.min(3) {
+                    let pos = positions[pos_base + j] % (chars.len() + 1);
+                    let zc = ZERO_WIDTH_CHARS[zw_idx[zw_base + j] % ZERO_WIDTH_CHARS.len()];
                     chars.insert(pos, zc);
                 }
                 builder.append_value(chars.into_iter().collect::<String>());
@@ -148,15 +142,13 @@ pub fn apply_ocr_errors(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRe
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 1).collect();
-    let positions: Vec<Vec<usize>> = (0..n)
-        .map(|_| (0..3).map(|_| rng2.next_usize(30)).collect())
-        .collect();
+    let positions: Vec<usize> = (0..n * 3).map(|_| rng2.next_usize(30)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         match get_chars(src, i, 1) {
             Some(mut chars) => {
-                for &p in positions[i].iter().take(n_ops[i].min(3)) {
+                for &p in positions[i * 3..i * 3 + 3].iter().take(n_ops[i].min(3)) {
                     let pos = p % chars.len();
                     if let Some(&replacement) = OCR_REPLACEMENTS.get(&chars[pos]) {
                         chars[pos] = replacement;
@@ -186,7 +178,7 @@ pub fn apply_case_swap(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
 
     let r_vals: Vec<f64> = (0..n).map(|_| rng2.next_f64()).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for (i, &r) in r_vals.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
@@ -221,7 +213,7 @@ pub fn apply_char_dropout(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Array
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         match get_chars(src, i, MIN_LEN_DROPOUT) {
             Some(mut chars) => {

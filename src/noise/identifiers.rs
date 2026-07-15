@@ -19,7 +19,7 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
 
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(3)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 24);
+    let mut builder = StringBuilder::with_capacity(n, n * 24);
     for (i, &strategy) in strategies.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
@@ -91,7 +91,7 @@ pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
 
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(10)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 20);
+    let mut builder = StringBuilder::with_capacity(n, n * 20);
     for (i, &strategy) in strategies.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
@@ -158,7 +158,7 @@ pub fn corrupt_national_id(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) || src.value(i).is_empty() {
             builder.append_null();
@@ -189,7 +189,7 @@ pub fn corrupt_siren(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
         if src.is_null(i) {
             builder.append_null();

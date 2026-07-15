@@ -87,13 +87,17 @@ pub fn generate_hard_negatives(
 
     let mut rng = Rng::new(seed);
 
-    let idx_a: Vec<usize> = (0..n).map(|_| rng.next_usize(n_base)).collect();
-    let mut idx_b: Vec<usize> = (0..n).map(|_| rng.next_usize(n_base)).collect();
+    let idx_a_raw: Vec<usize> = (0..n).map(|_| rng.next_usize(n_base)).collect();
+    let mut idx_b_raw: Vec<usize> = (0..n).map(|_| rng.next_usize(n_base)).collect();
     for i in 0..n {
-        if idx_b[i] == idx_a[i] {
-            idx_b[i] = (idx_b[i] + 1) % n_base;
+        if idx_b_raw[i] == idx_a_raw[i] {
+            idx_b_raw[i] = (idx_b_raw[i] + 1) % n_base;
         }
     }
+    // Built once here instead of once per field inside `col_take` (id_fields
+    // + attr_fields each re-derive the same indices today).
+    let idx_a = UInt64Array::from_iter_values(idx_a_raw.iter().map(|&i| i as u64));
+    let idx_b = UInt64Array::from_iter_values(idx_b_raw.iter().map(|&i| i as u64));
 
     match config.pattern.as_str() {
         "same_field" => same_field(pool, &config, &idx_a, &idx_b, n),
@@ -116,8 +120,8 @@ pub fn generate_hard_negatives(
 fn same_field(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     n: usize,
 ) -> Result<RecordBatch, String> {
     let id_set: HashSet<&str> = config.id_fields.iter().map(|s| s.as_str()).collect();
@@ -148,8 +152,8 @@ fn same_field(
 fn mix_identifier(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     rng: &mut Rng,
     n: usize,
 ) -> Result<RecordBatch, String> {
@@ -181,8 +185,8 @@ fn mix_identifier(
 fn factory_same_name_diff(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     n: usize,
 ) -> Result<RecordBatch, String> {
     let c = HnConfig {
@@ -196,8 +200,8 @@ fn factory_same_name_diff(
 fn factory_same_email(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     n: usize,
 ) -> Result<RecordBatch, String> {
     let c = HnConfig {
@@ -211,8 +215,8 @@ fn factory_same_email(
 fn factory_same_ssn(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     n: usize,
 ) -> Result<RecordBatch, String> {
     let c = HnConfig {
@@ -226,8 +230,8 @@ fn factory_same_ssn(
 fn factory_same_phone(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     n: usize,
 ) -> Result<RecordBatch, String> {
     let c = HnConfig {
@@ -241,8 +245,8 @@ fn factory_same_phone(
 fn factory_same_address(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     n: usize,
 ) -> Result<RecordBatch, String> {
     let fields = if config.address_fields.is_empty() {
@@ -261,8 +265,8 @@ fn factory_same_address(
 fn factory_same_name_dob(
     pool: &RecordBatch,
     config: &HnConfig,
-    idx_a: &[usize],
-    idx_b: &[usize],
+    idx_a: &UInt64Array,
+    idx_b: &UInt64Array,
     n: usize,
 ) -> Result<RecordBatch, String> {
     let c = HnConfig {
@@ -282,14 +286,13 @@ fn factory_same_name_dob(
 fn col_take(
     pool: &RecordBatch,
     name: &str,
-    indices: &[usize],
+    indices: &UInt64Array,
     _n: usize,
 ) -> Result<ArrayRef, String> {
-    let idx_arr = UInt64Array::from_iter_values(indices.iter().copied().map(|i| i as u64));
     let col = pool
         .column_by_name(name)
         .ok_or_else(|| format!("Column '{name}' not found in pool"))?;
-    take(col.as_ref(), &idx_arr, None).map_err(|e| format!("take({name}): {e}"))
+    take(col.as_ref(), indices, None).map_err(|e| format!("take({name}): {e}"))
 }
 
 /// Interleave two equal-length arrays 50/50 based on random bits.
@@ -301,7 +304,7 @@ fn mix_arrays(a: &ArrayRef, b: &ArrayRef, rng: &mut Rng) -> ArrayRef {
     }
     let sa = a.as_string::<i32>();
     let sb = b.as_string::<i32>();
-    let mut builder = StringBuilder::with_capacity(n, 24);
+    let mut builder = StringBuilder::with_capacity(n, n * 24);
     for i in 0..n {
         if sa.is_null(i) && sb.is_null(i) {
             builder.append_null();

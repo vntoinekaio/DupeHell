@@ -80,66 +80,46 @@ pub struct PipelineStats {
     pub masters: usize,
 }
 
-// ── Pre-allocated ID pools ─────────────────────────────────────────────────
+// ── Fixed-width ASCII IDs ────────────────────────────────────────────────
 
-// Fixed-width ASCII IDs ("R-" + 13 digits, and 13 digits) — stored as two
-// contiguous byte buffers indexed by fixed stride instead of a `Vec<String>`
-// per ID. At tens of millions of records, materializing one heap allocation
-// per ID (and freeing them individually on drop) measurably dominates wall
-// time — see [drop_profile] in the debug logs: ~48s of a 295s run at 100M
-// records was spent solely freeing two such `Vec<String>`. Two big
-// allocations instead of 2×N small ones fixes both the build and the drop
-// side of that cost.
+// `record_id`/`pad` are pure functions of the row index — "R-" + 13 digits
+// and 13 digits respectively. Earlier this was a struct precomputing both
+// for every id up front (bounded per-2-big-allocations, better than one
+// `String` per id, but still O(total_ids) resident for the whole run — at
+// 200M+ ids that's several GB held for nothing). Computing on demand, only
+// for the batch currently being written, removes that fixed cost entirely;
+// the transient `Vec<String>` built per batch is bounded by `BATCH_SIZE`
+// and freed right after use, same as `batch_mids`/`dup_mids_buf`/`hn_mids`
+// elsewhere in this file.
 const RID_LEN: usize = 15; // "R-" + 13 digits
 const PAD_LEN: usize = 13; // 13 digits
 
-pub(crate) struct IdPools {
-    record_ids: Vec<u8>,
-    pad_7: Vec<u8>,
+#[inline]
+fn record_id_string(i: usize) -> String {
+    let mut buf = [0u8; RID_LEN];
+    buf[0] = b'R';
+    buf[1] = b'-';
+    let mut n = i;
+    for j in (2..RID_LEN).rev() {
+        buf[j] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    String::from_utf8(buf.to_vec()).unwrap()
 }
 
-impl IdPools {
-    #[inline]
-    pub(crate) fn record_id(&self, i: usize) -> &str {
-        let s = i * RID_LEN;
-        std::str::from_utf8(&self.record_ids[s..s + RID_LEN]).unwrap()
+#[inline]
+fn pad_string(i: usize) -> String {
+    let mut buf = [0u8; PAD_LEN];
+    let mut n = i;
+    for j in (0..PAD_LEN).rev() {
+        buf[j] = b'0' + (n % 10) as u8;
+        n /= 10;
     }
-
-    #[inline]
-    pub(crate) fn pad(&self, i: usize) -> &str {
-        let s = i * PAD_LEN;
-        std::str::from_utf8(&self.pad_7[s..s + PAD_LEN]).unwrap()
-    }
-
-    /// Borrowed `&str` view over `range`, for callers that need a slice.
-    pub(crate) fn record_id_strs(&self, range: std::ops::Range<usize>) -> Vec<&str> {
-        range.map(|i| self.record_id(i)).collect()
-    }
+    String::from_utf8(buf.to_vec()).unwrap()
 }
 
-fn preallocate_ids(total: usize) -> IdPools {
-    let mut record_ids = vec![0u8; total * RID_LEN];
-    let mut pad_7 = vec![0u8; total * PAD_LEN];
-
-    for i in 0..total {
-        let rbase = i * RID_LEN;
-        record_ids[rbase] = b'R';
-        record_ids[rbase + 1] = b'-';
-        let mut n = i;
-        for j in (rbase + 2..rbase + RID_LEN).rev() {
-            record_ids[j] = b'0' + (n % 10) as u8;
-            n /= 10;
-        }
-
-        let pbase = i * PAD_LEN;
-        let mut n = i;
-        for j in (pbase..pbase + PAD_LEN).rev() {
-            pad_7[j] = b'0' + (n % 10) as u8;
-            n /= 10;
-        }
-    }
-
-    IdPools { record_ids, pad_7 }
+pub(crate) fn record_id_strs(range: std::ops::Range<usize>) -> Vec<String> {
+    range.map(record_id_string).collect()
 }
 
 // ── Entity prefix ──────────────────────────────────────────────────────────
@@ -494,10 +474,6 @@ pub fn run_pipeline(
         .map_err(|e| format!("create output directory {output_dir:?}: {e}"))?;
     let t_start = std::time::Instant::now();
 
-    // Pre-allocate IDs (base + dups + HN + safety margin)
-    let max_hn = (config.hard_neg_ratio * config.size as f64) as usize;
-    let total_ids = config.size + max_hn + 10_000;
-    let ids = preallocate_ids(total_ids);
     let t_alloc = t_start.elapsed().as_secs_f64();
 
     // ── Phase 14: Streaming pipeline ─────────────────────────────────────
@@ -525,12 +501,18 @@ pub fn run_pipeline(
     // Cross-entity storage (lightweight)
     let mut fk_pools: FkPoolMap = HashMap::new();
     let mut hn_pools: HashMap<String, HnPool> = HashMap::new();
-    let mut master_id_pool: HashMap<String, Vec<String>> = HashMap::new();
 
-    // GT collection
-    let mut gt_record_id_arrs: Vec<ArrayRef> = Vec::new();
-    let mut gt_master_id_arrs: Vec<ArrayRef> = Vec::new();
-    let mut gt_entity_type_arrs: Vec<ArrayRef> = Vec::new();
+    // GT streaming: fed one batch at a time as the dataset is generated
+    // (see `crate::gt::GtAccumulator`) instead of accumulating full-dataset
+    // arrays in RAM.
+    let gt_ext = if config.output_format == "parquet" {
+        "parquet"
+    } else {
+        "ipc"
+    };
+    let gt_path = format!("{}/{}_ground_truth.{}", output_dir, config.run_id, gt_ext);
+    let gt_draft_path = format!("{}/{}_gt_draft.ipc", output_dir, config.run_id);
+    let mut gt_acc = crate::gt::GtAccumulator::new(&gt_draft_path)?;
 
     let mut global_rid_offset = 0usize;
     let mut _t_write = 0.0f64;
@@ -548,6 +530,22 @@ pub fn run_pipeline(
                 m
             });
     let hn_max_pool: usize = hn_pool_sizing.values().max().copied().unwrap_or(50_000) * 2 + 1_000;
+    // FK remap (fk_remap.rs) samples uniformly at random from this pool via
+    // `take` — it has no need to see every identifier the entity ever
+    // produced, only a large-enough sample for the target diversity. Capping
+    // it (same idea as `hn_max_pool` above) keeps its RAM bounded instead of
+    // O(n_base) per entity with an identifier column.
+    const FK_POOL_CAP: usize = 200_000;
+
+    // Entities whose FK pool is ever read (`fk_pools.get(&remap.target_entity)`
+    // below, and the identical lookup in `canary::generate_all`, which reuses
+    // the same `fk_remaps`). Extracting identifiers for an entity outside
+    // this set is pure waste — the pool built for it is never consulted.
+    let fk_targets: std::collections::HashSet<&str> = config
+        .entity_plans
+        .iter()
+        .flat_map(|p| p.fk_remaps.iter().map(|r| r.target_entity.as_str()))
+        .collect();
 
     for &plan_idx in &entity_order {
         let plan = &config.entity_plans[plan_idx];
@@ -559,9 +557,15 @@ pub fn run_pipeline(
         let col_json_str = &plan.columns_json;
 
         // Per-entity streaming state
+        let fk_targeted = fk_targets.contains(plan.name.as_str());
         let mut fk_builder = arrow::array::StringBuilder::new();
+        let mut fk_count: usize = 0;
+        // Only entities actually referenced by a `hard_neg_types` entry ever
+        // have their HN pool read (see `hn_pools.get(&hn_cfg.entity_type)`
+        // below); accumulating slices for the others just pins whole-batch
+        // Arrow buffers in `hn_pools` for the rest of the run for nothing.
+        let hn_targeted = hn_pool_sizing.contains_key(plan.name.as_str());
         let mut hn_slices: Vec<RecordBatch> = Vec::new();
-        let mut mids = Vec::with_capacity(plan.n_base);
         let mut last_batch: Option<(RecordBatch, usize, usize)> = None;
         let mut batch_rng = Rng::new(config.seed.wrapping_add(100));
         let mut fk_rng = Rng::new(config.seed.wrapping_add(42));
@@ -570,6 +574,7 @@ pub fn run_pipeline(
         let mut col_lookup: Option<Vec<Option<usize>>> = None;
         // Phase 12.3: null cache per entity plan
         let mut null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
+        let mut const_arr_cache: HashMap<(String, usize), ArrayRef> = HashMap::new();
 
         // Stream: generate → FK remap → FK extract → HN sample → IPC write → GT collect
         for (batch_idx, offset) in (0..plan.n_base)
@@ -604,21 +609,28 @@ pub fn run_pipeline(
                 rb
             };
 
-            // Extract FK identifiers for this entity's pool
-            if let Some(ref id_col) = plan.identifier_col
+            // Extract FK identifiers for this entity's pool, capped at
+            // FK_POOL_CAP (see comment above).
+            if fk_targeted
+                && fk_count < FK_POOL_CAP
+                && let Some(ref id_col) = plan.identifier_col
                 && let Some(col) = rb.column_by_name(id_col)
             {
                 let s = col.as_string::<i32>();
                 for i in 0..s.len() {
+                    if fk_count >= FK_POOL_CAP {
+                        break;
+                    }
                     if !s.is_null(i) {
                         fk_builder.append_value(s.value(i));
+                        fk_count += 1;
                     }
                 }
             }
 
             // HN pool: accumulate slices up to max pool size
             let hn_accum: usize = hn_slices.iter().map(|s| s.num_rows()).sum();
-            if hn_accum < hn_max_pool {
+            if hn_targeted && hn_accum < hn_max_pool {
                 let take = (hn_max_pool - hn_accum).min(batch_n);
                 hn_slices.push(rb.slice(0, take));
             }
@@ -638,12 +650,12 @@ pub fn run_pipeline(
 
             // Master IDs for this batch
             let batch_mids: Vec<String> = (offset..offset + batch_n)
-                .map(|i| format!("{}-{}", prefix, ids.pad(i)))
+                .map(|i| format!("{}-{}", prefix, pad_string(i)))
                 .collect();
             let batch_mids_slice = &batch_mids[..];
 
             // Add metadata + IPC write
-            let rid_slice = ids.record_id_strs(global_rid_offset..global_rid_offset + batch_n);
+            let rid_slice = record_id_strs(global_rid_offset..global_rid_offset + batch_n);
             let t_m0 = std::time::Instant::now();
             let base_rb = add_metadata_and_align(
                 &rb,
@@ -654,6 +666,7 @@ pub fn run_pipeline(
                 &full_arc,
                 col_lookup.as_ref().unwrap(),
                 &mut null_cache,
+                &mut const_arr_cache,
             );
             _t_meta += t_m0.elapsed().as_secs_f64();
 
@@ -665,12 +678,9 @@ pub fn run_pipeline(
             _write_calls += 1;
 
             // GT collect
-            gt_record_id_arrs.push(base_rb.column(0).clone());
-            gt_entity_type_arrs.push(base_rb.column(2).clone());
-            gt_master_id_arrs.push(base_rb.column(3).clone());
+            gt_acc.push_base_batch(base_rb.column(0), base_rb.column(2), base_rb.column(3))?;
 
             global_rid_offset += batch_n;
-            mids.extend(batch_mids);
             last_batch = Some((rb, batch_n, offset));
         }
 
@@ -689,7 +699,15 @@ pub fn run_pipeline(
         if !hn_slices.is_empty() {
             let total_count: usize = hn_slices.iter().map(|s| s.num_rows()).sum();
             let batch = if hn_slices.len() == 1 {
-                hn_slices.into_iter().next().unwrap()
+                // `rb.slice(0, take)` (pushed above) is zero-copy: it keeps
+                // the *entire* source batch's buffers alive (up to
+                // BATCH_SIZE=500_000 rows × all columns) for the rest of the
+                // run just to serve `take` rows. Re-materializing through the
+                // `take` kernel (same helper as `pick_rows` below) builds
+                // compact, right-sized buffers instead.
+                let only = hn_slices.into_iter().next().unwrap();
+                let idx = UInt64Array::from_iter_values(0..only.num_rows() as u64);
+                pick_rows(&only, &idx)?
             } else {
                 let schema = hn_slices[0].schema();
                 let n_fields = schema.fields().len();
@@ -704,16 +722,12 @@ pub fn run_pipeline(
             hn_pools.insert(plan.name.clone(), HnPool { batch, total_count });
         }
 
-        // Save master_ids for FK remap and dup mid cloning
-        master_id_pool.insert(plan.name.clone(), mids);
-
         // ── Dups (use last_batch) ──────────────────────────────────────────
         let has_dups: bool = plan.noise_types.iter().any(|n| n.count > 0);
         if has_dups && let Some((ref last_rb, last_n, last_offset)) = last_batch {
             let t_d0 = std::time::Instant::now();
             let mut dup_batches: Vec<RecordBatch> = Vec::new();
             let mut dup_mids_buf: Vec<String> = Vec::new();
-            let mids_ref = master_id_pool.get(&plan.name).unwrap();
 
             // Collect FK columns to exclude from noise
             let fk_exclude_cols: Vec<String> = plan
@@ -750,18 +764,20 @@ pub fn run_pipeline(
                     let rb = last_rb.clone();
                     let idxs = indices.clone();
                     let cols_v: Vec<String> = cols.to_vec();
-                    let mslice: &[String] = mids_ref.as_slice();
                     let exclude = fk_exclude_cols.clone();
+                    let prefix_ref: &str = &prefix;
                     handles.push(s.spawn(move || {
                         let dup = pick_rows(&rb, &idxs)?;
                         let mut rng = Rng::new(*seed);
                         let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng, &exclude)?;
                         let mut mb = Vec::with_capacity(*cnt);
                         for j in 0..*cnt {
-                            // `idxs` are local to `last_rb` (0..last_n); the matching
-                            // master_id lives at `last_offset + local_idx` in the
-                            // full per-entity master_id array, not at `local_idx`.
-                            mb.push(mslice[last_offset + idxs.value(j) as usize].clone());
+                            // `idxs` are local to `last_rb` (0..last_n); the master_id
+                            // is a pure function of (prefix, global index) — same
+                            // formula as `batch_mids` above — so it's recomputed here
+                            // instead of being cloned out of a retained master_id_pool.
+                            let global_idx = last_offset + idxs.value(j) as usize;
+                            mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
                         }
                         Ok((noisy, mb))
                     }));
@@ -780,7 +796,7 @@ pub fn run_pipeline(
             // Write dups
             if !dup_batches.is_empty() {
                 let dup_total = dup_mids_buf.len();
-                let dup_rids = ids.record_id_strs(global_rid_offset..global_rid_offset + dup_total);
+                let dup_rids = record_id_strs(global_rid_offset..global_rid_offset + dup_total);
 
                 let concated = if dup_batches.len() == 1 {
                     dup_batches.into_iter().next().unwrap()
@@ -809,6 +825,7 @@ pub fn run_pipeline(
                     &full_arc,
                     col_lookup.as_ref().unwrap(),
                     &mut null_cache,
+                    &mut const_arr_cache,
                 );
 
                 let t_wd = std::time::Instant::now();
@@ -818,9 +835,11 @@ pub fn run_pipeline(
                 _t_write += t_wd.elapsed().as_secs_f64();
                 _write_calls += 1;
 
-                gt_record_id_arrs.push(dup_rb_full.column(0).clone());
-                gt_entity_type_arrs.push(dup_rb_full.column(2).clone());
-                gt_master_id_arrs.push(dup_rb_full.column(3).clone());
+                gt_acc.push_dup_batch(
+                    dup_rb_full.column(0),
+                    dup_rb_full.column(2),
+                    dup_rb_full.column(3),
+                )?;
                 global_rid_offset += dup_total;
             }
         }
@@ -832,6 +851,7 @@ pub fn run_pipeline(
     let t2 = std::time::Instant::now();
     // Phase 12.3: separate null cache for HN section (different entity types)
     let mut hn_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
+    let mut hn_const_arr_cache: HashMap<(String, usize), ArrayRef> = HashMap::new();
     for (hn_idx, hn_cfg) in config.hard_neg_types.iter().enumerate() {
         if hn_cfg.count == 0 {
             continue;
@@ -859,7 +879,7 @@ pub fn run_pipeline(
             continue;
         }
 
-        let hn_rids = ids.record_id_strs(global_rid_offset..global_rid_offset + n_hn);
+        let hn_rids = record_id_strs(global_rid_offset..global_rid_offset + n_hn);
 
         let mut hn_mid_rng = Rng::new(config.seed.wrapping_add(300 + hn_idx as u64));
         let hn_mids: Vec<String> = (0..n_hn)
@@ -887,6 +907,7 @@ pub fn run_pipeline(
             &full_arc,
             &hn_col_lookup,
             &mut hn_null_cache,
+            &mut hn_const_arr_cache,
         );
 
         let t_wh = std::time::Instant::now();
@@ -897,9 +918,11 @@ pub fn run_pipeline(
         _write_calls += 1;
 
         // Phase 13: collect ArrayRefs instead of per-row StringBuilder
-        gt_record_id_arrs.push(hn_rb_full.column(0).clone());
-        gt_entity_type_arrs.push(hn_rb_full.column(2).clone());
-        gt_master_id_arrs.push(hn_rb_full.column(3).clone());
+        gt_acc.push_other_batch(
+            hn_rb_full.column(0),
+            hn_rb_full.column(2),
+            hn_rb_full.column(3),
+        )?;
 
         global_rid_offset += n_hn;
     }
@@ -908,22 +931,21 @@ pub fn run_pipeline(
     // ── Canary records ────────────────────────────────────────────────────
     {
         let mut canary_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
+        let mut canary_const_arr_cache: HashMap<(String, usize), ArrayRef> = HashMap::new();
         crate::canary::generate_all(
             ctx,
             config,
             &full_arc,
             &mut canary_null_cache,
+            &mut canary_const_arr_cache,
             &mut global_rid_offset,
-            &ids,
             &fk_pools,
             &mut writer,
-            &mut gt_record_id_arrs,
-            &mut gt_entity_type_arrs,
-            &mut gt_master_id_arrs,
+            &mut gt_acc,
         )?;
     }
 
-    // ── Phase 3: Finalize + GT (use accumulated arrays) ────────────────
+    // ── Phase 3: Finalize + GT (streamed, see crate::gt::GtAccumulator) ────
     let t3 = std::time::Instant::now();
     writer
         .finish()
@@ -931,71 +953,16 @@ pub fn run_pipeline(
     let t3a_elapsed = t3.elapsed().as_secs_f64();
 
     let t3b = std::time::Instant::now();
-
-    // Phase 13: concat once, keep ArrayRef alive, as_string borrows from it
-    let rid_arr = arrow::compute::concat(
-        &gt_record_id_arrs
-            .iter()
-            .map(|a| a.as_ref())
-            .collect::<Vec<_>>(),
-    )
-    .map_err(|e| format!("concat rid: {e}"))?;
-    let et_arr = arrow::compute::concat(
-        &gt_entity_type_arrs
-            .iter()
-            .map(|a| a.as_ref())
-            .collect::<Vec<_>>(),
-    )
-    .map_err(|e| format!("concat et: {e}"))?;
-    let mid_arr = arrow::compute::concat(
-        &gt_master_id_arrs
-            .iter()
-            .map(|a| a.as_ref())
-            .collect::<Vec<_>>(),
-    )
-    .map_err(|e| format!("concat mid: {e}"))?;
-
-    // Downcast once, reuse references
-    let record_id_arr: &StringArray = rid_arr.as_string::<i32>();
-    let entity_type_arr: &StringArray = et_arr.as_string::<i32>();
-    let master_id_arr: &StringArray = mid_arr.as_string::<i32>();
-
-    let t_gt0 = std::time::Instant::now();
-    let (gt_match_types, n_exact_dup, n_hard_neg, n_unique) =
-        crate::gt::compute_gt(record_id_arr, master_id_arr, entity_type_arr);
-    let _t_gt_compute = t_gt0.elapsed().as_secs_f64();
-
-    let gt_ext = if config.output_format == "parquet" {
-        "parquet"
-    } else {
-        "ipc"
-    };
-    let gt_path = format!("{}/{}_ground_truth.{}", output_dir, config.run_id, gt_ext);
-
     let _gt_meta = build_metadata_map(config);
-    let t_gt1 = std::time::Instant::now();
-    if config.output_format == "parquet" {
-        crate::gt::write_gt_parquet(
-            record_id_arr,
-            master_id_arr,
-            entity_type_arr,
-            &gt_match_types,
-            config.difficulty.as_str(),
-            &gt_path,
-            &_gt_meta,
-        )?;
-    } else {
-        crate::gt::write_gt_ipc(
-            record_id_arr,
-            master_id_arr,
-            entity_type_arr,
-            &gt_match_types,
-            config.difficulty.as_str(),
-            &gt_path,
-            &_gt_meta,
-        )?;
-    }
-    let _t_gt_write = t_gt1.elapsed().as_secs_f64();
+    let t_gt0 = std::time::Instant::now();
+    let (n_exact_dup, n_hard_neg, n_unique, n_masters) = gt_acc.finish(
+        config.difficulty.as_str(),
+        &config.output_format,
+        &gt_path,
+        &_gt_meta,
+    )?;
+    let _t_gt_compute = 0.0f64;
+    let _t_gt_write = t_gt0.elapsed().as_secs_f64();
     let t3b_elapsed = t3b.elapsed().as_secs_f64();
     let _t3_elapsed = t3.elapsed().as_secs_f64();
 
@@ -1022,7 +989,13 @@ pub fn run_pipeline(
             .collect();
         let props = parquet::file::properties::WriterProperties::builder()
             .set_compression(parquet::basic::Compression::ZSTD(zstd_level))
-            .set_max_row_group_row_count(Some(usize::MAX / 2))
+            // An unbounded row group (previously `usize::MAX / 2`) never
+            // flushes before `close()`: every compressed column chunk for
+            // the whole dataset stays resident in `ArrowWriter`'s buffers
+            // for the entire conversion. 1M rows/group (parquet-rs' own
+            // default) bounds that to one row group's worth at a time —
+            // same values on disk, different row-group boundaries.
+            .set_max_row_group_row_count(Some(1_000_000))
             .set_key_value_metadata(Some(meta_kv))
             .build();
         let mut parquet_writer =
@@ -1060,31 +1033,13 @@ pub fn run_pipeline(
         duration,
     );
 
-    let t_masters0 = std::time::Instant::now();
-    let master_set: rustc_hash::FxHashSet<&str> = (0..master_id_arr.len())
-        .map(|i| master_id_arr.value(i))
-        .collect();
-    log::debug!(
-        "[masters_profile] hashset_build={:.3}s n={}",
-        t_masters0.elapsed().as_secs_f64(),
-        master_id_arr.len()
-    );
-
     let stats = PipelineStats {
         total_records: global_rid_offset,
         exact_dups: n_exact_dup,
         hard_negs: n_hard_neg,
         uniques: n_unique,
-        masters: master_set.len(),
+        masters: n_masters,
     };
-
-    let t_drop0 = std::time::Instant::now();
-    drop(master_set);
-    drop(ids);
-    log::debug!(
-        "[drop_profile] ids+master_set drop={:.3}s",
-        t_drop0.elapsed().as_secs_f64()
-    );
 
     Ok(PipelineOutput {
         output_files: vec![dataset_path],
@@ -1192,21 +1147,39 @@ pub(crate) fn add_metadata_and_align(
     rb: &RecordBatch,
     domain: &str,
     entity_type: &str,
-    record_ids: &[&str],
+    record_ids: &[String],
     master_ids: &[String],
     full_arc: &Arc<Schema>,
     col_lookup: &[Option<usize>],
     null_cache: &mut HashMap<(DataType, usize), ArrayRef>,
+    const_arr_cache: &mut HashMap<(String, usize), ArrayRef>,
 ) -> RecordBatch {
     let n = rb.num_rows();
-    let domain_arr = Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
-        domain, n,
-    ))) as ArrayRef;
-    let et_arr = Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
-        entity_type,
-        n,
-    ))) as ArrayRef;
-    let rid_arr = Arc::new(StringArray::from_iter_values(record_ids.iter().copied())) as ArrayRef;
+    // `domain` is constant for the whole run and `entity_type` repeats
+    // across every batch of a given entity (and often across HN/canary
+    // sections too) — cache the built repeat-array per (value, n) instead
+    // of rebuilding an n-length StringArray on every call, same idea as
+    // `null_cache` above for the always-null columns.
+    let domain_arr = const_arr_cache
+        .entry((domain.to_string(), n))
+        .or_insert_with(|| {
+            Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
+                domain, n,
+            ))) as ArrayRef
+        })
+        .clone();
+    let et_arr = const_arr_cache
+        .entry((entity_type.to_string(), n))
+        .or_insert_with(|| {
+            Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
+                entity_type,
+                n,
+            ))) as ArrayRef
+        })
+        .clone();
+    let rid_arr = Arc::new(StringArray::from_iter_values(
+        record_ids.iter().map(|s| s.as_str()),
+    )) as ArrayRef;
     let mid_arr = Arc::new(StringArray::from_iter_values(
         master_ids.iter().map(|s| s.as_str()),
     )) as ArrayRef;

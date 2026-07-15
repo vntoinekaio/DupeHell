@@ -20,7 +20,7 @@ pub fn noise_dates(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
 
     let ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(4)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for (i, &op) in ops.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
@@ -150,7 +150,7 @@ pub fn noise_dates_mix(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
 
     let formats: Vec<usize> = (0..n).map(|_| rng2.next_usize(4)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for (i, &fmt) in formats.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();
@@ -193,7 +193,7 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
 
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(3)).collect();
 
-    let mut builder = StringBuilder::with_capacity(n, 16);
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
     for (i, &strategy) in strategies.iter().enumerate().take(n) {
         if src.is_null(i) {
             builder.append_null();

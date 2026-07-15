@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, AsArray, StringBuilder};
+use arrow::array::{Array, ArrayRef, AsArray, StringBuilder};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use rayon::prelude::*;
@@ -352,15 +352,19 @@ fn apply_action_set_pool(
     let arr = batch.get(col_name).unwrap();
     let dt = arr.data_type();
     let mask_count = mask.iter().filter(|&&m| m).count();
-    let pool_strs = if mask_count > 0 {
-        let pool = crate::pool_lookup::pool_values(pool_name, mask_count, rng, ctx);
-        let pool_s = pool.as_string::<i32>();
-        (0..mask_count)
-            .map(|i| pool_s.value(i).to_string())
-            .collect::<Vec<_>>()
+    // Keep the sampled pool as an Arrow array and read `&str`s straight out
+    // of it instead of copying every value into a `Vec<String>` up front —
+    // `pool_arr` (unrelated to `batch`) can stay alive alongside `arr`'s
+    // borrow of `batch` without any lifetime conflict.
+    let pool_arr = if mask_count > 0 {
+        Some(crate::pool_lookup::pool_values(
+            pool_name, mask_count, rng, ctx,
+        ))
     } else {
-        Vec::new()
+        None
     };
+    let pool_s = pool_arr.as_ref().map(|p| p.as_string::<i32>());
+    let pool_len = pool_s.as_ref().map_or(0, |p| p.len());
 
     if *dt == DataType::Int64 {
         use arrow::array::Int64Array;
@@ -369,8 +373,8 @@ fn apply_action_set_pool(
         let mut pool_idx = 0;
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
-                if pool_idx < pool_strs.len() {
-                    let parsed: i64 = pool_strs[pool_idx].parse().unwrap_or(0);
+                if pool_idx < pool_len {
+                    let parsed: i64 = pool_s.unwrap().value(pool_idx).parse().unwrap_or(0);
                     builder.append_value(parsed);
                     pool_idx += 1;
                 } else {
@@ -388,8 +392,8 @@ fn apply_action_set_pool(
         let mut pool_idx = 0;
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
-                if pool_idx < pool_strs.len() {
-                    let parsed: f64 = pool_strs[pool_idx].parse().unwrap_or(0.0);
+                if pool_idx < pool_len {
+                    let parsed: f64 = pool_s.unwrap().value(pool_idx).parse().unwrap_or(0.0);
                     builder.append_value(parsed);
                     pool_idx += 1;
                 } else {
@@ -401,13 +405,13 @@ fn apply_action_set_pool(
         }
         batch.insert(col_name.to_string(), Arc::new(builder.finish()));
     } else {
-        let mut builder = StringBuilder::with_capacity(n, 16);
+        let mut builder = StringBuilder::with_capacity(n, n * 16);
         let src = arr.as_string::<i32>();
         let mut pool_idx = 0;
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
-                if pool_idx < pool_strs.len() {
-                    builder.append_value(&pool_strs[pool_idx]);
+                if pool_idx < pool_len {
+                    builder.append_value(pool_s.unwrap().value(pool_idx));
                     pool_idx += 1;
                 } else {
                     builder.append_null();
@@ -465,11 +469,9 @@ pub fn generate_entity_batch(ctx: &Context, request_json: &str) -> Result<Record
 
     let mut fields: Vec<Field> = Vec::with_capacity(col_count);
     let mut batch_map: HashMap<String, ArrayRef> = HashMap::new();
-    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(col_count);
     for ((name, arr), (_, dt, nullable)) in results.drain(..).zip(field_infos) {
         fields.push(Field::new(&name, dt, nullable));
-        batch_map.insert(name.clone(), arr.clone());
-        arrays.push(arr);
+        batch_map.insert(name, arr);
     }
 
     // Apply column conditions

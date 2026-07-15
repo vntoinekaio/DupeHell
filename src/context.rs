@@ -46,11 +46,15 @@ impl PoolStore {
                 .unwrap()
                 .to_string_lossy()
                 .to_string();
-            let data: serde_json::Value = serde_json::from_reader(
-                std::fs::File::open(entry.path())
-                    .map_err(|e| format!("cannot open {name}.json: {e}"))?,
-            )
-            .map_err(|e| format!("cannot parse {name}.json: {e}"))?;
+            // `from_reader` on a raw `File` reads via small unbuffered calls
+            // (no internal buffering in serde_json) — reading the whole
+            // small pool file into memory first and parsing with `from_str`
+            // is markedly faster, and this runs once per pool file (132 of
+            // them) at every startup.
+            let raw = std::fs::read_to_string(entry.path())
+                .map_err(|e| format!("cannot open {name}.json: {e}"))?;
+            let data: serde_json::Value =
+                serde_json::from_str(&raw).map_err(|e| format!("cannot parse {name}.json: {e}"))?;
 
             match &data {
                 serde_json::Value::Array(arr) => {
