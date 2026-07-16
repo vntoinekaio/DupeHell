@@ -5,7 +5,7 @@
 
 Domain **nonprofit** (FK-free, 6 entities), difficulty **medium**, seed **42**.  
 Measurements via the `dupehell` CLI binary (`target/release/dupehell.exe`),
-single-thread. Machine: Lenovo ThinkPad P16 Gen 2 — Intel Core i7-13850HX
+single-thread. Machine: Lenovo ThinkPad P16 Gen 2 — Intel Core i7-13th
 (20C/28T), 32 GB DDR5, SK Hynix 1 TB NVMe.
 
 ---
