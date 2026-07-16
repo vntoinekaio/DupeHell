@@ -197,13 +197,17 @@ pub fn push_dup_clusters(
     clusters: &HashMap<String, Vec<String>>,
     max_edges: usize,
 ) -> Result<(), String> {
-    for record_ids in clusters.values() {
+    let mut master_ids: Vec<&String> = clusters.keys().collect();
+    master_ids.sort();
+
+    for master_id in master_ids {
+        let record_ids = &clusters[master_id];
         let k = record_ids.len();
         if k < 2 {
             continue;
         }
         let n_edges = k * (k - 1) / 2;
-        let mut sorted = record_ids.clone();
+        let mut sorted: Vec<&String> = record_ids.iter().collect();
         sorted.sort();
 
         if n_edges > max_edges {
@@ -211,12 +215,12 @@ pub fn push_dup_clusters(
                 "dup cluster has {n_edges} edges > {max_edges}, using spanning tree fallback"
             );
             for w in sorted.windows(2) {
-                ew.push(&w[0], &w[1], "exact_dup", "spanning_tree", 1.0)?;
+                ew.push(w[0], w[1], "exact_dup", "spanning_tree", 1.0)?;
             }
         } else {
             for i in 0..k {
                 for j in (i + 1)..k {
-                    ew.push(&sorted[i], &sorted[j], "exact_dup", "complete", 1.0)?;
+                    ew.push(sorted[i], sorted[j], "exact_dup", "complete", 1.0)?;
                 }
             }
         }
