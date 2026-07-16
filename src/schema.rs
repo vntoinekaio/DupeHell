@@ -121,15 +121,23 @@ pub fn chrono_now() -> String {
 }
 
 /// Deterministic run ID derived from generation parameters, so the same
-/// (domain, size, seed, difficulty) always produces the same output filename
-/// regardless of output format (IPC vs Parquet) or how many times it's run.
-pub fn deterministic_run_id(domain: &str, size: usize, seed: u64, difficulty: &str) -> String {
+/// (domain, size, seed, difficulty, hard_neg_ratio) always produces the same
+/// output filename regardless of output format (IPC vs Parquet) or how many
+/// times it's run.
+pub fn deterministic_run_id(
+    domain: &str,
+    size: usize,
+    seed: u64,
+    difficulty: &str,
+    hard_neg_ratio: f64,
+) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     domain.hash(&mut hasher);
     size.hash(&mut hasher);
     seed.hash(&mut hasher);
     difficulty.hash(&mut hasher);
+    hard_neg_ratio.to_bits().hash(&mut hasher);
     format!("{}_{:x}", domain, hasher.finish())
 }
 
@@ -139,22 +147,31 @@ pub fn deterministic_run_id(domain: &str, size: usize, seed: u64, difficulty: &s
 /// available domains found in the same directory.
 pub fn load_schema(domain: &str, schemas_dir: &Path) -> Result<DomainSchema, String> {
     let path = schemas_dir.join(format!("{domain}.json"));
-    let data = match std::fs::read_to_string(&path) {
-        Ok(d) => d,
-        Err(_) => {
-            let hint = list_available_domains(schemas_dir);
-            return Err(format!(
-                "schema file not found for domain '{domain}' at {path:?}. \
-                 Available domains ({hint})"
-            ));
-        }
-    };
+    // Case-sensitive exact match against the actual schema file names, so
+    // "KYC" is rejected the same way on every OS — on a case-insensitive
+    // filesystem (Windows), `read_to_string` alone would silently succeed
+    // for "KYC" via the "kyc.json" file, producing a different run hash
+    // than "kyc" for what the user intended to be the same domain.
+    let available = available_domain_names(schemas_dir);
+    if !available.iter().any(|d| d == domain) {
+        let hint = if available.is_empty() {
+            "no schemas found".to_string()
+        } else {
+            available.join(", ")
+        };
+        return Err(format!(
+            "schema file not found for domain '{domain}' at {path:?}. \
+             Available domains ({hint})"
+        ));
+    }
+    let data =
+        std::fs::read_to_string(&path).map_err(|e| format!("cannot read schema {path:?}: {e}"))?;
     serde_json::from_str(&data).map_err(|e| format!("cannot parse schema {domain}.json: {e}"))
 }
 
 /// List available domain names (without .json extension) in a directory.
-fn list_available_domains(dir: &Path) -> String {
-    let names: Vec<String> = match std::fs::read_dir(dir) {
+fn available_domain_names(dir: &Path) -> Vec<String> {
+    match std::fs::read_dir(dir) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
             .filter(|e| {
@@ -169,12 +186,7 @@ fn list_available_domains(dir: &Path) -> String {
                     .map(|s| s.to_string_lossy().to_string())
             })
             .collect(),
-        Err(_) => return "directory not found".to_string(),
-    };
-    if names.is_empty() {
-        "no schemas found".to_string()
-    } else {
-        names.join(", ")
+        Err(_) => Vec::new(),
     }
 }
 

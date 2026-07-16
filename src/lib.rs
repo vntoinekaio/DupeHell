@@ -129,7 +129,7 @@ fn generate(
 
     let mut ctx = Context::new(domain, locale, pools_dir).map_err(PyValueError::new_err)?;
 
-    let run_id = schema::deterministic_run_id(domain, size, seed, difficulty);
+    let run_id = schema::deterministic_run_id(domain, size, seed, difficulty, hard_neg_ratio);
     let config = build_pipeline_config(
         domain,
         size,

@@ -1283,6 +1283,7 @@ fn build_metadata_map(config: &PipelineConfig) -> HashMap<String, String> {
         ("dupehell.domain".into(), config.domain.clone()),
         ("dupehell.size".into(), config.size.to_string()),
         ("dupehell.seed".into(), config.seed.to_string()),
+        ("dupehell.difficulty".into(), config.difficulty.clone()),
         ("dupehell.run_id".into(), config.run_id.clone()),
         ("dupehell.timestamp".into(), ts),
         (
