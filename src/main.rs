@@ -169,7 +169,14 @@ fn main() {
     };
 
     let effective_format = match &cli.output_format {
-        Some(fmt) => fmt.clone(),
+        Some(fmt) => {
+            if cli.parquet > 0 && fmt != "parquet" {
+                eprintln!(
+                    "Warning: --parquet is ignored because --output-format {fmt} was also given"
+                );
+            }
+            fmt.clone()
+        }
         None if cli.parquet > 0 => "parquet".to_string(),
         None => "ipc".to_string(),
     };
@@ -179,8 +186,13 @@ fn main() {
         std::process::exit(1);
     }
 
-    let run_id =
-        dupehell::schema::deterministic_run_id(&cli.domain, cli.size, cli.seed, &cli.difficulty);
+    let run_id = dupehell::schema::deterministic_run_id(
+        &cli.domain,
+        cli.size,
+        cli.seed,
+        &cli.difficulty,
+        cli.hard_neg_ratio,
+    );
     let config = match build_pipeline_config(
         &cli.domain,
         cli.size,

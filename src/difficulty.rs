@@ -224,7 +224,8 @@ pub fn estimate_difficulty(
     hard_neg_ratio: f64,
     schema: &DomainSchema,
 ) -> Result<DifficultyReport, String> {
-    let run_id = crate::schema::deterministic_run_id(domain, size, seed, difficulty);
+    let run_id =
+        crate::schema::deterministic_run_id(domain, size, seed, difficulty, hard_neg_ratio);
     let singleton_master_fraction = crate::schema::default_singleton_master_fraction(difficulty);
     let config = build_pipeline_config(
         domain,
