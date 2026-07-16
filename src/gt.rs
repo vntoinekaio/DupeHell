@@ -10,6 +10,18 @@ use arrow::record_batch::RecordBatch;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Result of [`GtAccumulator::finish`].
+pub struct GtResult {
+    pub n_exact_dup: usize,
+    pub n_hard_neg: usize,
+    pub n_unique: usize,
+    pub n_masters: usize,
+    /// Maps each duplicated `master_id` to the full set of `record_id`s in
+    /// its cluster (base + duplicate copies). Consumed by
+    /// `graph_gen::push_dup_clusters` to emit `exact_dup` edges.
+    pub cluster_map: HashMap<String, Vec<String>>,
+}
+
 fn draft_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
         Field::new("record_id", DataType::Utf8, false),
@@ -149,14 +161,14 @@ impl GtAccumulator {
     /// Consumes the accumulator: closes the draft, re-reads it batch by
     /// batch to classify each row now that the full duplicated-master set
     /// is known, and streams the definitive ground-truth file (IPC or
-    /// Parquet). Returns `(n_exact_dup, n_hard_neg, n_unique, n_masters)`.
+    /// Parquet). Returns a [`GtResult`].
     pub fn finish(
         self,
         difficulty: &str,
         output_format: &str,
         final_path: &str,
         metadata: &HashMap<String, String>,
-    ) -> Result<(usize, usize, usize, usize), String> {
+    ) -> Result<GtResult, String> {
         let GtAccumulator {
             draft_path,
             mut writer,
@@ -190,11 +202,15 @@ impl GtAccumulator {
         let mut n_exact_dup = 0usize;
         let mut n_hard_neg = 0usize;
         let mut n_unique = 0usize;
+        // Cluster membership for duplicated masters (base + duplicate copies),
+        // for emitting `exact_dup` edges after this pass.
+        let mut cluster_map: HashMap<String, Vec<String>> = HashMap::new();
 
         for batch_result in reader {
             let batch = batch_result.map_err(|e| format!("read gt draft batch: {e}"))?;
             let n = batch.num_rows();
             let mid_col = batch.column(1).as_string::<i32>();
+            let rid_col = batch.column(0).as_string::<i32>();
 
             let mut mt_builder = StringBuilder::with_capacity(n, n * 10);
             for i in 0..n {
@@ -216,6 +232,13 @@ impl GtAccumulator {
                     "unique"
                 };
                 mt_builder.append_value(mt);
+                // Every row of a duplicated master belongs to its cluster.
+                if dup_masters.contains(mid) {
+                    cluster_map
+                        .entry(mid.to_string())
+                        .or_default()
+                        .push(rid_col.value(i).to_string());
+                }
             }
             let mt_arr: ArrayRef = Arc::new(mt_builder.finish());
             let diff_arr: ArrayRef = Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
@@ -240,7 +263,13 @@ impl GtAccumulator {
         sink.finish()?;
         std::fs::remove_file(&draft_path).ok();
 
-        Ok((n_exact_dup, n_hard_neg, n_unique, n_base_masters))
+        Ok(GtResult {
+            n_exact_dup,
+            n_hard_neg,
+            n_unique,
+            n_masters: n_base_masters,
+            cluster_map,
+        })
     }
 }
 
@@ -373,7 +402,13 @@ mod tests {
         )
         .unwrap();
 
-        let (ed, hn, un, masters) = acc
+        let GtResult {
+            n_exact_dup: ed,
+            n_hard_neg: hn,
+            n_unique: un,
+            n_masters: masters,
+            ..
+        } = acc
             .finish("medium", "ipc", &final_path, &HashMap::new())
             .unwrap();
         assert_eq!(ed, 2);
@@ -414,7 +449,13 @@ mod tests {
         )
         .unwrap();
 
-        let (ed, hn, un, masters) = acc
+        let GtResult {
+            n_exact_dup: ed,
+            n_hard_neg: hn,
+            n_unique: un,
+            n_masters: masters,
+            ..
+        } = acc
             .finish("medium", "ipc", &final_path, &HashMap::new())
             .unwrap();
         assert_eq!(ed, 2); // both rows of M-0000001
@@ -441,12 +482,64 @@ mod tests {
         )
         .unwrap();
 
-        let (ed, _hn, un, masters) = acc
+        let GtResult {
+            n_exact_dup: ed,
+            n_unique: un,
+            n_masters: masters,
+            ..
+        } = acc
             .finish("medium", "ipc", &final_path, &HashMap::new())
             .unwrap();
         assert_eq!(ed, 0);
         assert_eq!(un, 2);
         assert_eq!(masters, 2);
+
+        std::fs::remove_file(&final_path).ok();
+    }
+
+    /// `finish()` returns a `cluster_map` mapping each duplicated master_id to
+    /// the full set of its record_ids (base + duplicate copies). This is the
+    /// structure consumed by `push_dup_clusters` to emit `exact_dup` edges.
+    #[test]
+    fn test_cluster_map_contents() {
+        let draft = tmp_path("cm_draft");
+        let final_path = tmp_path("cm_final");
+
+        let mut acc = GtAccumulator::new(&draft).unwrap();
+        acc.push_base_batch(
+            &arr(vec!["R1", "R3", "R6"]),
+            &arr(vec!["person", "person", "person"]),
+            &arr(vec!["M-0000001", "M-0000002", "M-0000005"]),
+        )
+        .unwrap();
+        acc.push_dup_batch(
+            &arr(vec!["R2", "R7"]),
+            &arr(vec!["person", "person"]),
+            &arr(vec!["M-0000001", "M-0000005"]),
+        )
+        .unwrap();
+        acc.push_other_batch(
+            &arr(vec!["R4", "R5"]),
+            &arr(vec!["person", "person"]),
+            &arr(vec!["HN-0000003", "HN-0000004"]),
+        )
+        .unwrap();
+
+        let GtResult {
+            cluster_map: cm, ..
+        } = acc
+            .finish("medium", "ipc", &final_path, &HashMap::new())
+            .unwrap();
+
+        // Only duplicated masters appear; singletons (M-0000002) do not.
+        assert_eq!(cm.len(), 2);
+        let mut m1 = cm.get("M-0000001").unwrap().clone();
+        m1.sort();
+        assert_eq!(m1, vec!["R1".to_string(), "R2".to_string()]);
+        let mut m5 = cm.get("M-0000005").unwrap().clone();
+        m5.sort();
+        assert_eq!(m5, vec!["R6".to_string(), "R7".to_string()]);
+        assert!(!cm.contains_key("M-0000002"));
 
         std::fs::remove_file(&final_path).ok();
     }

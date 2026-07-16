@@ -47,6 +47,7 @@ pub fn generate_all(
     global_rid_offset: &mut usize,
     fk_pools: &HashMap<String, RecordBatch>,
     writer: &mut arrow::ipc::writer::FileWriter<std::fs::File>,
+    node_writer: &mut Option<crate::graph_gen::NodeWriter>,
     gt_acc: &mut crate::gt::GtAccumulator,
 ) -> Result<(), String> {
     let sig = compute_sig(&config.domain, config.size, config.seed);
@@ -69,8 +70,14 @@ pub fn generate_all(
             let mut fk_rng = crate::rng::Rng::new(batch_seed.wrapping_add(42));
             for remap in &plan.fk_remaps {
                 if let Some(pool) = fk_pools.get(&remap.target_entity) {
-                    rb =
-                        crate::fk_remap::fk_remap_batch(&rb, pool, &remap.source_col, &mut fk_rng)?;
+                    let (remapped, _) = crate::fk_remap::fk_remap_batch(
+                        &rb,
+                        pool,
+                        &remap.source_col,
+                        &mut fk_rng,
+                        false,
+                    )?;
+                    rb = remapped;
                 }
             }
         }
@@ -123,6 +130,13 @@ pub fn generate_all(
         writer
             .write(&aligned)
             .map_err(|e| format!("write canary batch: {e}"))?;
+
+        // Graph: canary records become nodes; FK edges of canaries are
+        // intentionally omitted (v1).
+        if let Some(nw) = node_writer {
+            nw.write_batch(&aligned)
+                .map_err(|e| format!("write canary node: {e}"))?;
+        }
 
         gt_acc.push_other_batch(aligned.column(0), aligned.column(2), aligned.column(3))?;
 

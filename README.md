@@ -24,8 +24,8 @@ pip install dupehell
 from dupehell import generate
 
 r = generate(domain="publishing", size=10000, seed=42, difficulty="hard")
-print(r.dataset)       # ./publishing_<hash>.ipc
-print(r.ground_truth)  # ./publishing_<hash>_ground_truth.ipc
+print(r.dataset)       # ./publishing_<hash>.parquet
+print(r.ground_truth)  # ./publishing_<hash>_ground_truth.parquet
 print(r.total_records) # ~10150
 ```
 
@@ -39,12 +39,14 @@ cargo run --release -- --domain kyc --size 100000 --seed 42
 
 | Format | Extension | Notes |
 |--------|-----------|-------|
-| IPC (Arrow) | `.ipc` | Default, fastest write |
-| Parquet | `.parquet` | Via `--parquet` flag |
+| Parquet | `.parquet` | Default, ZSTD compressed |
+| IPC (Arrow) | `.ipc` | Via `--output-format ipc`, fastest write |
 
 Each run produces:
-- `{domain}_{hash}.ipc` — main dataset
-- `{domain}_{hash}_ground_truth.ipc` — ground-truth labels
+- `{domain}_{hash}.parquet` — main dataset
+- `{domain}_{hash}_ground_truth.parquet` — ground-truth labels
+- `{domain}_{hash}_nodes.parquet` / `{domain}_{hash}_edges.parquet` — property graph
+  (only with `--graph` / `generate_graph=True`, see below)
 
 ### CLI options
 
@@ -54,8 +56,29 @@ Each run produces:
 | `--size` | `1000000` | Base records |
 | `--seed` | `42` | PRNG seed |
 | `--difficulty` | `medium` | `light` / `medium` / `hard` / `hell` |
-| `--output-format` | `ipc` | `ipc` or `parquet` |
+| `--output-format` | `parquet` | `parquet` or `ipc` |
 | `--output-dir` | `.` | Output directory |
+| `--graph` | off | Also emit a property graph (nodes + edges) |
+| `--graph-format` | `parquet` | `parquet` or `ipc`, only used with `--graph` |
+
+### Graph generation
+
+Add `--graph` (CLI) or `generate_graph=True` (Python) to additionally emit a
+property graph alongside the usual tabular dataset — nodes (one per record,
+same attributes as the dataset) and typed edges (`fk`, `exact_dup`,
+`hard_neg`) linking `record_id`s that a record-linkage/graph pipeline should
+resolve to the same entity or a hard negative. Disabled by default: tabular
+output, RNG sequence, and memory footprint are unchanged when omitted.
+
+```python
+r = generate(domain="fintech", size=10000, seed=42, generate_graph=True)
+print(r.nodes)  # ./fintech_<hash>_nodes.parquet
+print(r.edges)  # ./fintech_<hash>_edges.parquet
+```
+
+```bash
+cargo run --release -- --domain fintech --size 10000 --seed 42 --graph
+```
 
 ---
 
@@ -70,6 +93,8 @@ Each run produces:
 - **Hard negatives** — `same_field`, `mix_identifier`, `mix_arrays` primitives
 - **Ground truth** — full match labels (exact_dup, hard_neg, singleton) with
   cluster statistics
+- **Graph generation** — optional property graph output (nodes, typed edges)
+  for graph-based entity resolution and community detection benchmarking
 - **Deterministic** — seeded RNG (`rand_pcg`) for reproducible output
 
 ---
@@ -146,19 +171,6 @@ Healthcare · Hospitality · HR · Insurance · KYC · Legal · Logistics ·
 Manufacturing · Maritime · Media · Mining · Nonprofit · Pharma · Publishing ·
 Real Estate · Renewable Energy · Retail · Social Media · Sports · Supply Chain ·
 Technology · Telecom · Travel
-
----
-
-## Roadmap
-
-- **Graph generation** — model entity relationships as property graphs
-  (nodes, edges, attributes) for graph-based entity resolution and
-  community detection benchmarking
-- **Synthetic identity module** — generate realistic digital identities
-  (browser fingerprints, device profiles, network patterns) for
-  cybersecurity simulation and threat detection research
-- **Performance** — continue pushing throughput via smarter batching,
-  column-level parallelism, and reduced allocations
 
 ---
 

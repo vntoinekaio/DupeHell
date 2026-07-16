@@ -103,9 +103,11 @@ def generate(
     locale: str = "en",
     pools_dir: str | None = None,
     schemas_dir: str | None = None,
-    output_format: str = "ipc",
+    output_format: str = "parquet",
     hard_neg_ratio: float = 0.3,
     singleton_master_fraction: float = 0.10,
+    generate_graph: bool = False,
+    graph_format: str = "parquet",
 ) -> GenerateResult:
     """Generate a synthetic record linkage dataset.
 
@@ -116,6 +118,11 @@ def generate(
             Total output includes duplicates and hard negatives (typically size * 1.01-1.05).
         seed: Random seed for deterministic reproducibility. Same seed + domain = identical output.
         difficulty: Noise/difficulty level. One of ``"light"``, ``"medium"``, ``"hard"``, ``"hell"``.
+        hard_neg_ratio: Internal scaling knob for the hard-negative count, **not**
+            the literal fraction of records that become hard negatives. Actual
+            count is approximately ``size * hard_neg_ratio * 0.05`` (default
+            ``0.3`` gives ~1.5% of ``size``). Use :func:`estimate_difficulty`
+            with the same value to see the exact count before generating.
         output_dir: Directory to write output files (created automatically if missing).
         locale: Locale for pool data. One of ``"en"``, ``"fr"``, ``"de"``, ``"es"``, ``"it"``, ``"pt"``.
             Falls back to ``"en"`` if the requested locale is not available in a pool file.
@@ -123,14 +130,23 @@ def generate(
             If None (default), tries ``./assets/pools`` then the package-installed path.
         schemas_dir: Path to the schema JSON directory (shipped with the package).
             If None (default), tries ``./schemas`` then the package-installed path.
-        output_format: Output file format. ``"ipc"`` (Arrow IPC) or ``"parquet"`` (ZSTD compressed).
+        output_format: Output file format. ``"parquet"`` (default, ZSTD compressed)
+            or ``"ipc"`` (Arrow IPC).
+        generate_graph: If true, also emit a property graph
+            (``{run_id}_nodes.{ext}`` and ``{run_id}_edges.{ext}`` files). Defaults to false;
+            tabular output, RNG sequence, and memory baseline are unchanged when disabled.
+        graph_format: Graph file format. ``"parquet"`` (default, ZSTD compressed)
+            or ``"ipc"`` (Arrow IPC). Only used when ``generate_graph`` is true.
 
     Returns:
-        GenerateResult with paths and statistics.
+        GenerateResult with paths and statistics. When ``generate_graph`` is true,
+        ``nodes`` and ``edges`` are set to the paths of the generated
+        ``{run_id}_nodes.{ext}`` / ``{run_id}_edges.{ext}`` files; otherwise they
+        are ``None``.
 
     Raises:
-        ValueError: If ``size`` is out of ``[10, 500_000_000]`` or ``output_format``
-            is not ``"ipc"`` or ``"parquet"``.
+        ValueError: If ``size`` is out of ``[10, 500_000_000]``, ``output_format``
+            or ``graph_format`` is not ``"ipc"`` or ``"parquet"``.
         FileNotFoundError: If the schema file for *domain* is not found.
             Includes a list of available domains.
         ValidationError (pydantic): If the schema JSON is malformed.
@@ -152,6 +168,8 @@ def generate(
         )
     if output_format not in ("ipc", "parquet"):
         raise ValueError(f"output_format must be 'ipc' or 'parquet', got {output_format!r}")
+    if graph_format not in ("ipc", "parquet"):
+        raise ValueError(f"graph_format must be 'ipc' or 'parquet', got {graph_format!r}")
     if difficulty not in _VALID_DIFFICULTIES:
         raise ValueError(f"difficulty must be one of {_VALID_DIFFICULTIES}, got {difficulty!r}")
     if locale.lower() not in _VALID_LOCALES:
@@ -177,7 +195,7 @@ def generate(
         raise FileNotFoundError(msg) from None
     import os as _os
     _os.makedirs(output_dir, exist_ok=True)
-    return _generate(domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir, output_format, hard_neg_ratio, singleton_master_fraction)
+    return _generate(domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir, output_format, hard_neg_ratio, singleton_master_fraction, generate_graph, graph_format)
 
 
 def estimate_difficulty(
@@ -200,6 +218,9 @@ def estimate_difficulty(
         difficulty: Difficulty level. ``"light"``, ``"medium"``, ``"hard"``, or ``"hell"``.
         schemas_dir: Path to schema JSON directory.
             If None (default), tries ``./schemas`` then the package-installed path.
+        hard_neg_ratio: Same scaling knob as in :func:`generate` (actual count
+            is approximately ``size * hard_neg_ratio * 0.05``) — must match the
+            value used for actual generation for the estimate to be meaningful.
 
     Returns:
         DifficultyReport with ``f1_max``, ``precision_max``, ``recall_max``,

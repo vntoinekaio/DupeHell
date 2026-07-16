@@ -4,7 +4,7 @@
 // EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
-use arrow::array::{ArrayRef, UInt64Array};
+use arrow::array::{ArrayRef, AsArray, UInt64Array};
 use arrow::compute::take;
 use arrow::record_batch::RecordBatch;
 
@@ -14,15 +14,19 @@ use crate::rng::Rng;
 ///
 /// # Arguments
 /// * `batch` - The entity batch whose column will be remapped
-/// * `pool_rb` - A single-column RecordBatch containing FK identifier values
+/// * `pool_rb` - A RecordBatch containing FK identifier values (column 0) and,
+///   when built for graph output, the corresponding `record_id` (column 1)
 /// * `src_col` - Name of the column to remap in the batch
 /// * `rng` - RNG for random index generation into the pool
+/// * `track_src` - When true, also return the target `record_id`s so callers
+///   can emit FK edges. The RNG consumption is identical either way.
 pub fn fk_remap_batch(
     batch: &RecordBatch,
     pool_rb: &RecordBatch,
     src_col: &str,
     rng: &mut Rng,
-) -> Result<RecordBatch, String> {
+    track_src: bool,
+) -> Result<(RecordBatch, Option<Vec<String>>), String> {
     let n = batch.num_rows();
     let pool_col = pool_rb.column(0);
     let pool_n = pool_col.len();
@@ -57,7 +61,27 @@ pub fn fk_remap_batch(
         })
         .collect();
 
-    RecordBatch::try_new(schema, new_columns).map_err(|e| format!("RecordBatch error: {e}"))
+    let batch =
+        RecordBatch::try_new(schema, new_columns).map_err(|e| format!("RecordBatch error: {e}"))?;
+
+    // Optionally recover the target record_ids (column 1 of the pool, built
+    // only when graph output is enabled) using the same indices. RNG
+    // consumption above is unchanged.
+    let target_rids = if track_src && pool_rb.num_columns() >= 2 {
+        let taken = take(pool_rb.column(1), &idx_arr, None)
+            .map_err(|e| format!("take error on target rids: {e}"))?;
+        Some(
+            taken
+                .as_string::<i32>()
+                .iter()
+                .map(|v| v.map(|s| s.to_string()).unwrap_or_default())
+                .collect(),
+        )
+    } else {
+        None
+    };
+
+    Ok((batch, target_rids))
 }
 
 #[cfg(test)]
@@ -101,9 +125,11 @@ mod tests {
         let pool = make_fk_pool();
         let mut rng = Rng::new(42);
 
-        let remapped = fk_remap_batch(&batch, &pool, "customer_id", &mut rng).unwrap();
+        let (remapped, target_rids) =
+            fk_remap_batch(&batch, &pool, "customer_id", &mut rng, false).unwrap();
         assert_eq!(remapped.num_rows(), 4);
         assert_eq!(remapped.num_columns(), 3);
+        assert!(target_rids.is_none());
 
         // Check that customer_id values now come from the pool
         let col = remapped
@@ -140,11 +166,17 @@ mod tests {
         let mut rng_a = Rng::new(42);
         let mut rng_b = Rng::new(42);
 
-        let a = fk_remap_batch(&batch, &pool, "customer_id", &mut rng_a).unwrap();
-        let b = fk_remap_batch(&batch, &pool, "customer_id", &mut rng_b).unwrap();
+        let a = fk_remap_batch(&batch, &pool, "customer_id", &mut rng_a, false).unwrap();
+        let b = fk_remap_batch(&batch, &pool, "customer_id", &mut rng_b, false).unwrap();
 
-        let ca = a.column_by_name("customer_id").unwrap().as_string::<i32>();
-        let cb = b.column_by_name("customer_id").unwrap().as_string::<i32>();
+        let ca =
+            a.0.column_by_name("customer_id")
+                .unwrap()
+                .as_string::<i32>();
+        let cb =
+            b.0.column_by_name("customer_id")
+                .unwrap()
+                .as_string::<i32>();
         for i in 0..4 {
             assert_eq!(ca.value(i), cb.value(i), "mismatch at {i}");
         }
@@ -164,7 +196,7 @@ mod tests {
         )
         .unwrap();
         let mut rng = Rng::new(0);
-        let result = fk_remap_batch(&batch, &empty, "customer_id", &mut rng);
+        let result = fk_remap_batch(&batch, &empty, "customer_id", &mut rng, false);
         assert!(result.is_err());
     }
 }
