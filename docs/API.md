@@ -38,7 +38,7 @@ Generate a synthetic dataset for a given domain.
 | `pools_dir` | `str \| None` | `None` | Path to pool data files. If `None`, tries `./assets/pools` then the package-installed path. |
 | `schemas_dir` | `str \| None` | `None` | Path to domain schema files. If `None`, tries `./schemas` then the package-installed path. |
 | `output_format` | `str` | `"ipc"` | `"ipc"` or `"parquet"`. |
-| `hard_neg_ratio` | `float` | `0.3` | Hard-negative ratio relative to `size`. |
+| `hard_neg_ratio` | `float` | `0.3` | Internal scaling knob for the hard-negative count, **not** the literal fraction of records that become hard negatives. Actual count ≈ `size × hard_neg_ratio × 0.05` (default `0.3` → ~1.5% of `size`). Use `estimate()` to see the exact count for a given value before generating. |
 | `singleton_master_fraction` | `float` | `0.10` | Fraction of masters with only one record. |
 
 **Returns:** [`GenerateResult`](#generateresult)
@@ -88,7 +88,7 @@ generating data.
 | `seed` | `int` | `42` | PRNG seed |
 | `difficulty` | `str` | `"medium"` | `light`, `medium`, `hard`, or `hell` |
 | `schemas_dir` | `str \| None` | `None` | Path to schema files. If `None`, tries `./schemas` then the package-installed path. |
-| `hard_neg_ratio` | `float` | `0.3` | Hard-negative ratio relative to `size` (must match the ratio used for actual generation for the estimate to be meaningful). |
+| `hard_neg_ratio` | `float` | `0.3` | Same internal scaling knob as in `generate()` (actual count ≈ `size × hard_neg_ratio × 0.05`) — must match the value used for actual generation for the estimate to be meaningful. |
 
 **Returns:** [`DifficultyReport`](#difficultyreport)
 

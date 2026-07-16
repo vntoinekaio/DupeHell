@@ -174,16 +174,6 @@ Technology · Telecom · Travel
 
 ---
 
-## Roadmap
-
-- **Synthetic identity module** — generate realistic digital identities
-  (browser fingerprints, device profiles, network patterns) for
-  cybersecurity simulation and threat detection research
-- **Performance** — continue pushing throughput via smarter batching,
-  column-level parallelism, and reduced allocations
-
----
-
 ## Development
 
 ```bash

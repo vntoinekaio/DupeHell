@@ -118,6 +118,11 @@ def generate(
             Total output includes duplicates and hard negatives (typically size * 1.01-1.05).
         seed: Random seed for deterministic reproducibility. Same seed + domain = identical output.
         difficulty: Noise/difficulty level. One of ``"light"``, ``"medium"``, ``"hard"``, ``"hell"``.
+        hard_neg_ratio: Internal scaling knob for the hard-negative count, **not**
+            the literal fraction of records that become hard negatives. Actual
+            count is approximately ``size * hard_neg_ratio * 0.05`` (default
+            ``0.3`` gives ~1.5% of ``size``). Use :func:`estimate_difficulty`
+            with the same value to see the exact count before generating.
         output_dir: Directory to write output files (created automatically if missing).
         locale: Locale for pool data. One of ``"en"``, ``"fr"``, ``"de"``, ``"es"``, ``"it"``, ``"pt"``.
             Falls back to ``"en"`` if the requested locale is not available in a pool file.
@@ -212,6 +217,9 @@ def estimate_difficulty(
         difficulty: Difficulty level. ``"light"``, ``"medium"``, ``"hard"``, or ``"hell"``.
         schemas_dir: Path to schema JSON directory.
             If None (default), tries ``./schemas`` then the package-installed path.
+        hard_neg_ratio: Same scaling knob as in :func:`generate` (actual count
+            is approximately ``size * hard_neg_ratio * 0.05``) — must match the
+            value used for actual generation for the estimate to be meaningful.
 
     Returns:
         DifficultyReport with ``f1_max``, ``precision_max``, ``recall_max``,
