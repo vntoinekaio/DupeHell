@@ -36,3 +36,4 @@ Documentation = "https://github.com/vntoinekaio/DupeHell/blob/master/docs/GETTIN
 module-name = "dupehell._core"
 python-source = "python"
 include = ["schemas/**/*", "assets/pools/**/*"]
+features = ["python"]
