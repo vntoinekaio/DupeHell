@@ -8,10 +8,10 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use dupehell::context::Context;
-use dupehell::difficulty::estimate_difficulty;
-use dupehell::pipeline::run_pipeline;
-use dupehell::schema::{build_pipeline_config, load_schema};
+use dupehell_core::context::Context;
+use dupehell_core::difficulty::estimate_difficulty;
+use dupehell_core::pipeline::run_pipeline;
+use dupehell_core::schema::{build_pipeline_config, load_schema};
 
 #[derive(Parser)]
 #[command(
@@ -188,7 +188,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let run_id = dupehell::schema::deterministic_run_id(
+    let run_id = dupehell_core::schema::deterministic_run_id(
         &cli.domain,
         cli.size,
         cli.seed,

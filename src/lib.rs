@@ -4,11 +4,9 @@
 // EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
+#[cfg(feature = "python")]
 use pyo3::exceptions::PyValueError;
-// Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
-// No liability for misuse.
-
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 mod buf_gen;
@@ -35,6 +33,7 @@ pub use schema::{
     DomainSchema, EntitySchema, HnSchema, build_pipeline_config, chrono_now, load_schema,
 };
 
+#[cfg(feature = "python")]
 #[pyclass]
 #[derive(Clone)]
 pub struct GenerateResult {
@@ -58,6 +57,7 @@ pub struct GenerateResult {
     pub edges: Option<String>,
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl GenerateResult {
     fn __repr__(&self) -> String {
@@ -78,6 +78,7 @@ impl GenerateResult {
     }
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn estimate_difficulty(
     domain: &str,
@@ -101,6 +102,7 @@ fn estimate_difficulty(
     serde_json::to_string(&report).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 fn generate(
@@ -162,6 +164,7 @@ fn generate(
     })
 }
 
+#[cfg(feature = "python")]
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate, m)?)?;
