@@ -103,11 +103,11 @@ def generate(
     locale: str = "en",
     pools_dir: str | None = None,
     schemas_dir: str | None = None,
-    output_format: str = "ipc",
+    output_format: str = "parquet",
     hard_neg_ratio: float = 0.3,
     singleton_master_fraction: float = 0.10,
     generate_graph: bool = False,
-    graph_format: str = "ipc",
+    graph_format: str = "parquet",
 ) -> GenerateResult:
     """Generate a synthetic record linkage dataset.
 
@@ -130,12 +130,13 @@ def generate(
             If None (default), tries ``./assets/pools`` then the package-installed path.
         schemas_dir: Path to the schema JSON directory (shipped with the package).
             If None (default), tries ``./schemas`` then the package-installed path.
-        output_format: Output file format. ``"ipc"`` (Arrow IPC) or ``"parquet"`` (ZSTD compressed).
+        output_format: Output file format. ``"parquet"`` (default, ZSTD compressed)
+            or ``"ipc"`` (Arrow IPC).
         generate_graph: If true, also emit a property graph
             (``{run_id}_nodes.{ext}`` and ``{run_id}_edges.{ext}`` files). Defaults to false;
             tabular output, RNG sequence, and memory baseline are unchanged when disabled.
-        graph_format: Graph file format. ``"ipc"`` (Arrow IPC) or ``"parquet"`` (ZSTD compressed).
-            Defaults to ``"ipc"``. Only used when ``generate_graph`` is true.
+        graph_format: Graph file format. ``"parquet"`` (default, ZSTD compressed)
+            or ``"ipc"`` (Arrow IPC). Only used when ``generate_graph`` is true.
 
     Returns:
         GenerateResult with paths and statistics. When ``generate_graph`` is true,

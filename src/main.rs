@@ -54,10 +54,13 @@ struct Cli {
     )]
     estimate: bool,
 
-    #[arg(long, help = "Output file format: ipc (Arrow IPC) or parquet")]
+    #[arg(
+        long,
+        help = "Output file format: parquet (default, ZSTD compressed) or ipc (Arrow IPC)"
+    )]
     output_format: Option<String>,
 
-    #[arg(long, action = clap::ArgAction::Count, help = "Shortcut for --output-format parquet")]
+    #[arg(long, action = clap::ArgAction::Count, help = "Shortcut for --output-format parquet (the default; kept for backward compatibility)")]
     parquet: u8,
 
     #[arg(
@@ -106,9 +109,9 @@ struct Cli {
 
     #[arg(
         long,
-        default_value = "ipc",
+        default_value = "parquet",
         value_parser = clap::builder::PossibleValuesParser::new(["ipc", "parquet"]),
-        help = "Graph output format: ipc or parquet (requires --graph)"
+        help = "Graph output format: parquet (default, ZSTD compressed) or ipc (requires --graph)"
     )]
     graph_format: String,
 }
@@ -177,8 +180,7 @@ fn main() {
             }
             fmt.clone()
         }
-        None if cli.parquet > 0 => "parquet".to_string(),
-        None => "ipc".to_string(),
+        None => "parquet".to_string(),
     };
 
     if effective_format != "ipc" && effective_format != "parquet" {

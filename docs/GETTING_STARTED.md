@@ -33,8 +33,8 @@ r = generate(
     domain="publishing", size=10000, seed=42, difficulty="hard",
     output_dir="./data", pools_dir="./assets/pools", schemas_dir="./schemas",
 )
-print(r.dataset)       # ./data/publishing_<hash>.ipc
-print(r.ground_truth)  # ./data/publishing_<hash>_ground_truth.ipc
+print(r.dataset)       # ./data/publishing_<hash>.parquet
+print(r.ground_truth)  # ./data/publishing_<hash>_ground_truth.parquet
 print(r.total_records) # ~10150 (size + dups + hard negatives)
 ```
 
@@ -57,13 +57,13 @@ dupehell --help
 ## Output
 
 Each run produces:
-- `{domain}_{hash}.ipc` — main dataset
-- `{domain}_{hash}_ground_truth.ipc` — ground-truth labels
+- `{domain}_{hash}.parquet` — main dataset
+- `{domain}_{hash}_ground_truth.parquet` — ground-truth labels
 
 | Format | Extension | Notes |
 |--------|-----------|-------|
-| IPC (Arrow) | `.ipc` | Default, fastest write |
-| Parquet | `.parquet` | Via `--parquet` or `--output-format parquet` |
+| Parquet | `.parquet` | Default, ZSTD compressed |
+| IPC (Arrow) | `.ipc` | Via `--output-format ipc`, fastest write |
 
 ### `{entity}_id` columns are structural keys, not attributes to match on
 

@@ -75,9 +75,9 @@ cargo test          # 113 tests, ~30s
 
 ## Output format
 
-- **Default**: IPC (`*.ipc`) — dataset + ground truth
-- **Parquet**: `--parquet` or `--output-format parquet` — ZSTD(3)
-  compression for both dataset and GT
+- **Default**: Parquet (`*.parquet`) — ZSTD(3) compression for both dataset
+  and GT
+- **IPC**: `--output-format ipc` — fastest write, uncompressed
 
 ---
 
