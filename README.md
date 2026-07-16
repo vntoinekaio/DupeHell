@@ -24,8 +24,8 @@ pip install dupehell
 from dupehell import generate
 
 r = generate(domain="publishing", size=10000, seed=42, difficulty="hard")
-print(r.dataset)       # ./publishing_<hash>.ipc
-print(r.ground_truth)  # ./publishing_<hash>_ground_truth.ipc
+print(r.dataset)       # ./publishing_<hash>.parquet
+print(r.ground_truth)  # ./publishing_<hash>_ground_truth.parquet
 print(r.total_records) # ~10150
 ```
 
@@ -39,13 +39,13 @@ cargo run --release -- --domain kyc --size 100000 --seed 42
 
 | Format | Extension | Notes |
 |--------|-----------|-------|
-| IPC (Arrow) | `.ipc` | Default, fastest write |
-| Parquet | `.parquet` | Via `--parquet` flag |
+| Parquet | `.parquet` | Default, ZSTD compressed |
+| IPC (Arrow) | `.ipc` | Via `--output-format ipc`, fastest write |
 
 Each run produces:
-- `{domain}_{hash}.ipc` — main dataset
-- `{domain}_{hash}_ground_truth.ipc` — ground-truth labels
-- `{domain}_{hash}_nodes.ipc` / `{domain}_{hash}_edges.ipc` — property graph
+- `{domain}_{hash}.parquet` — main dataset
+- `{domain}_{hash}_ground_truth.parquet` — ground-truth labels
+- `{domain}_{hash}_nodes.parquet` / `{domain}_{hash}_edges.parquet` — property graph
   (only with `--graph` / `generate_graph=True`, see below)
 
 ### CLI options
@@ -56,10 +56,10 @@ Each run produces:
 | `--size` | `1000000` | Base records |
 | `--seed` | `42` | PRNG seed |
 | `--difficulty` | `medium` | `light` / `medium` / `hard` / `hell` |
-| `--output-format` | `ipc` | `ipc` or `parquet` |
+| `--output-format` | `parquet` | `parquet` or `ipc` |
 | `--output-dir` | `.` | Output directory |
 | `--graph` | off | Also emit a property graph (nodes + edges) |
-| `--graph-format` | `ipc` | `ipc` or `parquet`, only used with `--graph` |
+| `--graph-format` | `parquet` | `parquet` or `ipc`, only used with `--graph` |
 
 ### Graph generation
 
@@ -72,8 +72,8 @@ output, RNG sequence, and memory footprint are unchanged when omitted.
 
 ```python
 r = generate(domain="fintech", size=10000, seed=42, generate_graph=True)
-print(r.nodes)  # ./fintech_<hash>_nodes.ipc
-print(r.edges)  # ./fintech_<hash>_edges.ipc
+print(r.nodes)  # ./fintech_<hash>_nodes.parquet
+print(r.edges)  # ./fintech_<hash>_edges.parquet
 ```
 
 ```bash
