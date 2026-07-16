@@ -70,7 +70,7 @@ struct Cli {
     #[arg(
         long,
         default_value_t = 0.3,
-        help = "Hard-negative ratio relative to size (0.0 to 1.0+)"
+        help = "Hard-negative scaling knob, not a literal fraction: actual count ~= size * hard_neg_ratio * 0.05 (default 0.3 -> ~1.5% of size). Use --estimate to see the exact count first."
     )]
     hard_neg_ratio: f64,
 
