@@ -83,5 +83,5 @@ cargo test          # 113 tests, ~30s
 
 ## Performance
 
-See [BENCHMARK.md](./BENCHMARK.md) for detailed metrics (up to 75M records,
-~630K rec/s).
+See [BENCHMARK.md](./BENCHMARK.md) for detailed metrics (up to 300M records,
+~620-706K rec/s).
