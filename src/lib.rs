@@ -19,6 +19,7 @@ pub mod difficulty;
 mod entity_gen;
 mod fast_template;
 mod fk_remap;
+mod graph_gen;
 pub mod gt;
 mod hn_common;
 mod noise;
@@ -51,6 +52,10 @@ pub struct GenerateResult {
     pub uniques: usize,
     #[pyo3(get)]
     pub masters: usize,
+    #[pyo3(get)]
+    pub nodes: Option<String>,
+    #[pyo3(get)]
+    pub edges: Option<String>,
 }
 
 #[pymethods]
@@ -110,6 +115,8 @@ fn generate(
     output_format: &str,
     hard_neg_ratio: f64,
     singleton_master_fraction: f64,
+    generate_graph: bool,
+    graph_format: &str,
 ) -> PyResult<GenerateResult> {
     let schema =
         load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
@@ -122,7 +129,7 @@ fn generate(
 
     let mut ctx = Context::new(domain, locale, pools_dir).map_err(PyValueError::new_err)?;
 
-    let run_id = schema::deterministic_run_id(domain, size, seed, difficulty);
+    let run_id = schema::deterministic_run_id(domain, size, seed, difficulty, hard_neg_ratio);
     let config = build_pipeline_config(
         domain,
         size,
@@ -133,6 +140,8 @@ fn generate(
         &schema,
         &run_id,
         output_format,
+        generate_graph,
+        graph_format,
     )
     .map_err(PyValueError::new_err)?;
 
@@ -148,6 +157,8 @@ fn generate(
         hard_negs: output.stats.hard_negs,
         uniques: output.stats.uniques,
         masters: output.stats.masters,
+        nodes: output.nodes,
+        edges: output.edges,
     })
 }
 

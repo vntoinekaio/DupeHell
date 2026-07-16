@@ -54,10 +54,13 @@ struct Cli {
     )]
     estimate: bool,
 
-    #[arg(long, help = "Output file format: ipc (Arrow IPC) or parquet")]
+    #[arg(
+        long,
+        help = "Output file format: parquet (default, ZSTD compressed) or ipc (Arrow IPC)"
+    )]
     output_format: Option<String>,
 
-    #[arg(long, action = clap::ArgAction::Count, help = "Shortcut for --output-format parquet")]
+    #[arg(long, action = clap::ArgAction::Count, help = "Shortcut for --output-format parquet (the default; kept for backward compatibility)")]
     parquet: u8,
 
     #[arg(
@@ -70,7 +73,7 @@ struct Cli {
     #[arg(
         long,
         default_value_t = 0.3,
-        help = "Hard-negative ratio relative to size (0.0 to 1.0+)"
+        help = "Hard-negative scaling knob, not a literal fraction: actual count ~= size * hard_neg_ratio * 0.05 (default 0.3 -> ~1.5% of size). Use --estimate to see the exact count first."
     )]
     hard_neg_ratio: f64,
 
@@ -97,6 +100,20 @@ struct Cli {
         help = "Path to schema JSON directory"
     )]
     schemas_dir: PathBuf,
+
+    #[arg(
+        long,
+        help = "Generate property-graph output (nodes + edges) in addition to tabular data"
+    )]
+    graph: bool,
+
+    #[arg(
+        long,
+        default_value = "parquet",
+        value_parser = clap::builder::PossibleValuesParser::new(["ipc", "parquet"]),
+        help = "Graph output format: parquet (default, ZSTD compressed) or ipc (requires --graph)"
+    )]
+    graph_format: String,
 }
 
 fn main() {
@@ -155,9 +172,15 @@ fn main() {
     };
 
     let effective_format = match &cli.output_format {
-        Some(fmt) => fmt.clone(),
-        None if cli.parquet > 0 => "parquet".to_string(),
-        None => "ipc".to_string(),
+        Some(fmt) => {
+            if cli.parquet > 0 && fmt != "parquet" {
+                eprintln!(
+                    "Warning: --parquet is ignored because --output-format {fmt} was also given"
+                );
+            }
+            fmt.clone()
+        }
+        None => "parquet".to_string(),
     };
 
     if effective_format != "ipc" && effective_format != "parquet" {
@@ -165,8 +188,13 @@ fn main() {
         std::process::exit(1);
     }
 
-    let run_id =
-        dupehell::schema::deterministic_run_id(&cli.domain, cli.size, cli.seed, &cli.difficulty);
+    let run_id = dupehell::schema::deterministic_run_id(
+        &cli.domain,
+        cli.size,
+        cli.seed,
+        &cli.difficulty,
+        cli.hard_neg_ratio,
+    );
     let config = match build_pipeline_config(
         &cli.domain,
         cli.size,
@@ -177,6 +205,8 @@ fn main() {
         &schema,
         &run_id,
         &effective_format,
+        cli.graph,
+        &cli.graph_format,
     ) {
         Ok(c) => c,
         Err(e) => {
@@ -222,6 +252,12 @@ fn main() {
     );
     eprintln!("  Dataset: {}", output.output_files[0]);
     eprintln!("  GT:      {}", output.gt_file);
+    if let Some(nodes) = &output.nodes {
+        eprintln!("  Nodes:  {nodes}");
+    }
+    if let Some(edges) = &output.edges {
+        eprintln!("  Edges:  {edges}");
+    }
 
     let id_cols: Vec<&str> = config
         .entity_plans
