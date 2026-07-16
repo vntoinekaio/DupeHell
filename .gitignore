@@ -5,38 +5,16 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
-ROADMAP.md
-test-agent.md
 metrics.md
 claude.md
 
 # Generated test reports
 *_report.json
 
-# One-shot agent test scripts (not part of maintained suite)
-test_agent_full.py
-test_difficulty.py
-test_exhaustive_errors.py
-test_fk_sweep.py
-test_schema_edge_cases.py
-test_schema_interop.py
-test_seed_determinism.py
-bench_domains.py
-test_errors.py
-test_pipeline.py
-
-# Test infrastructure
-run_all_tests.ps1
-
-dupehell_pool_data_audit_checklist.md
-dupehell_final_audit_prompt.md
 benchmark/
-
 docs/WATERMARK.md
-BUGS.md
-ARTICLE_DRAFT_EN.md
-
 .afz24/
 
-# Integration graph plan
-integration-graph.md
+# Scratch workspace: one-off scripts, wave/hunt logs, planning notes
+/scod/
+/stpircs/
