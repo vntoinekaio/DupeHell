@@ -52,6 +52,25 @@ dupehell --domain kyc --size 1000000 --seed 42 \
 dupehell --help
 ```
 
+### Graph output
+
+Add `--graph` (CLI) or `generate_graph=True` (Python) to also emit a property
+graph — nodes (one per record) and typed edges (`exact_dup`, `hard_neg`)
+linking `record_id`s that a record-linkage/graph pipeline should (or
+shouldn't) merge:
+
+```bash
+dupehell --domain fintech --size 10000 --seed 42 --graph
+```
+
+```python
+r = generate(domain="fintech", size=10000, seed=42, generate_graph=True)
+print(r.nodes)  # ./fintech_<hash>_nodes.parquet
+print(r.edges)  # ./fintech_<hash>_edges.parquet
+```
+
+See the [README](../README.md#graph-generation) for more on the graph schema.
+
 ---
 
 ## Output
@@ -59,11 +78,13 @@ dupehell --help
 Each run produces:
 - `{domain}_{hash}.parquet` — main dataset
 - `{domain}_{hash}_ground_truth.parquet` — ground-truth labels
+- `{domain}_{hash}_nodes.parquet` / `{domain}_{hash}_edges.parquet` — property
+  graph (only with `--graph` / `generate_graph=True`)
 
 | Format | Extension | Notes |
 |--------|-----------|-------|
 | Parquet | `.parquet` | Default, ZSTD compressed |
-| IPC (Arrow) | `.ipc` | Via `--output-format ipc`, fastest write |
+| IPC (Arrow) | `.ipc` | Via `--output-format ipc` (or `--graph-format ipc` for the graph files), fastest write |
 
 ### `{entity}_id` columns are structural keys, not attributes to match on
 
