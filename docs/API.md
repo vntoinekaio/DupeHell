@@ -20,6 +20,8 @@ def generate(
     output_format: str = "parquet",
     hard_neg_ratio: float = 0.3,
     singleton_master_fraction: float = 0.10,
+    generate_graph: bool = False,
+    graph_format: str = "parquet",
 ) -> GenerateResult
 ```
 
@@ -40,6 +42,8 @@ Generate a synthetic dataset for a given domain.
 | `output_format` | `str` | `"parquet"` | `"parquet"` (default, ZSTD compressed) or `"ipc"` (Arrow IPC). |
 | `hard_neg_ratio` | `float` | `0.3` | Internal scaling knob for the hard-negative count, **not** the literal fraction of records that become hard negatives. Actual count ≈ `size × hard_neg_ratio × 0.05` (default `0.3` → ~1.5% of `size`). Use `estimate()` to see the exact count for a given value before generating. |
 | `singleton_master_fraction` | `float` | `0.10` | Fraction of masters with only one record. |
+| `generate_graph` | `bool` | `False` | Also emit a property graph (nodes + typed edges) alongside the tabular dataset, for graph-based entity resolution / community detection benchmarking. |
+| `graph_format` | `str` | `"parquet"` | `"parquet"` or `"ipc"` — output format for the graph files. Only used when `generate_graph=True`. |
 
 **Returns:** [`GenerateResult`](#generateresult)
 
@@ -60,6 +64,8 @@ Returned by `generate()`.
 | `hard_negs` | `int` | Hard negative pairs |
 | `uniques` | `int` | Unique / singleton records |
 | `masters` | `int` | Distinct master entities |
+| `nodes` | `str \| None` | Path to the graph nodes file (only when `generate_graph=True`) |
+| `edges` | `str \| None` | Path to the graph edges file (only when `generate_graph=True`) |
 
 ---
 
@@ -257,8 +263,10 @@ dupehell [OPTIONS]
 | `--seed <SEED>` | `42` | PRNG seed |
 | `--difficulty <LEVEL>` | `medium` | `light`, `medium`, `hard`, or `hell` |
 | `--estimate` | — | Estimate theoretical max F1 and exit (no data) |
-| `--output-format <FMT>` | `ipc` | `ipc` or `parquet` |
+| `--output-format <FMT>` | `parquet` | `parquet` (ZSTD compressed) or `ipc` |
 | `--parquet` | — | Shorthand for `--output-format parquet` |
+| `--graph` | off | Also emit a property graph (nodes + typed edges) alongside the dataset |
+| `--graph-format <FMT>` | `parquet` | `parquet` or `ipc`, only used with `--graph` |
 | `--output-dir <PATH>` | `.` | Output directory |
 | `--hard-neg-ratio <FLOAT>` | `0.3` | Hard negative ratio |
 | `--singleton-master-fraction <FLOAT>` | `0.1` | Singleton fraction |
