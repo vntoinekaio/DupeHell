@@ -21,7 +21,10 @@ pub type TemplateFn = fn(usize, &mut Rng, &Context) -> ArrayRef;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/// Write `val` zero-padded to `width` digits into `buf`.
+/// Write `val` zero-padded to `width` digits into `buf`. If `val` needs
+/// more than `width` digits, the high digits are silently dropped (only
+/// the low `width` digits are written) — flag that loudly instead of
+/// letting it corrupt data unnoticed.
 pub(crate) fn write_zpad(buf: &mut Vec<u8>, val: usize, width: usize) {
     let start = buf.len();
     buf.resize(start + width, b'0');
@@ -29,6 +32,15 @@ pub(crate) fn write_zpad(buf: &mut Vec<u8>, val: usize, width: usize) {
     for i in (start..start + width).rev() {
         buf[i] = b'0' + (v % 10) as u8;
         v /= 10;
+    }
+    debug_assert!(
+        v == 0,
+        "write_zpad: value {val} overflows width {width} digits (high digits truncated)"
+    );
+    if v != 0 {
+        log::warn!(
+            "write_zpad: value {val} overflows width {width} digits (high digits truncated)"
+        );
     }
 }
 
@@ -95,8 +107,14 @@ fn gen_street(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_url(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
-    let first = ctx.pool_store.get("first_name").unwrap();
-    let last = ctx.pool_store.get("last_name").unwrap();
+    let first = ctx
+        .pool_store
+        .get("first_name")
+        .expect("pool 'first_name' not found");
+    let last = ctx
+        .pool_store
+        .get("last_name")
+        .expect("pool 'last_name' not found");
     // Index the union of the two pools directly instead of materializing a
     // concatenated `Vec<&str>` (a copy of every pointer in both pools) on
     // every call — `k < first.len()` picks the same element `names[k]`
@@ -143,8 +161,14 @@ fn gen_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_linkedin(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
-    let first = ctx.pool_store.get("first_name").unwrap();
-    let last = ctx.pool_store.get("last_name").unwrap();
+    let first = ctx
+        .pool_store
+        .get("first_name")
+        .expect("pool 'first_name' not found");
+    let last = ctx
+        .pool_store
+        .get("last_name")
+        .expect("pool 'last_name' not found");
     // See `gen_url` above: index the union directly, no concatenated Vec.
     let total = first.len() + last.len();
     build_string_array(n, 48, |buf| {

@@ -109,7 +109,7 @@ fn record_id_string(i: usize) -> String {
         buf[j] = b'0' + (n % 10) as u8;
         n /= 10;
     }
-    String::from_utf8(buf.to_vec()).unwrap()
+    String::from_utf8(buf.to_vec()).expect("record_id_string: buffer is 'R', '-' and ASCII digits")
 }
 
 #[inline]
@@ -120,7 +120,7 @@ fn pad_string(i: usize) -> String {
         buf[j] = b'0' + (n % 10) as u8;
         n /= 10;
     }
-    String::from_utf8(buf.to_vec()).unwrap()
+    String::from_utf8(buf.to_vec()).expect("pad_string: buffer is always ASCII digits")
 }
 
 pub(crate) fn record_id_strs(range: std::ops::Range<usize>) -> Vec<String> {
@@ -792,7 +792,7 @@ pub fn run_pipeline(
                 col_lookup.as_ref().unwrap(),
                 &mut null_cache,
                 &mut const_arr_cache,
-            );
+            )?;
             _t_meta += t_m0.elapsed().as_secs_f64();
 
             // Graph: write base nodes + FK edges (only when --graph)
@@ -868,9 +868,13 @@ pub fn run_pipeline(
                 for i in 0..n_fields {
                     let refs: Vec<&dyn Array> =
                         hn_slices.iter().map(|pb| pb.column(i).as_ref()).collect();
-                    concat_arrays.push(arrow::compute::concat(&refs).expect("hn pool concat col"));
+                    concat_arrays.push(
+                        arrow::compute::concat(&refs)
+                            .map_err(|e| format!("hn pool concat col {i}: {e}"))?,
+                    );
                 }
-                RecordBatch::try_new(schema, concat_arrays).expect("hn pool concat batch")
+                RecordBatch::try_new(schema, concat_arrays)
+                    .map_err(|e| format!("hn pool concat batch: {e}"))?
             };
             // `record_ids` aligns positionally with the concatenated pool rows.
             let record_ids = if config.graph_enabled {
@@ -924,25 +928,30 @@ pub fn run_pipeline(
 
             let mut results: Vec<Result<(RecordBatch, Vec<String>), String>> =
                 Vec::with_capacity(ndata.len());
+            let fk_exclude_ref = &fk_exclude_cols;
             std::thread::scope(|s| {
                 let mut handles = Vec::with_capacity(ndata.len());
                 for (indices, seed, ntype, cols, cnt) in &ndata {
-                    let rb = last_rb.clone();
-                    let idxs = indices.clone();
-                    let cols_v: Vec<String> = cols.to_vec();
-                    let exclude = fk_exclude_cols.clone();
+                    // `thread::scope` lets each spawned closure borrow
+                    // `last_rb`/`indices`/`cols`/`fk_exclude_cols` directly —
+                    // the scope guarantees every thread joins before these
+                    // borrows end, so the per-thread `.clone()` of the
+                    // batch, index array, column list and exclude list
+                    // (all cheap Arc/Vec clones, but still real allocations
+                    // times the noise-type count) was unnecessary.
                     let prefix_ref: &str = &prefix;
                     handles.push(s.spawn(move || {
-                        let dup = pick_rows(&rb, &idxs)?;
+                        let dup = pick_rows(last_rb, indices)?;
                         let mut rng = Rng::new(*seed);
-                        let noisy = apply_noise_to_batch(&dup, ntype, &cols_v, &mut rng, &exclude)?;
+                        let noisy =
+                            apply_noise_to_batch(&dup, ntype, cols, &mut rng, fk_exclude_ref)?;
                         let mut mb = Vec::with_capacity(*cnt);
                         for j in 0..*cnt {
-                            // `idxs` are local to `last_rb` (0..last_n); the master_id
+                            // `indices` are local to `last_rb` (0..last_n); the master_id
                             // is a pure function of (prefix, global index) — same
                             // formula as `batch_mids` above — so it's recomputed here
                             // instead of being cloned out of a retained master_id_pool.
-                            let global_idx = last_offset + idxs.value(j) as usize;
+                            let global_idx = last_offset + indices.value(j) as usize;
                             mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
                         }
                         Ok((noisy, mb))
@@ -992,7 +1001,7 @@ pub fn run_pipeline(
                     col_lookup.as_ref().unwrap(),
                     &mut null_cache,
                     &mut const_arr_cache,
-                );
+                )?;
 
                 let t_wd = std::time::Instant::now();
                 writer
@@ -1091,7 +1100,7 @@ pub fn run_pipeline(
             &hn_col_lookup,
             &mut hn_null_cache,
             &mut hn_const_arr_cache,
-        );
+        )?;
 
         let t_wh = std::time::Instant::now();
         writer
@@ -1387,7 +1396,7 @@ pub(crate) fn add_metadata_and_align(
     col_lookup: &[Option<usize>],
     null_cache: &mut HashMap<(DataType, usize), ArrayRef>,
     const_arr_cache: &mut HashMap<(String, usize), ArrayRef>,
-) -> RecordBatch {
+) -> Result<RecordBatch, String> {
     let n = rb.num_rows();
     // `domain` is constant for the whole run and `entity_type` repeats
     // across every batch of a given entity (and often across HN/canary
@@ -1441,7 +1450,7 @@ pub(crate) fn add_metadata_and_align(
 
     // P3: Arc::clone(full_arc) avoids full schema clone (just atomic increment)
     RecordBatch::try_new(Arc::clone(full_arc), all_arrays)
-        .expect("add_metadata_and_align RecordBatch")
+        .map_err(|e| format!("add_metadata_and_align RecordBatch: {e}"))
 }
 
 fn pick_rows(rb: &RecordBatch, indices: &UInt64Array) -> Result<RecordBatch, String> {
