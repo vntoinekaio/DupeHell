@@ -82,22 +82,32 @@ pub fn generate_all(
             }
         }
 
-        // Override the email column (whichever name it has in this domain)
+        // Override every email-like column (whichever name(s) it has in this
+        // domain — some entities carry more than one, e.g. `contact_email`
+        // + `business_email`) so the canary signature is recoverable
+        // regardless of the schema's naming, instead of only the 3 exact
+        // names this used to special-case.
         let rb_schema = rb.schema();
-        let email_idx_opt = rb_schema
-            .column_with_name("email_address")
-            .or_else(|| rb_schema.column_with_name("business_email"))
-            .or_else(|| rb_schema.column_with_name("email"))
-            .map(|(idx, _)| idx);
+        let email_idxs: Vec<usize> = rb_schema
+            .fields()
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| {
+                *f.data_type() == DataType::Utf8 && f.name().to_lowercase().contains("email")
+            })
+            .map(|(idx, _)| idx)
+            .collect();
 
-        if let Some(email_idx) = email_idx_opt {
+        if !email_idxs.is_empty() {
             let emails: Vec<String> = (0..n)
                 .map(|i| format!("{}-{}-{}@canary.dupehell.data", sig, ent_idx, i))
                 .collect();
             let new_col = Arc::new(StringArray::from(emails)) as ArrayRef;
             let schema = rb.schema();
             let mut columns: Vec<ArrayRef> = rb.columns().to_vec();
-            columns[email_idx] = new_col;
+            for idx in email_idxs {
+                columns[idx] = new_col.clone();
+            }
             rb = RecordBatch::try_new(schema, columns)
                 .map_err(|e| format!("rebuild canary batch: {e}"))?;
         }
