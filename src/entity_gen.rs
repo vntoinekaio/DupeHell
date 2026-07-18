@@ -155,9 +155,10 @@ fn build_condition_mask(dep: &ArrayRef, cond: &ColCondition, n: usize) -> Vec<bo
                 serde_json::Value::Array(arr) => arr.iter().map(val_to_string).collect::<Vec<_>>(),
                 v => vec![val_to_string(v)],
             };
-            let dep_str = array_to_strings(dep, n);
+            use arrow::array::AsArray;
+            let dep_str = dep.as_string::<i32>();
             (0..n)
-                .map(|i| vals.iter().any(|v| dep_str[i] == *v))
+                .map(|i| vals.iter().any(|v| dep_str.value(i) == v))
                 .collect()
         }
         "ne" | "not_in" => {
@@ -165,9 +166,10 @@ fn build_condition_mask(dep: &ArrayRef, cond: &ColCondition, n: usize) -> Vec<bo
                 serde_json::Value::Array(arr) => arr.iter().map(val_to_string).collect::<Vec<_>>(),
                 v => vec![val_to_string(v)],
             };
-            let dep_str = array_to_strings(dep, n);
+            use arrow::array::AsArray;
+            let dep_str = dep.as_string::<i32>();
             (0..n)
-                .map(|i| !vals.iter().any(|v| dep_str[i] == *v))
+                .map(|i| !vals.iter().any(|v| dep_str.value(i) == v))
                 .collect()
         }
         "gt" => {
@@ -201,12 +203,6 @@ fn val_to_string(v: &serde_json::Value) -> String {
         serde_json::Value::Bool(b) => b.to_string(),
         _ => v.to_string(),
     }
-}
-
-fn array_to_strings(arr: &ArrayRef, n: usize) -> Vec<String> {
-    use arrow::array::AsArray;
-    let s = arr.as_string::<i32>();
-    (0..n).map(|i| s.value(i).to_string()).collect()
 }
 
 fn array_to_f64s(arr: &ArrayRef, n: usize) -> Vec<f64> {
