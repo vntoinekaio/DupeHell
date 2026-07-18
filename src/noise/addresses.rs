@@ -104,19 +104,22 @@ pub fn apply_postal_corrupt(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
             builder.append_value(s);
             continue;
         }
-        // Find a digit position to corrupt
-        let mut digit_positions: Vec<usize> = Vec::new();
-        for (j, &c) in chars.iter().enumerate() {
-            if c.is_ascii_digit() {
-                digit_positions.push(j);
-            }
-        }
-        if digit_positions.is_empty() {
+        // Find a digit position to corrupt: count digits in one pass, draw
+        // an index among them, then locate that one digit in a second pass
+        // — avoids materializing a `Vec<usize>` of every digit position.
+        let digit_count = chars.iter().filter(|c| c.is_ascii_digit()).count();
+        if digit_count == 0 {
             builder.append_value(s);
             continue;
         }
-        let pos_idx = rng2.next_usize(digit_positions.len());
-        let pos = digit_positions[pos_idx];
+        let target = rng2.next_usize(digit_count);
+        let pos = chars
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.is_ascii_digit())
+            .nth(target)
+            .map(|(j, _)| j)
+            .expect("target < digit_count");
         let new_digit = (rng2.next_usize(10) as u8 + 48) as char;
         chars[pos] = new_digit;
         builder.append_value(chars.into_iter().collect::<String>());

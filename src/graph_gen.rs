@@ -169,11 +169,9 @@ impl EdgeWriter {
         self.writer
             .write(&rb)
             .map_err(|e| format!("write edge batch: {e}"))?;
-        self.src_buf = StringBuilder::new();
-        self.tgt_buf = StringBuilder::new();
-        self.etype_buf = StringBuilder::new();
-        self.subtype_buf = StringBuilder::new();
-        self.weight_buf = Float64Builder::new();
+        // `ArrayBuilder::finish` already takes `&mut self` and resets the
+        // builder's internal buffers — no need to replace it with a fresh
+        // one, that was just throwing away and reallocating empty builders.
         self.count = 0;
         Ok(())
     }

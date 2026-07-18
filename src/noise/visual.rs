@@ -4,9 +4,7 @@
 // EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 
@@ -16,48 +14,55 @@ use super::{MIN_LEN_DROPOUT, MIN_LEN_UNICODE, get_chars_into};
 
 static ZERO_WIDTH_CHARS: &[char] = &['\u{200b}', '\u{200c}', '\u{200d}', '\u{feff}'];
 
-static HOMOGLYPHS: LazyLock<HashMap<char, Vec<char>>> = LazyLock::new(|| {
-    let mut m: HashMap<char, Vec<char>> = HashMap::new();
-    m.insert('a', vec!['а', 'α', '@']);
-    m.insert('A', vec!['А', 'Α', '@']);
-    m.insert('c', vec!['с', 'с']);
-    m.insert('C', vec!['С', 'С']);
-    m.insert('e', vec!['е', 'ε', '3']);
-    m.insert('E', vec!['Е', 'Ε', '3']);
-    m.insert('o', vec!['о', '0', 'ο']);
-    m.insert('O', vec!['О', 'Ο', '0']);
-    m.insert('p', vec!['р', 'ρ', 'р']);
-    m.insert('P', vec!['Р', 'Ρ']);
-    m.insert('s', vec!['ѕ', '5', '$']);
-    m.insert('S', vec!['Ѕ', '5', '$']);
-    m.insert('x', vec!['х', 'χ']);
-    m.insert('X', vec!['Х', 'Χ']);
-    m.insert('y', vec!['у', 'γ']);
-    m.insert('Y', vec!['У', 'Υ']);
-    m.insert('0', vec!['О', 'ο', 'O']);
-    m.insert('1', vec!['l', 'I', '|']);
-    m.insert('l', vec!['1', 'I', '|']);
-    m.insert('I', vec!['1', 'l', '|']);
-    m.insert('5', vec!['S', '$', 'ѕ']);
-    m.insert('8', vec!['Β', 'B']);
-    m
-});
+/// Visually-similar substitutions per char — a `match` over 22 entries
+/// beats a `LazyLock<HashMap<char, Vec<char>>>` (no hashing, no lazy-init
+/// check, no per-entry heap `Vec`; each arm is a `&'static [char]`).
+fn homoglyphs(c: char) -> Option<&'static [char]> {
+    match c {
+        'a' => Some(&['а', 'α', '@']),
+        'A' => Some(&['А', 'Α', '@']),
+        'c' => Some(&['с', 'с']),
+        'C' => Some(&['С', 'С']),
+        'e' => Some(&['е', 'ε', '3']),
+        'E' => Some(&['Е', 'Ε', '3']),
+        'o' => Some(&['о', '0', 'ο']),
+        'O' => Some(&['О', 'Ο', '0']),
+        'p' => Some(&['р', 'ρ', 'р']),
+        'P' => Some(&['Р', 'Ρ']),
+        's' => Some(&['ѕ', '5', '$']),
+        'S' => Some(&['Ѕ', '5', '$']),
+        'x' => Some(&['х', 'χ']),
+        'X' => Some(&['Х', 'Χ']),
+        'y' => Some(&['у', 'γ']),
+        'Y' => Some(&['У', 'Υ']),
+        '0' => Some(&['О', 'ο', 'O']),
+        '1' => Some(&['l', 'I', '|']),
+        'l' => Some(&['1', 'I', '|']),
+        'I' => Some(&['1', 'l', '|']),
+        '5' => Some(&['S', '$', 'ѕ']),
+        '8' => Some(&['Β', 'B']),
+        _ => None,
+    }
+}
 
-static OCR_REPLACEMENTS: LazyLock<HashMap<char, char>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-    m.insert('o', '0');
-    m.insert('O', '0');
-    m.insert('0', 'O');
-    m.insert('l', '1');
-    m.insert('I', '1');
-    m.insert('1', 'l');
-    m.insert('S', '5');
-    m.insert('s', '5');
-    m.insert('5', 'S');
-    m.insert('B', '8');
-    m.insert('8', 'B');
-    m
-});
+/// OCR-style misreads per char — a `match` over 11 entries beats a
+/// `LazyLock<HashMap>`.
+fn ocr_replacement(c: char) -> Option<char> {
+    match c {
+        'o' => Some('0'),
+        'O' => Some('0'),
+        '0' => Some('O'),
+        'l' => Some('1'),
+        'I' => Some('1'),
+        '1' => Some('l'),
+        'S' => Some('5'),
+        's' => Some('5'),
+        '5' => Some('S'),
+        'B' => Some('8'),
+        '8' => Some('B'),
+        _ => None,
+    }
+}
 
 /// Replace 1-2 chars with visually similar Unicode chars.
 pub fn apply_homoglyph(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
@@ -75,7 +80,7 @@ pub fn apply_homoglyph(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
         if get_chars_into(src, i, 2, &mut chars) {
             for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
                 let pos = p % chars.len();
-                if let Some(alternatives) = HOMOGLYPHS.get(&chars[pos]) {
+                if let Some(alternatives) = homoglyphs(chars[pos]) {
                     let idx = rng2.next_usize(alternatives.len());
                     chars[pos] = alternatives[idx];
                 }
@@ -142,7 +147,7 @@ pub fn apply_ocr_errors(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRe
         if get_chars_into(src, i, 1, &mut chars) {
             for &p in positions[i * 3..i * 3 + 3].iter().take(n_ops[i].min(3)) {
                 let pos = p % chars.len();
-                if let Some(&replacement) = OCR_REPLACEMENTS.get(&chars[pos]) {
+                if let Some(replacement) = ocr_replacement(chars[pos]) {
                     chars[pos] = replacement;
                 }
             }

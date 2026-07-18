@@ -110,18 +110,18 @@ fn fuzz_year(s: &str, rng: &mut Rng) -> String {
         _ => -1,
     };
     let new_year = (year + offset).clamp(1930, 2025);
-    let result = parts
-        .iter()
-        .enumerate()
-        .map(|(j, p)| {
-            if j == year_idx {
-                format!("{:04}", new_year)
-            } else {
-                p.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("-");
+    use std::fmt::Write;
+    let mut result = String::with_capacity(date_part.len() + 1);
+    for (j, p) in parts.iter().enumerate() {
+        if j > 0 {
+            result.push('-');
+        }
+        if j == year_idx {
+            write!(result, "{:04}", new_year).ok();
+        } else {
+            result.push_str(p);
+        }
+    }
     rejoin_datetime(result, time_part)
 }
 
@@ -226,9 +226,19 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
             1 => year - rng2.next_usize(31) as i32 - 20,  // negative age
             _ => rng2.next_usize(101) as i32 + 1800,      // 1800-1900
         };
-        let mut new_parts: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
-        new_parts[year_idx] = format!("{:04}", new_year);
-        builder.append_value(rejoin_datetime(new_parts.join("-"), time_part));
+        use std::fmt::Write;
+        let mut result = String::with_capacity(date_part.len() + 1);
+        for (j, p) in parts.iter().enumerate() {
+            if j > 0 {
+                result.push('-');
+            }
+            if j == year_idx {
+                write!(result, "{:04}", new_year).ok();
+            } else {
+                result.push_str(p);
+            }
+        }
+        builder.append_value(rejoin_datetime(result, time_part));
     }
     *rng = rng2;
     Arc::new(builder.finish())

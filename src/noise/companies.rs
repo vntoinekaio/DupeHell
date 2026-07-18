@@ -25,14 +25,11 @@ pub fn drop_legal_form(arr: &dyn Array) -> ArrayRef {
             continue;
         }
         let s = src.value(i);
-        let mut stripped = s.to_string();
-        for &suff in LEGAL_FORM_SUFFIXES {
-            if stripped.ends_with(suff) {
-                stripped.truncate(stripped.len() - suff.len());
-                break;
-            }
+        let matched_suffix = LEGAL_FORM_SUFFIXES.iter().find(|&&suff| s.ends_with(suff));
+        match matched_suffix {
+            Some(suff) => builder.append_value(&s[..s.len() - suff.len()]),
+            None => builder.append_value(s),
         }
-        builder.append_value(&stripped);
     }
     Arc::new(builder.finish())
 }
