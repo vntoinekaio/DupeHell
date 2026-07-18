@@ -42,3 +42,15 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 strip = "symbols"
+
+# CLI-only profile: `panic = "abort"` shaves a bit of binary size and startup
+# cost (no unwind tables/landing pads) since the CLI never needs to unwind.
+# It must NOT apply to the default `release` profile, which also builds the
+# `cdylib` PyO3 extension module — aborting on panic there would kill the
+# embedding Python interpreter outright instead of raising a catchable
+# exception. Build with: `cargo build --profile release-cli --bin dupehell`
+# (restricting to the bin target so the cdylib is never built under this
+# profile in the first place).
+[profile.release-cli]
+inherits = "release"
+panic = "abort"
