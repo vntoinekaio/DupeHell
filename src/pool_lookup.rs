@@ -18,6 +18,9 @@ pub fn pool_values(pool_name: &str, n: usize, rng: &mut Rng, ctx: &Context) -> A
     let pool = match ctx.pool_store.get(pool_name) {
         Some(p) => p,
         None => {
+            log::warn!(
+                "pool '{pool_name}' not found in pool_store — emitting {n} empty strings; check schema pool_name / assets/pools"
+            );
             let mut builder = StringBuilder::with_capacity(n, n * 4);
             for _ in 0..n {
                 builder.append_value("");
@@ -26,6 +29,9 @@ pub fn pool_values(pool_name: &str, n: usize, rng: &mut Rng, ctx: &Context) -> A
         }
     };
     if pool.is_empty() {
+        log::warn!(
+            "pool '{pool_name}' is empty — emitting {n} empty strings; check the pool file under assets/pools"
+        );
         let mut builder = StringBuilder::with_capacity(n, n * 4);
         for _ in 0..n {
             builder.append_value("");

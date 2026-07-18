@@ -12,7 +12,7 @@ use arrow::array::{Array, ArrayRef, StringBuilder};
 
 use crate::rng::Rng;
 
-use super::{MIN_LEN_AGGR, MIN_LEN_EXTREME, MIN_LEN_TYPO, get_chars};
+use super::{MIN_LEN_AGGR, MIN_LEN_EXTREME, MIN_LEN_TYPO, get_chars_into};
 
 static QWERTY_AZERTY: LazyLock<HashMap<char, char>> = LazyLock::new(|| {
     let mut m = HashMap::new();
@@ -122,29 +122,25 @@ pub fn apply_typos_str(arr: &dyn arrow::array::Array, rng: &mut Rng, max_dist: u
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
     for (i, &n_op) in n_ops.iter().enumerate() {
-        match get_chars(src, i, MIN_LEN_TYPO) {
-            Some(mut chars) => {
-                let base = i * max_dist;
-                for j in 0..n_op.min(max_dist) {
-                    let pos = positions[base + j] % chars.len();
-                    let op_idx = ops[base + j] % 3;
-                    match op_idx {
-                        0 => op_delete_pop(&mut chars, pos),
-                        1 => op_replace(&mut chars, pos, rand_chars[base + j]),
-                        2 => op_insert(&mut chars, pos, rand_chars[base + j]),
-                        _ => {}
-                    }
-                }
-                builder.append_value(chars.into_iter().collect::<String>());
-            }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
+        if get_chars_into(src, i, MIN_LEN_TYPO, &mut chars) {
+            let base = i * max_dist;
+            for j in 0..n_op.min(max_dist) {
+                let pos = positions[base + j] % chars.len();
+                let op_idx = ops[base + j] % 3;
+                match op_idx {
+                    0 => op_delete_pop(&mut chars, pos),
+                    1 => op_replace(&mut chars, pos, rand_chars[base + j]),
+                    2 => op_insert(&mut chars, pos, rand_chars[base + j]),
+                    _ => {}
                 }
             }
+            builder.append_value(chars.iter().collect::<String>());
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;
@@ -168,26 +164,22 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
     for i in 0..n {
-        match get_chars(src, i, MIN_LEN_AGGR) {
-            Some(mut chars) => {
-                apply_swaps(&mut chars, n_swap[i], &swap_pos[i * 2..i * 2 + 2]);
-                apply_ops_with_randchar(
-                    &mut chars,
-                    n_typo[i],
-                    &typo_ops[i * 5..i * 5 + 5],
-                    &typo_pos[i * 5..i * 5 + 5],
-                    &typo_chars[i * 5..i * 5 + 5],
-                );
-                builder.append_value(chars.into_iter().collect::<String>());
-            }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
-                }
-            }
+        if get_chars_into(src, i, MIN_LEN_AGGR, &mut chars) {
+            apply_swaps(&mut chars, n_swap[i], &swap_pos[i * 2..i * 2 + 2]);
+            apply_ops_with_randchar(
+                &mut chars,
+                n_typo[i],
+                &typo_ops[i * 5..i * 5 + 5],
+                &typo_pos[i * 5..i * 5 + 5],
+                &typo_chars[i * 5..i * 5 + 5],
+            );
+            builder.append_value(chars.iter().collect::<String>());
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;
@@ -209,33 +201,29 @@ pub fn apply_typos_extreme(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
     for (i, &n_op) in n_ops.iter().enumerate() {
-        match get_chars(src, i, MIN_LEN_EXTREME) {
-            Some(mut chars) => {
-                let base = i * 8;
-                for j in 0..n_op.min(8) {
-                    if chars.is_empty() {
-                        break;
-                    }
-                    let pos = positions[base + j] % chars.len();
-                    match ops[base + j] % 5 {
-                        0 => op_delete_pop(&mut chars, pos),
-                        1 => op_replace(&mut chars, pos, rand_chars[base + j]),
-                        2 => op_insert(&mut chars, pos, rand_chars[base + j]),
-                        3 => op_duplicate(&mut chars, pos),
-                        4 => op_swap(&mut chars, pos),
-                        _ => {}
-                    }
+        if get_chars_into(src, i, MIN_LEN_EXTREME, &mut chars) {
+            let base = i * 8;
+            for j in 0..n_op.min(8) {
+                if chars.is_empty() {
+                    break;
                 }
-                builder.append_value(chars.into_iter().collect::<String>());
-            }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
+                let pos = positions[base + j] % chars.len();
+                match ops[base + j] % 5 {
+                    0 => op_delete_pop(&mut chars, pos),
+                    1 => op_replace(&mut chars, pos, rand_chars[base + j]),
+                    2 => op_insert(&mut chars, pos, rand_chars[base + j]),
+                    3 => op_duplicate(&mut chars, pos),
+                    4 => op_swap(&mut chars, pos),
+                    _ => {}
                 }
             }
+            builder.append_value(chars.iter().collect::<String>());
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;
@@ -253,24 +241,20 @@ pub fn apply_qwerty_azerty(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
     let positions: Vec<usize> = (0..n * 2).map(|_| rng2.next_usize(30)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
     for i in 0..n {
-        match get_chars(src, i, MIN_LEN_TYPO) {
-            Some(mut chars) => {
-                for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
-                    let pos = p % chars.len();
-                    if let Some(&replacement) = QWERTY_AZERTY.get(&chars[pos]) {
-                        chars[pos] = replacement;
-                    }
-                }
-                builder.append_value(chars.into_iter().collect::<String>());
-            }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
+        if get_chars_into(src, i, MIN_LEN_TYPO, &mut chars) {
+            for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
+                let pos = p % chars.len();
+                if let Some(&replacement) = QWERTY_AZERTY.get(&chars[pos]) {
+                    chars[pos] = replacement;
                 }
             }
+            builder.append_value(chars.iter().collect::<String>());
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;

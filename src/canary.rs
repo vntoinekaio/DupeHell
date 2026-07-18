@@ -46,7 +46,7 @@ pub fn generate_all(
     const_arr_cache: &mut HashMap<(String, usize), ArrayRef>,
     global_rid_offset: &mut usize,
     fk_pools: &HashMap<String, RecordBatch>,
-    writer: &mut arrow::ipc::writer::FileWriter<std::fs::File>,
+    writer: &mut pipeline::DatasetWriter,
     node_writer: &mut Option<crate::graph_gen::NodeWriter>,
     gt_acc: &mut crate::gt::GtAccumulator,
 ) -> Result<(), String> {

@@ -129,11 +129,14 @@ pub(crate) fn record_id_strs(range: std::ops::Range<usize>) -> Vec<String> {
 
 // ── Entity prefix ──────────────────────────────────────────────────────────
 
-fn entity_prefix(name: &str) -> String {
-    let h: u64 = name
-        .bytes()
-        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
-    format!("E{:05}", h % 100000)
+/// Per-entity master_id prefix, derived from the entity's position in
+/// `config.entity_plans` rather than a hash of its name: a name hash mod
+/// 100000 had a real (if small) chance of two entities in the same domain
+/// colliding on the same prefix, which would make `gt.rs`'s master_id
+/// counting conflate masters from different entity types. An index is
+/// unique by construction — zero collision risk regardless of domain size.
+fn entity_prefix(entity_idx: usize) -> String {
+    format!("E{:05}", entity_idx)
 }
 
 // ── FK / HN pool types ─────────────────────────────────────────────────────
@@ -471,6 +474,69 @@ fn topological_sort(
     Ok(order)
 }
 
+/// Dataset sink: writes directly in the requested output format, avoiding
+/// an uncompressed IPC intermediate + full reread when `parquet` is
+/// requested (mirrors the `GtSink` pattern in `gt.rs`).
+pub(crate) enum DatasetWriter {
+    Ipc(Box<arrow::ipc::writer::FileWriter<std::fs::File>>),
+    Parquet(Box<parquet::arrow::ArrowWriter<std::fs::File>>),
+}
+
+impl DatasetWriter {
+    fn new(
+        output_format: &str,
+        path: &str,
+        schema: &Arc<Schema>,
+        metadata: &HashMap<String, String>,
+    ) -> Result<Self, String> {
+        let file = std::fs::File::create(path).map_err(|e| format!("create {path}: {e}"))?;
+        if output_format == "parquet" {
+            use parquet::basic::{Compression, ZstdLevel};
+            use parquet::file::properties::WriterProperties;
+            let zstd = ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
+            let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata
+                .iter()
+                .map(|(k, v)| parquet::file::metadata::KeyValue {
+                    key: k.clone(),
+                    value: Some(v.clone()),
+                })
+                .collect();
+            let props = WriterProperties::builder()
+                .set_compression(Compression::ZSTD(zstd))
+                // 1M rows/group (parquet-rs' own default) bounds the
+                // resident, uncompressed column-chunk buffers to one row
+                // group's worth at a time instead of the whole dataset.
+                .set_max_row_group_row_count(Some(1_000_000))
+                .set_key_value_metadata(Some(meta_kv))
+                .build();
+            let writer = parquet::arrow::ArrowWriter::try_new(file, schema.clone(), Some(props))
+                .map_err(|e| format!("ArrowWriter error: {e}"))?;
+            Ok(DatasetWriter::Parquet(Box::new(writer)))
+        } else {
+            let writer = arrow::ipc::writer::FileWriter::try_new(file, schema)
+                .map_err(|e| format!("IPC FileWriter error: {e}"))?;
+            Ok(DatasetWriter::Ipc(Box::new(writer)))
+        }
+    }
+
+    pub(crate) fn write(&mut self, batch: &RecordBatch) -> Result<(), String> {
+        match self {
+            DatasetWriter::Ipc(w) => w.write(batch).map_err(|e| format!("write ipc: {e}")),
+            DatasetWriter::Parquet(w) => w.write(batch).map_err(|e| format!("write parquet: {e}")),
+        }
+    }
+
+    fn finish(self) -> Result<(), String> {
+        match self {
+            DatasetWriter::Ipc(mut w) => w.finish().map_err(|e| format!("finish ipc: {e}")),
+            DatasetWriter::Parquet(w) => w
+                .close()
+                .map(|_| ())
+                .map_err(|e| format!("close parquet: {e}")),
+        }
+    }
+}
+
 // ── Main pipeline ──────────────────────────────────────────────────────────
 
 pub fn run_pipeline(
@@ -497,11 +563,14 @@ pub fn run_pipeline(
     let metadata = build_metadata_map(config);
     // Build the full schema once (union of all entity columns + metadata)
     let full_arc = Arc::new(build_full_schema(config, &metadata));
-    let mut dataset_path = format!("{}/{}.ipc", output_dir, config.run_id);
-    let out_file =
-        std::fs::File::create(&dataset_path).map_err(|e| format!("create {dataset_path}: {e}"))?;
-    let mut writer = arrow::ipc::writer::FileWriter::try_new(out_file, &full_arc)
-        .map_err(|e| format!("IPC FileWriter error: {e}"))?;
+    let dataset_ext = if config.output_format == "parquet" {
+        "parquet"
+    } else {
+        "ipc"
+    };
+    let dataset_path = format!("{}/{}.{}", output_dir, config.run_id, dataset_ext);
+    let mut writer =
+        DatasetWriter::new(&config.output_format, &dataset_path, &full_arc, &metadata)?;
 
     // Topological sort for FK dependency processing order
     let name_to_idx: HashMap<&str, usize> = config
@@ -590,7 +659,7 @@ pub fn run_pipeline(
             continue;
         }
 
-        let prefix = entity_prefix(&plan.name);
+        let prefix = entity_prefix(plan_idx);
         let col_json_str = &plan.columns_json;
 
         // Per-entity streaming state
@@ -957,7 +1026,15 @@ pub fn run_pipeline(
     // Phase 12.3: separate null cache for HN section (different entity types)
     let mut hn_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
     let mut hn_const_arr_cache: HashMap<(String, usize), ArrayRef> = HashMap::new();
-    for (hn_idx, hn_cfg) in config.hard_neg_types.iter().enumerate() {
+    // Global counter for HN master_ids (shared across every hard_neg_types
+    // entry in this run) instead of a random draw from a fixed 10M space:
+    // at tens/hundreds of thousands of HN rows, `next_usize(10_000_000)`
+    // has a real birthday-paradox chance of two unrelated HN rows landing
+    // on the same master_id, which `gt.rs` would then count as sharing a
+    // master — silently mislabeling a hard negative as a match. A counter
+    // is unique by construction, eliminating the collision entirely.
+    let mut hn_master_id_counter: u64 = 0;
+    for hn_cfg in config.hard_neg_types.iter() {
         if hn_cfg.count == 0 {
             continue;
         }
@@ -987,11 +1064,11 @@ pub fn run_pipeline(
 
         let hn_rids = record_id_strs(global_rid_offset..global_rid_offset + n_hn);
 
-        let mut hn_mid_rng = Rng::new(config.seed.wrapping_add(300 + hn_idx as u64));
         let hn_mids: Vec<String> = (0..n_hn)
             .map(|_i| {
-                let pad = hn_mid_rng.next_usize(10_000_000);
-                format!("HN-{:07}", pad)
+                let id = hn_master_id_counter;
+                hn_master_id_counter += 1;
+                format!("HN-{:09}", id)
             })
             .collect();
 
@@ -1072,7 +1149,7 @@ pub fn run_pipeline(
     let t3 = std::time::Instant::now();
     writer
         .finish()
-        .map_err(|e| format!("finish IPC writer: {e}"))?;
+        .map_err(|e| format!("finish dataset writer: {e}"))?;
     let t3a_elapsed = t3.elapsed().as_secs_f64();
 
     let t3b = std::time::Instant::now();
@@ -1100,57 +1177,6 @@ pub fn run_pipeline(
     {
         crate::graph_gen::push_dup_clusters(ew, &cluster_map, GRAPH_MAX_CLUSTER_EDGES)
             .map_err(|e| format!("push dup clusters: {e}"))?;
-    }
-
-    // ── Phase 3b: Materialize IPC → Parquet (Rust, no Polars) ───────────
-    if config.output_format == "parquet" {
-        use arrow::ipc::reader::FileReader;
-
-        let parquet_path = dataset_path.replace(".ipc", ".parquet");
-        let ipc_file = std::fs::File::open(&dataset_path)
-            .map_err(|e| format!("open IPC for conversion: {e}"))?;
-        let ipc_reader = FileReader::try_new(ipc_file, None)
-            .map_err(|e| format!("IPC reader for conversion: {e}"))?;
-        let schema = ipc_reader.schema();
-
-        let parquet_file = std::fs::File::create(&parquet_path)
-            .map_err(|e| format!("create {parquet_path}: {e}"))?;
-        let zstd_level = parquet::basic::ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
-        let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata
-            .clone()
-            .into_iter()
-            .map(|(k, v)| parquet::file::metadata::KeyValue {
-                key: k,
-                value: Some(v),
-            })
-            .collect();
-        let props = parquet::file::properties::WriterProperties::builder()
-            .set_compression(parquet::basic::Compression::ZSTD(zstd_level))
-            // An unbounded row group (previously `usize::MAX / 2`) never
-            // flushes before `close()`: every compressed column chunk for
-            // the whole dataset stays resident in `ArrowWriter`'s buffers
-            // for the entire conversion. 1M rows/group (parquet-rs' own
-            // default) bounds that to one row group's worth at a time —
-            // same values on disk, different row-group boundaries.
-            .set_max_row_group_row_count(Some(1_000_000))
-            .set_key_value_metadata(Some(meta_kv))
-            .build();
-        let mut parquet_writer =
-            parquet::arrow::ArrowWriter::try_new(parquet_file, schema, Some(props))
-                .map_err(|e| format!("ArrowWriter for conversion: {e}"))?;
-
-        for batch_result in ipc_reader {
-            let batch = batch_result.map_err(|e| format!("IPC batch for conversion: {e}"))?;
-            parquet_writer
-                .write(&batch)
-                .map_err(|e| format!("write parquet conversion: {e}"))?;
-        }
-        parquet_writer
-            .close()
-            .map_err(|e| format!("close parquet conversion: {e}"))?;
-
-        std::fs::remove_file(&dataset_path).map_err(|e| format!("remove IPC temp file: {e}"))?;
-        dataset_path = parquet_path;
     }
 
     let duration = t_start.elapsed().as_secs_f64();
