@@ -4,22 +4,24 @@
 // EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 
 use crate::rng::Rng;
 
-static NICKNAMES_MAP: LazyLock<HashMap<&'static str, Vec<&'static str>>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-    m.insert("Marie", vec!["Marie", "Marie", "MARY", "Maite"]);
-    m.insert("Jean", vec!["Jean", "JEAN", "J.", "JM"]);
-    m.insert("Pierre", vec!["Pierre", "Pierrot", "Pi", "PY"]);
-    m.insert("François", vec!["François", "Francois", "FR", "F."]);
-    m
-});
+/// Nickname variants for a handful of French first names — a `match` over
+/// 4 entries beats a `LazyLock<HashMap>` (no hashing, no lazy-init check,
+/// no heap allocation for the table itself).
+fn nickname_variants(name: &str) -> Option<&'static [&'static str]> {
+    match name {
+        "Marie" => Some(&["Marie", "Marie", "MARY", "Maite"]),
+        "Jean" => Some(&["Jean", "JEAN", "J.", "JM"]),
+        "Pierre" => Some(&["Pierre", "Pierrot", "Pi", "PY"]),
+        "François" => Some(&["François", "Francois", "FR", "F."]),
+        _ => None,
+    }
+}
 
 /// Replace names with random nickname variants (50%) or uppercase (50%).
 pub fn apply_nickname(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
@@ -35,7 +37,7 @@ pub fn apply_nickname(arr: &dyn Array, rng: &mut Rng) -> ArrayRef {
             continue;
         }
         let s = src.value(i);
-        if let Some(alternatives) = NICKNAMES_MAP.get(s) {
+        if let Some(alternatives) = nickname_variants(s) {
             if rng2.next_usize(2) == 0 {
                 let idx = rng2.next_usize(alternatives.len());
                 builder.append_value(alternatives[idx]);

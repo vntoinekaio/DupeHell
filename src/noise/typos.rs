@@ -4,9 +4,7 @@
 // EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow::array::{Array, ArrayRef, StringBuilder};
 
@@ -14,18 +12,21 @@ use crate::rng::Rng;
 
 use super::{MIN_LEN_AGGR, MIN_LEN_EXTREME, MIN_LEN_TYPO, get_chars_into};
 
-static QWERTY_AZERTY: LazyLock<HashMap<char, char>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-    m.insert('q', 'a');
-    m.insert('w', 'z');
-    m.insert('a', 'q');
-    m.insert('z', 'w');
-    m.insert('Q', 'A');
-    m.insert('W', 'Z');
-    m.insert('A', 'Q');
-    m.insert('Z', 'W');
-    m
-});
+/// QWERTY <-> AZERTY key swaps — a `match` over 8 entries beats a
+/// `LazyLock<HashMap>` (no hashing, no lazy-init check).
+fn qwerty_azerty(c: char) -> Option<char> {
+    match c {
+        'q' => Some('a'),
+        'w' => Some('z'),
+        'a' => Some('q'),
+        'z' => Some('w'),
+        'Q' => Some('A'),
+        'W' => Some('Z'),
+        'A' => Some('Q'),
+        'Z' => Some('W'),
+        _ => None,
+    }
+}
 
 // ── Single-char operations ────────────────────────────────────────
 
@@ -246,7 +247,7 @@ pub fn apply_qwerty_azerty(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
         if get_chars_into(src, i, MIN_LEN_TYPO, &mut chars) {
             for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
                 let pos = p % chars.len();
-                if let Some(&replacement) = QWERTY_AZERTY.get(&chars[pos]) {
+                if let Some(replacement) = qwerty_azerty(chars[pos]) {
                     chars[pos] = replacement;
                 }
             }
