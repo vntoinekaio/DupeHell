@@ -24,17 +24,26 @@ pub const MIN_LEN_EXTREME: usize = 4;
 pub const MIN_LEN_DROPOUT: usize = 4;
 pub const MIN_LEN_UNICODE: usize = 3;
 
-/// Read a mutable Vec<char> from a StringArray at index `i`.
-/// Returns None for null entries or strings shorter than `min_len`.
-pub fn get_chars(arr: &arrow::array::StringArray, i: usize, min_len: usize) -> Option<Vec<char>> {
+/// Load the chars of a `StringArray` value at index `i` into a caller-owned,
+/// reusable buffer (cleared first) instead of allocating a fresh `Vec<char>`
+/// per row. Returns `false` (buffer left empty) for null entries or strings
+/// shorter than `min_len`.
+pub fn get_chars_into(
+    arr: &arrow::array::StringArray,
+    i: usize,
+    min_len: usize,
+    buf: &mut Vec<char>,
+) -> bool {
+    buf.clear();
     if arr.is_null(i) {
-        return None;
+        return false;
     }
     let s = arr.value(i);
     if s.len() < min_len {
-        return None;
+        return false;
     }
-    Some(s.chars().collect())
+    buf.extend(s.chars());
+    true
 }
 
 /// Dispatch hub: maps noise type string to the actual noise function.

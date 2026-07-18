@@ -14,6 +14,7 @@ claude.md
 benchmark/
 docs/WATERMARK.md
 .afz24/
+.rustgod
 
 # Scratch workspace: one-off scripts, wave/hunt logs, planning notes
 /scod/

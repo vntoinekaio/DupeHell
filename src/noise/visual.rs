@@ -12,7 +12,7 @@ use arrow::array::{Array, ArrayRef, StringBuilder};
 
 use crate::rng::Rng;
 
-use super::{MIN_LEN_DROPOUT, MIN_LEN_UNICODE, get_chars};
+use super::{MIN_LEN_DROPOUT, MIN_LEN_UNICODE, get_chars_into};
 
 static ZERO_WIDTH_CHARS: &[char] = &['\u{200b}', '\u{200c}', '\u{200d}', '\u{feff}'];
 
@@ -70,25 +70,21 @@ pub fn apply_homoglyph(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let positions: Vec<usize> = (0..n * 2).map(|_| rng2.next_usize(30)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
     for i in 0..n {
-        match get_chars(src, i, 2) {
-            Some(mut chars) => {
-                for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
-                    let pos = p % chars.len();
-                    if let Some(alternatives) = HOMOGLYPHS.get(&chars[pos]) {
-                        let idx = rng2.next_usize(alternatives.len());
-                        chars[pos] = alternatives[idx];
-                    }
-                }
-                builder.append_value(chars.into_iter().collect::<String>());
-            }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
+        if get_chars_into(src, i, 2, &mut chars) {
+            for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
+                let pos = p % chars.len();
+                if let Some(alternatives) = HOMOGLYPHS.get(&chars[pos]) {
+                    let idx = rng2.next_usize(alternatives.len());
+                    chars[pos] = alternatives[idx];
                 }
             }
+            builder.append_value(chars.iter().collect::<String>());
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;
@@ -109,25 +105,21 @@ pub fn apply_unicode_pollution(arr: &dyn arrow::array::Array, rng: &mut Rng) -> 
         .collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
     for (i, &n_op) in n_ops.iter().enumerate() {
-        match get_chars(src, i, MIN_LEN_UNICODE) {
-            Some(mut chars) => {
-                let pos_base = i * 31;
-                let zw_base = i * 3;
-                for j in 0..n_op.min(3) {
-                    let pos = positions[pos_base + j] % (chars.len() + 1);
-                    let zc = ZERO_WIDTH_CHARS[zw_idx[zw_base + j] % ZERO_WIDTH_CHARS.len()];
-                    chars.insert(pos, zc);
-                }
-                builder.append_value(chars.into_iter().collect::<String>());
+        if get_chars_into(src, i, MIN_LEN_UNICODE, &mut chars) {
+            let pos_base = i * 31;
+            let zw_base = i * 3;
+            for j in 0..n_op.min(3) {
+                let pos = positions[pos_base + j] % (chars.len() + 1);
+                let zc = ZERO_WIDTH_CHARS[zw_idx[zw_base + j] % ZERO_WIDTH_CHARS.len()];
+                chars.insert(pos, zc);
             }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
-                }
-            }
+            builder.append_value(chars.iter().collect::<String>());
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;
@@ -145,24 +137,20 @@ pub fn apply_ocr_errors(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRe
     let positions: Vec<usize> = (0..n * 3).map(|_| rng2.next_usize(30)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
     for i in 0..n {
-        match get_chars(src, i, 1) {
-            Some(mut chars) => {
-                for &p in positions[i * 3..i * 3 + 3].iter().take(n_ops[i].min(3)) {
-                    let pos = p % chars.len();
-                    if let Some(&replacement) = OCR_REPLACEMENTS.get(&chars[pos]) {
-                        chars[pos] = replacement;
-                    }
-                }
-                builder.append_value(chars.into_iter().collect::<String>());
-            }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
+        if get_chars_into(src, i, 1, &mut chars) {
+            for &p in positions[i * 3..i * 3 + 3].iter().take(n_ops[i].min(3)) {
+                let pos = p % chars.len();
+                if let Some(&replacement) = OCR_REPLACEMENTS.get(&chars[pos]) {
+                    chars[pos] = replacement;
                 }
             }
+            builder.append_value(chars.iter().collect::<String>());
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;
@@ -214,26 +202,52 @@ pub fn apply_char_dropout(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Array
     let mut rng2 = rng.fork();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
+    let mut chars: Vec<char> = Vec::new();
+    let mut alive: Vec<bool> = Vec::new();
     for i in 0..n {
-        match get_chars(src, i, MIN_LEN_DROPOUT) {
-            Some(mut chars) => {
-                let max_remove = (chars.len() / 4).max(2);
-                let n_to_remove = rng2.next_usize(max_remove) + 1;
-                for _ in 0..n_to_remove {
-                    if chars.len() > 2 {
-                        let p = rng2.next_usize(chars.len());
-                        chars.remove(p);
-                    }
+        if get_chars_into(src, i, MIN_LEN_DROPOUT, &mut chars) {
+            let len = chars.len();
+            let max_remove = (len / 4).max(2);
+            let n_to_remove = rng2.next_usize(max_remove) + 1;
+
+            // Mark-and-filter instead of repeated `Vec::remove` (which
+            // shifts the tail on every call): each draw still picks the
+            // p-th *currently alive* char in original order — same RNG
+            // draws, same elements dropped — but the string is rebuilt in
+            // a single pass at the end instead of one shift per removal.
+            alive.clear();
+            alive.resize(len, true);
+            let mut remaining = len;
+            for _ in 0..n_to_remove {
+                if remaining > 2 {
+                    let mut p = rng2.next_usize(remaining);
+                    let idx = alive
+                        .iter()
+                        .position(|&a| {
+                            if a {
+                                if p == 0 {
+                                    return true;
+                                }
+                                p -= 1;
+                            }
+                            false
+                        })
+                        .expect("remaining count tracks alive entries");
+                    alive[idx] = false;
+                    remaining -= 1;
                 }
-                builder.append_value(chars.into_iter().collect::<String>());
             }
-            None => {
-                if src.is_null(i) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(src.value(i));
-                }
-            }
+            let s: String = chars
+                .iter()
+                .zip(alive.iter())
+                .filter(|&(_, &a)| a)
+                .map(|(&c, _)| c)
+                .collect();
+            builder.append_value(s);
+        } else if src.is_null(i) {
+            builder.append_null();
+        } else {
+            builder.append_value(src.value(i));
         }
     }
     *rng = rng2;
