@@ -49,7 +49,15 @@ fn rand_char(chars: &[u8], rng: &mut Rng) -> u8 {
 pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> ArrayRef {
     let n = nums.len();
     let mut builder = StringBuilder::with_capacity(n, n * width);
-    let mut s = vec![b'0'; width];
+    // SAFETY: every index 0..width is written by the digit-fill loop below
+    // before `s` is ever read (`from_utf8(&s)`), so the zero-fill that
+    // `vec![b'0'; width]` would otherwise do is redundant work.
+    #[allow(clippy::uninit_vec)]
+    let mut s: Vec<u8> = {
+        let mut v = Vec::with_capacity(width);
+        unsafe { v.set_len(width) };
+        v
+    };
     for num in nums {
         let mut val = *num;
         for j in (0..width).rev() {
@@ -74,7 +82,15 @@ pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> Ar
 /// Generate random fixed-length strings from a byte character table.
 pub fn bytes_strings(chars: &[u8], n: usize, length: usize, rng: &mut Rng) -> ArrayRef {
     let mut builder = StringBuilder::with_capacity(n, n * length);
-    let mut s = vec![0u8; length];
+    // SAFETY: the `for b in s.iter_mut()` loop below writes every index
+    // 0..length before `s` is ever read (`from_utf8(&s)`), so the zero-fill
+    // that `vec![0u8; length]` would otherwise do is redundant work.
+    #[allow(clippy::uninit_vec)]
+    let mut s: Vec<u8> = {
+        let mut v = Vec::with_capacity(length);
+        unsafe { v.set_len(length) };
+        v
+    };
     for _ in 0..n {
         for b in s.iter_mut() {
             *b = rand_char(chars, rng);

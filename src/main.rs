@@ -218,7 +218,8 @@ fn main() {
     ctx.enable_watermark(&config.domain, config.size, config.seed);
 
     eprintln!(
-        "DupeHell v0.4 — {} domain, {} records [{}]",
+        "DupeHell v{} — {} domain, {} records [{}]",
+        env!("CARGO_PKG_VERSION"),
         cli.domain.to_uppercase(),
         cli.size,
         cli.difficulty

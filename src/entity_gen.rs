@@ -221,11 +221,16 @@ fn apply_action_set_null(
     mask: &[bool],
     n: usize,
 ) {
-    let arr = batch.get(col_name).unwrap();
+    let arr = batch
+        .get(col_name)
+        .unwrap_or_else(|| panic!("apply_action_set_null: column '{col_name}' not in batch"));
     let dt = arr.data_type();
     if *dt == DataType::Int64 {
         use arrow::array::Int64Array;
-        let src = arr.as_any().downcast_ref::<Int64Array>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("apply_action_set_null: data_type()==Int64 but downcast failed");
         let mut builder = arrow::array::Int64Builder::with_capacity(n);
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
@@ -237,7 +242,10 @@ fn apply_action_set_null(
         batch.insert(col_name.to_string(), Arc::new(builder.finish()));
     } else if *dt == DataType::Float64 {
         use arrow::array::Float64Array;
-        let src = arr.as_any().downcast_ref::<Float64Array>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("apply_action_set_null: data_type()==Float64 but downcast failed");
         let mut builder = arrow::array::Float64Builder::with_capacity(n);
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
@@ -249,7 +257,10 @@ fn apply_action_set_null(
         batch.insert(col_name.to_string(), Arc::new(builder.finish()));
     } else if *dt == DataType::Boolean {
         use arrow::array::BooleanArray;
-        let src = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("apply_action_set_null: data_type()==Boolean but downcast failed");
         let mut builder = arrow::array::BooleanBuilder::with_capacity(n);
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
@@ -280,12 +291,17 @@ fn apply_action_set_value(
     action_value: &serde_json::Value,
     n: usize,
 ) {
-    let arr = batch.get(col_name).unwrap();
+    let arr = batch
+        .get(col_name)
+        .unwrap_or_else(|| panic!("apply_action_set_value: column '{col_name}' not in batch"));
     let dt = arr.data_type();
     let new_val_str = val_to_string(action_value);
     if *dt == DataType::Int64 {
         use arrow::array::Int64Array;
-        let src = arr.as_any().downcast_ref::<Int64Array>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("apply_action_set_value: data_type()==Int64 but downcast failed");
         let parsed: i64 = new_val_str.parse().unwrap_or(0);
         let mut builder = arrow::array::Int64Builder::with_capacity(n);
         for (i, &m) in mask.iter().enumerate().take(n) {
@@ -298,7 +314,10 @@ fn apply_action_set_value(
         batch.insert(col_name.to_string(), Arc::new(builder.finish()));
     } else if *dt == DataType::Float64 {
         use arrow::array::Float64Array;
-        let src = arr.as_any().downcast_ref::<Float64Array>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("apply_action_set_value: data_type()==Float64 but downcast failed");
         let parsed: f64 = new_val_str.parse().unwrap_or(0.0);
         let mut builder = arrow::array::Float64Builder::with_capacity(n);
         for (i, &m) in mask.iter().enumerate().take(n) {
@@ -311,7 +330,10 @@ fn apply_action_set_value(
         batch.insert(col_name.to_string(), Arc::new(builder.finish()));
     } else if *dt == DataType::Boolean {
         use arrow::array::BooleanArray;
-        let src = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("apply_action_set_value: data_type()==Boolean but downcast failed");
         let parsed: bool = new_val_str.parse().unwrap_or(false);
         let mut builder = arrow::array::BooleanBuilder::with_capacity(n);
         for (i, &m) in mask.iter().enumerate().take(n) {
@@ -345,7 +367,9 @@ fn apply_action_set_pool(
     ctx: &Context,
     rng: &mut Rng,
 ) {
-    let arr = batch.get(col_name).unwrap();
+    let arr = batch
+        .get(col_name)
+        .unwrap_or_else(|| panic!("apply_action_set_pool: column '{col_name}' not in batch"));
     let dt = arr.data_type();
     let mask_count = mask.iter().filter(|&&m| m).count();
     // Keep the sampled pool as an Arrow array and read `&str`s straight out
@@ -364,13 +388,22 @@ fn apply_action_set_pool(
 
     if *dt == DataType::Int64 {
         use arrow::array::Int64Array;
-        let src = arr.as_any().downcast_ref::<Int64Array>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("apply_action_set_pool: data_type()==Int64 but downcast failed");
         let mut builder = arrow::array::Int64Builder::with_capacity(n);
         let mut pool_idx = 0;
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
                 if pool_idx < pool_len {
-                    let parsed: i64 = pool_s.unwrap().value(pool_idx).parse().unwrap_or(0);
+                    // `pool_idx < pool_len` and `pool_len = pool_s.map_or(0, |p| p.len())`
+                    // together guarantee `pool_s.is_some()` here.
+                    let parsed: i64 = pool_s
+                        .expect("pool_len > 0 implies pool_s is Some")
+                        .value(pool_idx)
+                        .parse()
+                        .unwrap_or(0);
                     builder.append_value(parsed);
                     pool_idx += 1;
                 } else {
@@ -383,13 +416,20 @@ fn apply_action_set_pool(
         batch.insert(col_name.to_string(), Arc::new(builder.finish()));
     } else if *dt == DataType::Float64 {
         use arrow::array::Float64Array;
-        let src = arr.as_any().downcast_ref::<Float64Array>().unwrap();
+        let src = arr
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("apply_action_set_pool: data_type()==Float64 but downcast failed");
         let mut builder = arrow::array::Float64Builder::with_capacity(n);
         let mut pool_idx = 0;
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
                 if pool_idx < pool_len {
-                    let parsed: f64 = pool_s.unwrap().value(pool_idx).parse().unwrap_or(0.0);
+                    let parsed: f64 = pool_s
+                        .expect("pool_len > 0 implies pool_s is Some")
+                        .value(pool_idx)
+                        .parse()
+                        .unwrap_or(0.0);
                     builder.append_value(parsed);
                     pool_idx += 1;
                 } else {
@@ -407,7 +447,11 @@ fn apply_action_set_pool(
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
                 if pool_idx < pool_len {
-                    builder.append_value(pool_s.unwrap().value(pool_idx));
+                    builder.append_value(
+                        pool_s
+                            .expect("pool_len > 0 implies pool_s is Some")
+                            .value(pool_idx),
+                    );
                     pool_idx += 1;
                 } else {
                     builder.append_null();
@@ -477,7 +521,11 @@ pub fn generate_entity_batch(ctx: &Context, request_json: &str) -> Result<Record
     let final_arrays: Vec<ArrayRef> = req
         .columns
         .iter()
-        .map(|c| batch_map.remove(&c.name).unwrap())
+        .map(|c| {
+            batch_map
+                .remove(&c.name)
+                .unwrap_or_else(|| panic!("generate_entity_batch: column '{}' missing from batch_map (built from the same req.columns just above)", c.name))
+        })
         .collect();
 
     let schema = Schema::new(fields);

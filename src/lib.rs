@@ -33,8 +33,11 @@ pub use schema::{
     DomainSchema, EntitySchema, HnSchema, build_pipeline_config, chrono_now, load_schema,
 };
 
+// `GenerateResult` is only ever constructed in Rust and returned to Python
+// (never passed back in as an argument), so it doesn't need the
+// `FromPyObject` impl pyo3 0.29 now makes opt-in for `Clone` pyclasses.
 #[cfg(feature = "python")]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone)]
 pub struct GenerateResult {
     #[pyo3(get)]

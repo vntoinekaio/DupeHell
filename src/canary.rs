@@ -135,7 +135,7 @@ pub fn generate_all(
             &col_lookup,
             null_cache,
             const_arr_cache,
-        );
+        )?;
 
         writer
             .write(&aligned)
