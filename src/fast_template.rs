@@ -150,7 +150,7 @@ fn gen_username(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 fn gen_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build_string_array(n, 6, |buf| {
         let maj = rng.next_usize(4) + 1;
-        let min = rng.next_usize(20);
+        let min = rng.next_usize(10);
         let pat = rng.next_usize(10);
         write_zpad(buf, maj, 1);
         buf.push(b'.');
