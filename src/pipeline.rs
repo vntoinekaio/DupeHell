@@ -1462,3 +1462,135 @@ fn pick_rows(rb: &RecordBatch, indices: &UInt64Array) -> Result<RecordBatch, Str
 
     RecordBatch::try_new(rb.schema(), new_columns).map_err(|e| format!("RecordBatch: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{build_pipeline_config, load_schema};
+
+    fn manifest_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+    }
+
+    /// Unique per-test scratch dir under `target/`, so parallel test runs
+    /// never collide on output filenames and cleanup is trivial.
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = manifest_dir()
+            .join("target")
+            .join("pipeline_test_tmp")
+            .join(format!("{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    fn run_kyc(
+        output_dir: &std::path::Path,
+        output_format: &str,
+        graph_enabled: bool,
+    ) -> PipelineOutput {
+        let schema = load_schema("kyc", &manifest_dir().join("schemas")).expect("load kyc.json");
+        let mut ctx = Context::new(
+            "kyc",
+            "en",
+            &manifest_dir().join("assets/pools").to_string_lossy(),
+        )
+        .expect("load context");
+        let config = build_pipeline_config(
+            "kyc",
+            200,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            &schema,
+            "pipeline_test_run",
+            output_format,
+            graph_enabled,
+            "parquet",
+        )
+        .expect("build config");
+        ctx.enable_watermark(&config.domain, config.size, config.seed);
+        run_pipeline(&ctx, &config, &output_dir.to_string_lossy()).expect("run_pipeline")
+    }
+
+    #[test]
+    fn test_run_pipeline_produces_dataset_and_gt() {
+        let dir = scratch_dir("basic");
+        let output = run_kyc(&dir, "parquet", false);
+
+        assert_eq!(output.output_files.len(), 1);
+        for f in &output.output_files {
+            assert!(std::path::Path::new(f).exists(), "missing dataset file {f}");
+        }
+        assert!(std::path::Path::new(&output.gt_file).exists());
+        assert!(output.nodes.is_none());
+        assert!(output.edges.is_none());
+
+        // Stats must be internally consistent: exact_dup/hard_neg/unique are
+        // a partition of the classified records, which is <= total_records
+        // (total_records also includes unclassified canary watermark rows).
+        let s = &output.stats;
+        assert!(s.total_records >= s.exact_dups + s.hard_negs + s.uniques);
+        assert!(s.total_records > 0);
+        assert!(s.masters > 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_run_pipeline_ipc_format() {
+        let dir = scratch_dir("ipc");
+        let output = run_kyc(&dir, "ipc", false);
+        assert!(output.output_files[0].ends_with(".ipc"));
+        assert!(std::path::Path::new(&output.output_files[0]).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_run_pipeline_graph_output() {
+        let dir = scratch_dir("graph");
+        let output = run_kyc(&dir, "parquet", true);
+        let nodes = output.nodes.expect("nodes path");
+        let edges = output.edges.expect("edges path");
+        assert!(std::path::Path::new(&nodes).exists());
+        assert!(std::path::Path::new(&edges).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_run_pipeline_deterministic_stats() {
+        let dir_a = scratch_dir("det_a");
+        let dir_b = scratch_dir("det_b");
+        let a = run_kyc(&dir_a, "parquet", false);
+        let b = run_kyc(&dir_b, "parquet", false);
+        assert_eq!(a.stats.total_records, b.stats.total_records);
+        assert_eq!(a.stats.exact_dups, b.stats.exact_dups);
+        assert_eq!(a.stats.hard_negs, b.stats.hard_negs);
+        assert_eq!(a.stats.uniques, b.stats.uniques);
+        assert_eq!(a.stats.masters, b.stats.masters);
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
+    }
+
+    #[test]
+    fn test_entity_prefix_unique_per_index() {
+        let a = entity_prefix(0);
+        let b = entity_prefix(1);
+        assert_ne!(a, b);
+        assert_eq!(a, "E00000");
+        assert_eq!(entity_prefix(42), "E00042");
+    }
+
+    #[test]
+    fn test_record_id_and_pad_string_roundtrip() {
+        let rid = record_id_string(7);
+        assert_eq!(rid, "R-0000000000007");
+        let pad = pad_string(7);
+        assert_eq!(pad, "0000000000007");
+        let strs = record_id_strs(0..3);
+        assert_eq!(strs.len(), 3);
+        assert_eq!(strs[0], record_id_string(0));
+        assert_eq!(strs[2], record_id_string(2));
+    }
+}

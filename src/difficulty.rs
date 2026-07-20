@@ -374,3 +374,62 @@ pub fn estimate_difficulty(
         entities,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::load_schema;
+
+    fn kyc_schema() -> DomainSchema {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas");
+        load_schema("kyc", &dir).expect("load kyc.json")
+    }
+
+    #[test]
+    fn test_estimate_difficulty_basic_shape() {
+        let schema = kyc_schema();
+        let report = estimate_difficulty("kyc", 1000, 42, "medium", 0.1, &schema).unwrap();
+        assert_eq!(report.domain, "kyc");
+        assert_eq!(report.difficulty, "medium");
+        assert_eq!(report.entities.len(), 2);
+        for e in &report.entities {
+            assert!(!e.columns.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_estimate_difficulty_f1_bounds() {
+        let schema = kyc_schema();
+        let report = estimate_difficulty("kyc", 5000, 42, "hard", 0.1, &schema).unwrap();
+        assert!(report.precision_max > 0.0 && report.precision_max <= 1.0);
+        assert!(report.recall_max > 0.0 && report.recall_max <= 1.0);
+        assert!(report.f1_max > 0.0 && report.f1_max <= 1.0);
+    }
+
+    #[test]
+    fn test_estimate_difficulty_hell_harder_than_light() {
+        // "hell" has more noise types active and a lower singleton fraction
+        // than "light" — its theoretical max F1 should never be easier.
+        let schema = kyc_schema();
+        let light = estimate_difficulty("kyc", 5000, 42, "light", 0.1, &schema).unwrap();
+        let hell = estimate_difficulty("kyc", 5000, 42, "hell", 0.1, &schema).unwrap();
+        assert!(hell.f1_max <= light.f1_max);
+    }
+
+    #[test]
+    fn test_estimate_difficulty_deterministic() {
+        let schema = kyc_schema();
+        let a = estimate_difficulty("kyc", 1000, 42, "medium", 0.1, &schema).unwrap();
+        let b = estimate_difficulty("kyc", 1000, 42, "medium", 0.1, &schema).unwrap();
+        assert_eq!(a.total_true_pairs, b.total_true_pairs);
+        assert_eq!(a.f1_max, b.f1_max);
+    }
+
+    #[test]
+    fn test_estimate_difficulty_zero_hard_neg_ratio_no_fp() {
+        let schema = kyc_schema();
+        let report = estimate_difficulty("kyc", 1000, 42, "medium", 0.0, &schema).unwrap();
+        assert_eq!(report.total_hard_neg_pairs, 0);
+        assert_eq!(report.total_guaranteed_fp, 0);
+    }
+}
