@@ -28,7 +28,9 @@ pub mod schema;
 
 pub use context::Context;
 pub use difficulty::DifficultyReport;
-pub use pipeline::{PipelineConfig, PipelineOutput, PipelineStats, run_pipeline};
+pub use pipeline::{
+    PipelineConfig, PipelineOutput, PipelineStats, run_pipeline, run_pipeline_with_progress,
+};
 pub use schema::{
     DomainSchema, EntitySchema, HnSchema, build_pipeline_config, chrono_now, load_schema,
 };

@@ -10,7 +10,7 @@ use clap::Parser;
 
 use dupehell_core::context::Context;
 use dupehell_core::difficulty::estimate_difficulty;
-use dupehell_core::pipeline::run_pipeline;
+use dupehell_core::pipeline::run_pipeline_with_progress;
 use dupehell_core::schema::{build_pipeline_config, load_schema};
 
 #[derive(Parser)]
@@ -116,6 +116,39 @@ struct Cli {
     graph_format: String,
 }
 
+/// Rough peak-RSS-per-record, measured on this machine (Windows, release
+/// build): 859 MB / 10.15M records (~89 B/rec) on `ecommerce`/medium, up to
+/// 1285 MB / 10.15M records (~127 B/rec) on `ecommerce`/hell with `--graph`
+/// (the worst case tried: max noise-type variety + graph node/edge buffers).
+/// Rounded up for headroom across domains with more columns and to hedge
+/// against super-linear growth at larger scale, which this single-machine
+/// measurement can't rule out.
+const BYTES_PER_RECORD_ESTIMATE: usize = 150;
+
+/// Best-effort warning if the requested `--size` looks likely to exceed
+/// available system RAM, using `BYTES_PER_RECORD_ESTIMATE`. Advisory only —
+/// if system memory can't be read (sandboxed/unusual environment), this
+/// silently does nothing rather than block a run on a guess.
+fn warn_if_memory_tight(size: usize) {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    let available = sys.available_memory();
+    if available == 0 {
+        return;
+    }
+    let estimated = size as u64 * BYTES_PER_RECORD_ESTIMATE as u64;
+    if estimated > available {
+        eprintln!(
+            "Warning: --size {size} is estimated to need ~{:.1} GB of RAM \
+             (rough estimate, ~{BYTES_PER_RECORD_ESTIMATE} B/record), but only \
+             ~{:.1} GB is available. The run may be killed by the OS or swap \
+             heavily. Consider a smaller --size or splitting into multiple runs.",
+            estimated as f64 / 1e9,
+            available as f64 / 1e9,
+        );
+    }
+}
+
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
@@ -162,6 +195,7 @@ fn main() {
         );
         std::process::exit(1);
     }
+    warn_if_memory_tight(cli.size);
 
     let mut ctx = match Context::new(&cli.domain, &cli.locale, &cli.pools_dir.to_string_lossy()) {
         Ok(c) => c,
@@ -231,13 +265,42 @@ fn main() {
     );
 
     let t0 = std::time::Instant::now();
-    let output = match run_pipeline(&ctx, &config, &cli.output_dir.to_string_lossy()) {
+    // Progress line only for runs big enough that generation actually takes
+    // a noticeable amount of wall time — printing/flushing on every batch of
+    // a 10K-record run would just add noise, not information. Throttled to
+    // ~1 update/second (not one per 500K-row batch) so it's readable instead
+    // of scrolling past on runs with many small entities.
+    const PROGRESS_MIN_SIZE: usize = 1_000_000;
+    let target_size = cli.size;
+    let mut last_print = std::time::Instant::now();
+    let mut progress_cb = move |done: usize, total: usize| {
+        if target_size < PROGRESS_MIN_SIZE {
+            return;
+        }
+        let now = std::time::Instant::now();
+        if now.duration_since(last_print).as_secs_f64() < 1.0 && done < total {
+            return;
+        }
+        last_print = now;
+        let pct = (done as f64 / total.max(1) as f64 * 100.0).min(100.0);
+        eprint!("\r  Generating... {done}/{total} ({pct:.0}%)   ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+    };
+    let output = match run_pipeline_with_progress(
+        &ctx,
+        &config,
+        &cli.output_dir.to_string_lossy(),
+        Some(&mut progress_cb),
+    ) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("Pipeline failed: {e}");
             std::process::exit(1);
         }
     };
+    if cli.size >= PROGRESS_MIN_SIZE {
+        eprintln!();
+    }
     let elapsed = t0.elapsed().as_secs_f64();
 
     let n = output.stats.total_records;

@@ -544,6 +544,21 @@ pub fn run_pipeline(
     config: &PipelineConfig,
     output_dir: &str,
 ) -> Result<PipelineOutput, String> {
+    run_pipeline_with_progress(ctx, config, output_dir, None)
+}
+
+/// Same as [`run_pipeline`], but invokes `progress(records_written_so_far,
+/// approx_total)` after every base-record batch is written to the dataset
+/// file — `approx_total` is `config.size` (the requested record count; the
+/// actual total including duplicates/HN/canary rows differs slightly, close
+/// enough for a progress display). Callers that don't need progress
+/// reporting should use [`run_pipeline`] instead.
+pub fn run_pipeline_with_progress(
+    ctx: &Context,
+    config: &PipelineConfig,
+    output_dir: &str,
+    mut progress: Option<&mut dyn FnMut(usize, usize)>,
+) -> Result<PipelineOutput, String> {
     std::fs::create_dir_all(output_dir)
         .map_err(|e| format!("create output directory {output_dir:?}: {e}"))?;
     let t_start = std::time::Instant::now();
@@ -820,6 +835,9 @@ pub fn run_pipeline(
             gt_acc.push_base_batch(base_rb.column(0), base_rb.column(2), base_rb.column(3))?;
 
             global_rid_offset += batch_n;
+            if let Some(cb) = &mut progress {
+                cb(global_rid_offset, config.size);
+            }
             last_batch = Some((rb, batch_n, offset));
         }
 
