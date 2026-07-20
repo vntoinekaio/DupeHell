@@ -44,6 +44,23 @@ pub(crate) fn write_zpad(buf: &mut Vec<u8>, val: usize, width: usize) {
     }
 }
 
+/// Write `val` as plain decimal digits, no zero-padding — for values (IP
+/// octets, page numbers, power ratings) that would look wrong with leading
+/// zeros, unlike the fixed-width codes `write_zpad` is for.
+fn write_num(buf: &mut Vec<u8>, val: usize) {
+    let start = buf.len();
+    if val == 0 {
+        buf.push(b'0');
+        return;
+    }
+    let mut v = val;
+    while v > 0 {
+        buf.push(b'0' + (v % 10) as u8);
+        v /= 10;
+    }
+    buf[start..].reverse();
+}
+
 // ── Template generators ───────────────────────────────────────────────────
 
 fn gen_email(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
@@ -260,13 +277,13 @@ fn gen_ip(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         let o2 = rng.next_usize(254) + 1;
         let o3 = rng.next_usize(254) + 1;
         let o4 = rng.next_usize(254) + 1;
-        write_zpad(buf, o1, 1);
+        write_num(buf, o1);
         buf.push(b'.');
-        write_zpad(buf, o2, 1);
+        write_num(buf, o2);
         buf.push(b'.');
-        write_zpad(buf, o3, 1);
+        write_num(buf, o3);
         buf.push(b'.');
-        write_zpad(buf, o4, 1);
+        write_num(buf, o4);
     })
 }
 
@@ -550,9 +567,9 @@ fn gen_pages(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
         let start = rng.next_usize(499) + 1;
         let span = rng.next_usize(27) + 3;
         let end = start + span;
-        write_zpad(buf, start, 1);
+        write_num(buf, start);
         buf.push(b'-');
-        write_zpad(buf, end, 1);
+        write_num(buf, end);
     })
 }
 
@@ -593,7 +610,7 @@ fn gen_dosage(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build_string_array(n, 10, |buf| {
         let val = rng.next_usize(999) + 1;
         let u = units[rng.next_usize(units.len())];
-        write_zpad(buf, val, 1);
+        write_zpad(buf, val, 3);
         buf.push(b' ');
         buf.extend_from_slice(u.as_bytes());
     })
@@ -643,7 +660,7 @@ fn gen_power(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     let choices = [3, 6, 9, 12, 15, 18, 24, 30, 36];
     build_string_array(n, 7, |buf| {
         let v = choices[rng.next_usize(choices.len())];
-        write_zpad(buf, v, 1);
+        write_num(buf, v);
         buf.extend_from_slice(b" kVA");
     })
 }
@@ -1139,13 +1156,18 @@ mod tests {
         let ctx = test_ctx();
         let names: Vec<&str> = REGISTRY.keys().copied().collect();
         assert!(!names.is_empty(), "registry is empty");
+        // 2000 rows (not 10): several templates only trip a write_zpad
+        // width/range mismatch for a fraction of their possible values
+        // (e.g. IP octets >=10, dosages >=10) — a handful of rows can miss
+        // every such case by chance and let a bug slip past this test.
+        const N: usize = 2000;
         for name in names {
             let mut rng = test_rng();
             let template = get_template(name).expect("template not found");
-            let arr = template(10, &mut rng, &ctx);
-            assert_eq!(arr.len(), 10, "template '{name}' produced wrong length");
+            let arr = template(N, &mut rng, &ctx);
+            assert_eq!(arr.len(), N, "template '{name}' produced wrong length");
             let s = arr.as_string::<i32>();
-            for i in 0..10 {
+            for i in 0..N {
                 let v = s.value(i);
                 assert!(!v.is_empty(), "template '{name}' empty at {i}");
             }
