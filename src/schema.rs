@@ -388,3 +388,114 @@ pub fn build_pipeline_config(
 
     serde_json::from_value(config).map_err(|e| format!("build PipelineConfig: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schemas_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas")
+    }
+
+    fn kyc_schema() -> DomainSchema {
+        load_schema("kyc", &schemas_dir()).expect("load kyc.json")
+    }
+
+    #[test]
+    fn test_load_schema_known_domain() {
+        let schema = kyc_schema();
+        assert_eq!(schema.entities.len(), 2);
+        assert!(schema.entities.iter().any(|e| e.name == "natural_person"));
+        assert!(!schema.hn_types.is_empty());
+    }
+
+    #[test]
+    fn test_load_schema_unknown_domain_lists_available() {
+        let err = load_schema("not-a-real-domain", &schemas_dir())
+            .err()
+            .unwrap();
+        assert!(err.contains("not-a-real-domain"));
+        assert!(err.contains("kyc"));
+    }
+
+    #[test]
+    fn test_load_schema_case_sensitive() {
+        // Windows filesystems are case-insensitive; load_schema must still
+        // reject "KYC" so run hashes stay consistent across OSes.
+        let err = load_schema("KYC", &schemas_dir()).err().unwrap();
+        assert!(err.contains("KYC"));
+    }
+
+    #[test]
+    fn test_build_pipeline_config_basic() {
+        let schema = kyc_schema();
+        let config = build_pipeline_config(
+            "kyc", 1000, 42, "medium", 0.1, 0.3, &schema, "kyc_test", "parquet", false, "parquet",
+        )
+        .expect("build config");
+        assert_eq!(config.domain, "kyc");
+        assert_eq!(config.size, 1000);
+        assert_eq!(config.entity_plans.len(), 2);
+        // Every entity must get at least the floor of 2 base records.
+        assert!(config.entity_plans.iter().all(|p| p.n_base >= 2));
+        assert!(!config.hard_neg_types.is_empty());
+    }
+
+    #[test]
+    fn test_build_pipeline_config_rejects_size_below_10() {
+        let schema = kyc_schema();
+        let err = build_pipeline_config(
+            "kyc", 5, 42, "medium", 0.1, 0.3, &schema, "kyc_test", "parquet", false, "parquet",
+        )
+        .unwrap_err();
+        assert!(err.contains("size must be >= 10"));
+    }
+
+    #[test]
+    fn test_build_pipeline_config_rejects_invalid_singleton_fraction() {
+        let schema = kyc_schema();
+        let err = build_pipeline_config(
+            "kyc", 1000, 42, "medium", 0.1, 1.5, &schema, "kyc_test", "parquet", false, "parquet",
+        )
+        .unwrap_err();
+        assert!(err.contains("singleton_master_fraction"));
+    }
+
+    #[test]
+    fn test_build_pipeline_config_deterministic() {
+        let schema = kyc_schema();
+        let build = || {
+            build_pipeline_config(
+                "kyc", 1000, 42, "hard", 0.1, 0.2, &schema, "kyc_test", "parquet", false, "parquet",
+            )
+            .expect("build config")
+        };
+        let a = build();
+        let b = build();
+        assert_eq!(a.entity_plans.len(), b.entity_plans.len());
+        for (pa, pb) in a.entity_plans.iter().zip(b.entity_plans.iter()) {
+            assert_eq!(pa.n_base, pb.n_base);
+            assert_eq!(pa.noise_types.len(), pb.noise_types.len());
+        }
+    }
+
+    #[test]
+    fn test_deterministic_run_id_stable_and_sensitive() {
+        let a = deterministic_run_id("kyc", 1000, 42, "medium", 0.1);
+        let b = deterministic_run_id("kyc", 1000, 42, "medium", 0.1);
+        assert_eq!(a, b);
+        let c = deterministic_run_id("kyc", 1000, 43, "medium", 0.1);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_default_singleton_master_fraction_known_and_unknown() {
+        assert_eq!(default_singleton_master_fraction("light"), 0.50);
+        assert_eq!(default_singleton_master_fraction("hell"), 0.10);
+        // Unknown difficulty falls back to "medium".
+        assert_eq!(
+            default_singleton_master_fraction("bogus"),
+            default_singleton_master_fraction("medium")
+        );
+    }
+}
