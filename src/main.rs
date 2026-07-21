@@ -311,8 +311,12 @@ fn main() {
         n as f64 / elapsed
     );
     eprintln!(
-        "  exact_dups={} hard_negs={} uniques={} masters={}",
-        output.stats.exact_dups, output.stats.hard_negs, output.stats.uniques, output.stats.masters
+        "  exact_dups={} fuzzy_dups={} hard_negs={} uniques={} masters={}",
+        output.stats.exact_dups,
+        output.stats.fuzzy_dups,
+        output.stats.hard_negs,
+        output.stats.uniques,
+        output.stats.masters
     );
     eprintln!("  Dataset: {}", output.output_files[0]);
     eprintln!("  GT:      {}", output.gt_file);

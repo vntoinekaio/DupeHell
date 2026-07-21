@@ -51,6 +51,8 @@ pub struct GenerateResult {
     #[pyo3(get)]
     pub exact_dups: usize,
     #[pyo3(get)]
+    pub fuzzy_dups: usize,
+    #[pyo3(get)]
     pub hard_negs: usize,
     #[pyo3(get)]
     pub uniques: usize,
@@ -67,11 +69,12 @@ pub struct GenerateResult {
 impl GenerateResult {
     fn __repr__(&self) -> String {
         format!(
-            "GenerateResult(dataset={:?}, ground_truth={:?}, total_records={}, exact_dups={}, hard_negs={}, uniques={}, masters={})",
+            "GenerateResult(dataset={:?}, ground_truth={:?}, total_records={}, exact_dups={}, fuzzy_dups={}, hard_negs={}, uniques={}, masters={})",
             self.dataset,
             self.ground_truth,
             self.total_records,
             self.exact_dups,
+            self.fuzzy_dups,
             self.hard_negs,
             self.uniques,
             self.masters,
@@ -161,6 +164,7 @@ fn generate(
         ground_truth: output.gt_file,
         total_records: output.stats.total_records,
         exact_dups: output.stats.exact_dups,
+        fuzzy_dups: output.stats.fuzzy_dups,
         hard_negs: output.stats.hard_negs,
         uniques: output.stats.uniques,
         masters: output.stats.masters,
