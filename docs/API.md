@@ -34,7 +34,7 @@ Generate a synthetic dataset for a given domain.
 | `domain` | `str` | — | Domain name (e.g. `"kyc"`, `"publishing"`). Must match a file in `schemas/`. |
 | `size` | `int` | — | Number of base records (before duplicates & hard negatives). |
 | `seed` | `int` | `42` | PRNG seed for deterministic output. |
-| `difficulty` | `str` | `"medium"` | One of `"light"`, `"medium"`, `"hard"`, `"hell"`. Controls duplicate ratios and noise intensity. |
+| `difficulty` | `str` | `"medium"` | One of `"light"`, `"medium"`, `"hell"`. Controls duplicate ratios and noise intensity. |
 | `output_dir` | `str` | `"."` | Directory for output `.ipc` / `.parquet` files. |
 | `locale` | `str` | `"en"` | Pool locale: `"en"`, `"fr"`, `"de"`, `"es"`, `"it"`, `"pt"`. Falls back to `"en"` if unavailable in a pool file. |
 | `pools_dir` | `str \| None` | `None` | Path to pool data files. If `None`, tries `./assets/pools` then the package-installed path. |
@@ -92,7 +92,7 @@ generating data.
 | `domain` | `str` | — | Domain name |
 | `size` | `int` | `1000000` | Number of base records |
 | `seed` | `int` | `42` | PRNG seed |
-| `difficulty` | `str` | `"medium"` | `light`, `medium`, `hard`, or `hell` |
+| `difficulty` | `str` | `"medium"` | `light`, `medium`, or `hell` |
 | `schemas_dir` | `str \| None` | `None` | Path to schema files. If `None`, tries `./schemas` then the package-installed path. |
 | `hard_neg_ratio` | `float` | `0.3` | Same internal scaling knob as in `generate()` (actual count ≈ `size × hard_neg_ratio × 0.05`) — must match the value used for actual generation for the estimate to be meaningful. |
 
@@ -234,7 +234,7 @@ This lets you check whether your ER pipeline can "leave points on the table" or 
 ```python
 from dupehell import estimate_difficulty
 
-report = estimate_difficulty(domain="kyc", size=1_000_000, difficulty="hard")
+report = estimate_difficulty(domain="kyc", size=1_000_000, difficulty="hell")
 print(f"Max F1: {report.f1_max:.3f}")               # e.g., 0.892
 print(f"Guaranteed FP: {report.guaranteed_fp}")       # e.g. 3200
 print(f"Guaranteed FN: {report.guaranteed_fn}")       # e.g. 5100
@@ -261,7 +261,7 @@ dupehell [OPTIONS]
 | `--domain <DOMAIN>` | `kyc` | Domain schema to use |
 | `--size <SIZE>` | `1000000` | Number of base records |
 | `--seed <SEED>` | `42` | PRNG seed |
-| `--difficulty <LEVEL>` | `medium` | `light`, `medium`, `hard`, or `hell` |
+| `--difficulty <LEVEL>` | `medium` | `light`, `medium`, or `hell` |
 | `--estimate` | — | Estimate theoretical max F1 and exit (no data) |
 | `--output-format <FMT>` | `parquet` | `parquet` (ZSTD compressed) or `ipc` |
 | `--parquet` | — | Shorthand for `--output-format parquet` |

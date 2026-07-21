@@ -11,7 +11,9 @@ use clap::Parser;
 use dupehell_core::context::Context;
 use dupehell_core::difficulty::estimate_difficulty;
 use dupehell_core::pipeline::run_pipeline_with_progress;
-use dupehell_core::schema::{build_pipeline_config, load_schema};
+use dupehell_core::schema::{
+    build_pipeline_config, default_singleton_master_fraction, load_schema,
+};
 
 #[derive(Parser)]
 #[command(
@@ -21,7 +23,7 @@ use dupehell_core::schema::{build_pipeline_config, load_schema};
     long_about = "Generates realistic synthetic datasets with controlled duplicate rates, \
                   hard negatives, and noise profiles for benchmarking record linkage systems. \
                   Supports 40 domains (kyc, healthcare, ecommerce, gaming, ...), \
-                  four difficulty levels, and outputs Arrow IPC or Parquet format."
+                  three difficulty levels, and outputs Arrow IPC or Parquet format."
 )]
 struct Cli {
     #[arg(
@@ -45,7 +47,7 @@ struct Cli {
     )]
     seed: u64,
 
-    #[arg(long, default_value = "medium", value_parser = clap::builder::PossibleValuesParser::new(["light", "medium", "hard", "hell"]), help = "Difficulty level: light, medium, hard, or hell")]
+    #[arg(long, default_value = "medium", value_parser = clap::builder::PossibleValuesParser::new(["light", "medium", "hell"]), help = "Difficulty level: light, medium, or hell")]
     difficulty: String,
 
     #[arg(
@@ -79,10 +81,12 @@ struct Cli {
 
     #[arg(
         long,
-        default_value_t = 0.10,
-        help = "Fraction of masters with only one record (0.0 to 1.0)"
+        help = "Fraction of masters with only one record (0.0 to 1.0). Defaults \
+                to the chosen --difficulty tier's own value (0.50/0.30/0.10 \
+                for light/medium/hell, see schema::default_singleton_master_fraction) \
+                — pass this explicitly only to override that tier default."
     )]
-    singleton_master_fraction: f64,
+    singleton_master_fraction: Option<f64>,
 
     #[arg(long, default_value = "en", value_parser = clap::builder::PossibleValuesParser::new(["en", "fr", "de", "es", "it", "pt"]), help = "Locale for pool data (en, fr, de, es, it, pt)")]
     locale: String,
@@ -222,6 +226,27 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Defaults to the chosen difficulty tier's own singleton fraction unless
+    // explicitly overridden — previously this silently defaulted to 0.10
+    // (the "hell" tier value) regardless of --difficulty, so every tier's
+    // duplicate volume was effectively pinned at "hell" levels unless the
+    // caller happened to also pass this flag by hand.
+    let tier_default_singleton = default_singleton_master_fraction(&cli.difficulty);
+    let singleton_master_fraction = match cli.singleton_master_fraction {
+        Some(v) => {
+            if (v - tier_default_singleton).abs() > f64::EPSILON {
+                eprintln!(
+                    "Warning: --singleton-master-fraction {v} overrides the '{}' tier's \
+                     default ({tier_default_singleton}) — duplicate volume will differ from \
+                     what --estimate reports unless it's given the same override.",
+                    cli.difficulty
+                );
+            }
+            v
+        }
+        None => tier_default_singleton,
+    };
+
     let run_id = dupehell_core::schema::deterministic_run_id(
         &cli.domain,
         cli.size,
@@ -235,7 +260,7 @@ fn main() {
         cli.seed,
         &cli.difficulty,
         cli.hard_neg_ratio,
-        cli.singleton_master_fraction,
+        singleton_master_fraction,
         &schema,
         &run_id,
         &effective_format,

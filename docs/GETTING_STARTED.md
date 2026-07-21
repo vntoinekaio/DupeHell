@@ -30,7 +30,7 @@ cargo build --release
 from dupehell import generate
 
 r = generate(
-    domain="publishing", size=10000, seed=42, difficulty="hard",
+    domain="publishing", size=10000, seed=42, difficulty="hell",
     output_dir="./data", pools_dir="./assets/pools", schemas_dir="./schemas",
 )
 print(r.dataset)       # ./data/publishing_<hash>.parquet

@@ -23,7 +23,7 @@ pip install dupehell
 ```python
 from dupehell import generate
 
-r = generate(domain="publishing", size=10000, seed=42, difficulty="hard")
+r = generate(domain="publishing", size=10000, seed=42, difficulty="hell")
 print(r.dataset)       # ./publishing_<hash>.parquet
 print(r.ground_truth)  # ./publishing_<hash>_ground_truth.parquet
 print(r.total_records) # ~10150
@@ -55,7 +55,7 @@ Each run produces:
 | `--domain` | `kyc` | Domain name |
 | `--size` | `1000000` | Base records |
 | `--seed` | `42` | PRNG seed |
-| `--difficulty` | `medium` | `light` / `medium` / `hard` / `hell` |
+| `--difficulty` | `medium` | `light` / `medium` / `hell` |
 | `--output-format` | `parquet` | `parquet` or `ipc` |
 | `--output-dir` | `.` | Output directory |
 | `--graph` | off | Also emit a property graph (nodes + edges) |
