@@ -79,7 +79,12 @@ pub struct PipelineOutput {
 #[derive(Debug)]
 pub struct PipelineStats {
     pub total_records: usize,
+    /// Cluster members that are genuinely byte-for-byte identical to their
+    /// master. See `PipelineStats::fuzzy_dups` for the noised counterpart.
     pub exact_dups: usize,
+    /// Cluster members that are duplicates of a master but differ from it on
+    /// at least one column (the assigned noise actually changed something).
+    pub fuzzy_dups: usize,
     pub hard_negs: usize,
     pub uniques: usize,
     pub masters: usize,
@@ -314,13 +319,17 @@ fn contains_any(s: &str, patterns: &[&str]) -> bool {
 
 // ── Noise application ──────────────────────────────────────────────────────
 
+/// Returns the noised batch plus the list of columns it actually targeted
+/// (resolved from the heuristic when `plan_cols` is empty) — callers use
+/// the latter to verify the noise produced a real change, see
+/// `unchanged_row_mask`.
 fn apply_noise_to_batch(
     rb: &RecordBatch,
     noise_type: &str,
     plan_cols: &[String],
     rng: &mut Rng,
     exclude_cols: &[String],
-) -> Result<RecordBatch, String> {
+) -> Result<(RecordBatch, Vec<String>), String> {
     let schema = rb.schema();
     let n_cols = rb.num_columns();
 
@@ -429,7 +438,47 @@ fn apply_noise_to_batch(
         })
         .collect();
 
-    RecordBatch::try_new(schema, final_columns).map_err(|e| format!("RecordBatch: {e}"))
+    let batch =
+        RecordBatch::try_new(schema, final_columns).map_err(|e| format!("RecordBatch: {e}"))?;
+    Ok((batch, target_cols))
+}
+
+/// Per-row mask (`true` = still unchanged): compares `orig` and `noised` on
+/// every column in `target_cols`, treating null == null as equal. A `true`
+/// row means the noise application was a complete no-op for it — either
+/// because its target columns were already null (a "corrupted" null stays
+/// null) or because the noise function's own internal randomness happened
+/// not to produce a visible variant (several functions in `noise/names.rs`
+/// and `noise/extra.rs` only mutate a row some fraction of the time).
+/// Consumed by the retry loop in the dup-generation closure to guarantee a
+/// duplicate copy that was assigned a noise type actually differs from its
+/// master, instead of silently staying a byte-for-byte duplicate.
+fn unchanged_row_mask(
+    orig: &RecordBatch,
+    noised: &RecordBatch,
+    target_cols: &[String],
+) -> Result<Vec<bool>, String> {
+    let n = orig.num_rows();
+    let mut changed = vec![false; n];
+    let schema = orig.schema();
+    for col_name in target_cols {
+        let Ok(idx) = schema.index_of(col_name) else {
+            continue;
+        };
+        let a = orig.column(idx).as_string::<i32>();
+        let b = noised.column(idx).as_string::<i32>();
+        for (i, is_changed) in changed.iter_mut().enumerate() {
+            if *is_changed {
+                continue;
+            }
+            let av = (!a.is_null(i)).then(|| a.value(i));
+            let bv = (!b.is_null(i)).then(|| b.value(i));
+            if av != bv {
+                *is_changed = true;
+            }
+        }
+    }
+    Ok(changed.into_iter().map(|c| !c).collect())
 }
 
 // ── Topological sort for FK dependency ordering ────────────────────────────
@@ -944,8 +993,8 @@ pub fn run_pipeline_with_progress(
                 })
                 .collect();
 
-            let mut results: Vec<Result<(RecordBatch, Vec<String>), String>> =
-                Vec::with_capacity(ndata.len());
+            type DupNoiseResult = Result<(RecordBatch, Vec<String>, Vec<bool>), String>;
+            let mut results: Vec<DupNoiseResult> = Vec::with_capacity(ndata.len());
             let fk_exclude_ref = &fk_exclude_cols;
             std::thread::scope(|s| {
                 let mut handles = Vec::with_capacity(ndata.len());
@@ -961,8 +1010,59 @@ pub fn run_pipeline_with_progress(
                     handles.push(s.spawn(move || {
                         let dup = pick_rows(last_rb, indices)?;
                         let mut rng = Rng::new(*seed);
-                        let noisy =
+                        let (mut noisy, target_cols) =
                             apply_noise_to_batch(&dup, ntype, cols, &mut rng, fk_exclude_ref)?;
+
+                        // Guarantee the assigned noise type actually produced a
+                        // visible change: some noise functions have their own
+                        // internal chance of a no-op per row (noise/names.rs,
+                        // noise/extra.rs), and corrupting an already-null target
+                        // column (e.g. optional email/phone) leaves it null.
+                        // Without this, a "noised" duplicate can silently stay a
+                        // byte-for-byte copy of its master. Retry with fresh
+                        // randomness, merging only the still-unchanged rows via
+                        // `zip`, until every row differs or attempts run out.
+                        // Skipped when `target_cols` is empty: no column in this
+                        // entity's schema matches this noise_type at all, which
+                        // a retry can't fix (a schema/config-level gap, not a
+                        // per-row randomness one).
+                        const MAX_NOISE_ATTEMPTS: usize = 4;
+                        let mut unchanged = if target_cols.is_empty() {
+                            vec![false; dup.num_rows()]
+                        } else {
+                            unchanged_row_mask(&dup, &noisy, &target_cols)?
+                        };
+                        let mut attempt = 1;
+                        while !target_cols.is_empty()
+                            && unchanged.iter().any(|&u| u)
+                            && attempt < MAX_NOISE_ATTEMPTS
+                        {
+                            let mut retry_rng = Rng::new(rng.next_u64());
+                            let (retried, _) = apply_noise_to_batch(
+                                &dup,
+                                ntype,
+                                cols,
+                                &mut retry_rng,
+                                fk_exclude_ref,
+                            )?;
+                            let mask = arrow::array::BooleanArray::from(unchanged.clone());
+                            let mut merged_cols = Vec::with_capacity(noisy.num_columns());
+                            for i in 0..noisy.num_columns() {
+                                merged_cols.push(
+                                    arrow::compute::kernels::zip::zip(
+                                        &mask,
+                                        retried.column(i),
+                                        noisy.column(i),
+                                    )
+                                    .map_err(|e| format!("zip noise retry col {i}: {e}"))?,
+                                );
+                            }
+                            noisy = RecordBatch::try_new(noisy.schema(), merged_cols)
+                                .map_err(|e| format!("rebuild retried dup batch: {e}"))?;
+                            unchanged = unchanged_row_mask(&dup, &noisy, &target_cols)?;
+                            attempt += 1;
+                        }
+
                         let mut mb = Vec::with_capacity(*cnt);
                         for j in 0..*cnt {
                             // `indices` are local to `last_rb` (0..last_n); the master_id
@@ -972,17 +1072,19 @@ pub fn run_pipeline_with_progress(
                             let global_idx = last_offset + indices.value(j) as usize;
                             mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
                         }
-                        Ok((noisy, mb))
+                        Ok((noisy, mb, unchanged))
                     }));
                 }
                 for h in handles {
                     results.push(h.join().unwrap());
                 }
             });
+            let mut dup_is_identical_buf: Vec<bool> = Vec::new();
             for res in results {
-                let (rb, mb) = res?;
+                let (rb, mb, unchanged) = res?;
                 dup_batches.push(rb);
                 dup_mids_buf.extend(mb);
+                dup_is_identical_buf.extend(unchanged);
             }
             _t_dup += t_d0.elapsed().as_secs_f64();
 
@@ -1036,10 +1138,13 @@ pub fn run_pipeline_with_progress(
                         .map_err(|e| format!("write dup node: {e}"))?;
                 }
 
+                let is_identical_arr: ArrayRef =
+                    Arc::new(arrow::array::BooleanArray::from(dup_is_identical_buf));
                 gt_acc.push_dup_batch(
                     dup_rb_full.column(0),
                     dup_rb_full.column(2),
                     dup_rb_full.column(3),
+                    &is_identical_arr,
                 )?;
                 global_rid_offset += dup_total;
             }
@@ -1183,6 +1288,7 @@ pub fn run_pipeline_with_progress(
     let t_gt0 = std::time::Instant::now();
     let crate::gt::GtResult {
         n_exact_dup,
+        n_fuzzy_dup,
         n_hard_neg,
         n_unique,
         n_masters,
@@ -1226,6 +1332,7 @@ pub fn run_pipeline_with_progress(
     let stats = PipelineStats {
         total_records: global_rid_offset,
         exact_dups: n_exact_dup,
+        fuzzy_dups: n_fuzzy_dup,
         hard_negs: n_hard_neg,
         uniques: n_unique,
         masters: n_masters,
@@ -1545,11 +1652,12 @@ mod tests {
         assert!(output.nodes.is_none());
         assert!(output.edges.is_none());
 
-        // Stats must be internally consistent: exact_dup/hard_neg/unique are
-        // a partition of the classified records, which is <= total_records
-        // (total_records also includes unclassified canary watermark rows).
+        // Stats must be internally consistent: exact_dup/fuzzy_dup/hard_neg/
+        // unique are a partition of the classified records, which is <=
+        // total_records (total_records also includes unclassified canary
+        // watermark rows).
         let s = &output.stats;
-        assert!(s.total_records >= s.exact_dups + s.hard_negs + s.uniques);
+        assert!(s.total_records >= s.exact_dups + s.fuzzy_dups + s.hard_negs + s.uniques);
         assert!(s.total_records > 0);
         assert!(s.masters > 0);
 
@@ -1584,6 +1692,7 @@ mod tests {
         let b = run_kyc(&dir_b, "parquet", false);
         assert_eq!(a.stats.total_records, b.stats.total_records);
         assert_eq!(a.stats.exact_dups, b.stats.exact_dups);
+        assert_eq!(a.stats.fuzzy_dups, b.stats.fuzzy_dups);
         assert_eq!(a.stats.hard_negs, b.stats.hard_negs);
         assert_eq!(a.stats.uniques, b.stats.uniques);
         assert_eq!(a.stats.masters, b.stats.masters);
