@@ -86,6 +86,18 @@ impl GenerateResult {
     }
 }
 
+/// The chosen difficulty tier's own singleton-master fraction (0.50/0.30/
+/// 0.20/0.10 for light/medium/hard/hell). Exposed so the Python `generate()`
+/// wrapper can derive its default from `difficulty` instead of hardcoding a
+/// single fixed value that silently ignores the tier — see
+/// `schema::default_singleton_master_fraction` for the single source of
+/// truth this mirrors.
+#[cfg(feature = "python")]
+#[pyfunction]
+fn default_singleton_master_fraction(difficulty: &str) -> f64 {
+    schema::default_singleton_master_fraction(difficulty)
+}
+
 #[cfg(feature = "python")]
 #[pyfunction]
 fn estimate_difficulty(
@@ -178,6 +190,7 @@ fn generate(
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_difficulty, m)?)?;
+    m.add_function(wrap_pyfunction!(default_singleton_master_fraction, m)?)?;
     m.add_class::<GenerateResult>()?;
     Ok(())
 }

@@ -45,15 +45,40 @@ struct DifficultySettings {
     /// *more* likely to have every strong matching field wiped out at once
     /// than hell duplicates, despite medium being meant as the easier tier.
     noise_types: &'static [&'static str],
+    /// Number of *independent* noise passes applied to each duplicate copy
+    /// (see `pipeline::run_pipeline`'s dup-generation loop). Each additional
+    /// pass draws its own noise_type from `noise_types` and applies it on
+    /// top of the previous pass's result.
+    ///
+    /// This is the actual difficulty lever between tiers with different
+    /// `noise_types.len()` — not the category list itself. Each entry's
+    /// per-pass weight is `1 / noise_types.len()` (`build_pipeline_config`
+    /// below), so adding categories to make a tier "harder" *dilutes* every
+    /// existing category's weight, including whichever one happens to guard
+    /// a domain's single most reliable linkage column — a tier with more
+    /// categories active can paradoxically end up *easier* on some schemas
+    /// (measured: a "hard" tier here, folded into hell, kept coming out
+    /// easier than "hell" on several domains despite having fewer
+    /// categories; then a hand-picked category weighted twice fixed 2 of 6
+    /// domains tested but not the rest, since the dominant reliable column
+    /// isn't always the same category across schemas). Passes sidestep this
+    /// entirely: the probability a given column is touched at least once
+    /// across `P` independent passes is `1 - (1 - p)^P` where `p` is its
+    /// single-pass weight — strictly increasing in `P` regardless of how
+    /// small `p` is, so more passes can never make a tier easier the way
+    /// more categories can. `difficulty::estimate_difficulty` models this
+    /// exact same formula.
+    passes: usize,
 }
 
-const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
+const DIFFICULTY_MAP: [(&str, DifficultySettings); 3] = [
     (
         "light",
         DifficultySettings {
             singleton: 0.50,
             doublet: 0.30,
             noise_types: &["names", "dates"],
+            passes: 1,
         },
     ),
     (
@@ -62,23 +87,7 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
             singleton: 0.30,
             doublet: 0.40,
             noise_types: &["typo", "names", "dates", "identifiers"],
-        },
-    ),
-    (
-        "hard",
-        DifficultySettings {
-            singleton: 0.20,
-            doublet: 0.30,
-            noise_types: &[
-                "typo",
-                "visual",
-                "names",
-                "dates",
-                "identifiers",
-                "addresses",
-                "companies",
-                "extra",
-            ],
+            passes: 1,
         },
     ),
     (
@@ -86,9 +95,15 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
         DifficultySettings {
             singleton: 0.10,
             doublet: 0.20,
+            // `typo_aggressive` corrupts more of each string than plain
+            // `typo` (same target columns, more damage per hit — see
+            // `noise::typos`), and `unicode_pollution` gets its own bucket
+            // (rather than only ever showing up as one of `visual`'s five
+            // random sub-choices).
             noise_types: &[
-                "typo",
+                "typo_aggressive",
                 "visual",
+                "unicode_pollution",
                 "names",
                 "dates",
                 "identifiers",
@@ -96,6 +111,15 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 4] = [
                 "companies",
                 "extra",
             ],
+            // 3 passes: with 9 equally-weighted categories (weight 1/9
+            // each), 1 - (1 - 1/9)^3 ≈ 0.30 > medium's per-category weight
+            // of 1/4 = 0.25 — so *any* category shared with medium ends up
+            // more likely to touch a given column in hell than in medium,
+            // regardless of which specific column turns out to be a given
+            // domain's most reliable one. Validated empirically across 6
+            // domain schemas (kyc, ecommerce, healthcare, gaming,
+            // publishing, fintech) via `difficulty::estimate_difficulty`.
+            passes: 3,
         },
     ),
 ];
@@ -382,6 +406,7 @@ pub fn build_pipeline_config(
         "entity_plans": entity_plans,
         "hard_neg_types": hard_neg_types,
         "hard_neg_ratio": hard_neg_ratio,
+        "noise_passes": ds.passes,
         "graph_enabled": graph_enabled,
         "graph_format": graph_format,
     });
@@ -466,7 +491,7 @@ mod tests {
         let schema = kyc_schema();
         let build = || {
             build_pipeline_config(
-                "kyc", 1000, 42, "hard", 0.1, 0.2, &schema, "kyc_test", "parquet", false, "parquet",
+                "kyc", 1000, 42, "hell", 0.1, 0.2, &schema, "kyc_test", "parquet", false, "parquet",
             )
             .expect("build config")
         };

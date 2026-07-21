@@ -280,25 +280,41 @@ pub fn estimate_difficulty(
         let n_dup: usize = plan.noise_types.iter().map(|n| n.count).sum();
         let true_pairs = n_dup / 2;
 
-        // Column analysis: each duplicate is hit by exactly one of `plan.noise_types`
-        // (see `pipeline::apply_noise_to_batch`), so a column's chance of being
-        // touched is the summed weight of the active types that actually target it
-        // — not a flat scalar. Reuses `pipeline::noise_type_targets_column`, the
-        // same predicate real generation uses, so this can't drift from reality.
+        // Column analysis: each duplicate is hit by `config.noise_passes`
+        // independent noise_type draws from `plan.noise_types` (see
+        // `pipeline::apply_noise_with_retry` and the multi-pass loop around
+        // it), so a column's chance of being touched *in a single pass* is
+        // the summed weight of the active types that actually target it —
+        // not a flat scalar. Reuses `pipeline::noise_type_targets_column`,
+        // the same predicate real generation uses, so this can't drift from
+        // reality. The chance of being touched at least once across all
+        // passes is `1 - (1 - p_single)^passes`: this — not the raw
+        // single-pass sum — is what actually differentiates a
+        // higher-`passes` tier (e.g. hell) from one with more noise_types
+        // categories active but fewer passes (e.g. medium). Adding
+        // categories to a single pass necessarily *dilutes* every
+        // category's weight (each entry's weight is `1 /
+        // noise_types.len()`), including whichever one happens to guard a
+        // domain's single most reliable column — so more categories alone
+        // can make a tier easier on some schemas. More passes can't: the
+        // union-of-independent-events probability strictly increases with
+        // `passes` regardless of how small any one category's weight is.
         let n_dup_f = n_dup.max(1) as f64;
+        let passes = config.noise_passes.max(1) as i32;
         let mut col_reliability = Vec::new();
         let mut best_fn_reliability = 0.0f64;
         let mut best_fp_reliability = 0.0f64; // higher = more FP-safe
 
         for col in &cols {
             let base_damage = base_noise_damage(&col.name, &col.col_type);
-            let p_touched: f64 = plan
+            let p_single: f64 = plan
                 .noise_types
                 .iter()
                 .filter(|n| crate::pipeline::noise_type_targets_column(&n.noise_type, &col.name))
                 .map(|n| n.count as f64 / n_dup_f)
                 .sum::<f64>()
                 .min(1.0);
+            let p_touched = 1.0 - (1.0 - p_single).powi(passes);
             let damage = base_damage * p_touched;
             let util = match_utility(&col.name, &col.col_type);
             let is_hn_id = poisoned.contains(&col.name);
@@ -400,7 +416,7 @@ mod tests {
     #[test]
     fn test_estimate_difficulty_f1_bounds() {
         let schema = kyc_schema();
-        let report = estimate_difficulty("kyc", 5000, 42, "hard", 0.1, &schema).unwrap();
+        let report = estimate_difficulty("kyc", 5000, 42, "hell", 0.1, &schema).unwrap();
         assert!(report.precision_max > 0.0 && report.precision_max <= 1.0);
         assert!(report.recall_max > 0.0 && report.recall_max <= 1.0);
         assert!(report.f1_max > 0.0 && report.f1_max <= 1.0);
@@ -414,6 +430,41 @@ mod tests {
         let light = estimate_difficulty("kyc", 5000, 42, "light", 0.1, &schema).unwrap();
         let hell = estimate_difficulty("kyc", 5000, 42, "hell", 0.1, &schema).unwrap();
         assert!(hell.f1_max <= light.f1_max);
+    }
+
+    #[test]
+    fn test_estimate_difficulty_tiers_ordered() {
+        // The full light > medium > hell chain, not just the endpoints —
+        // this is the ordering "hard" used to violate before being folded
+        // into "hell" (see the comment on `DIFFICULTY_MAP` in schema.rs).
+        let schema = kyc_schema();
+        let light = estimate_difficulty("kyc", 5000, 42, "light", 0.1, &schema).unwrap();
+        let medium = estimate_difficulty("kyc", 5000, 42, "medium", 0.1, &schema).unwrap();
+        let hell = estimate_difficulty("kyc", 5000, 42, "hell", 0.1, &schema).unwrap();
+        assert!(medium.f1_max <= light.f1_max);
+        assert!(hell.f1_max <= medium.f1_max);
+    }
+
+    #[test]
+    fn test_estimate_difficulty_tiers_ordered_healthcare() {
+        // Same chain as `test_estimate_difficulty_tiers_ordered`, but on the
+        // domain that actually motivated the noise-passes redesign: with
+        // the old "more categories = harder" model (single pass, hell
+        // listing more noise_types than medium), healthcare's medium.f1_max
+        // (0.8971) came out *lower* than hell's (0.9114 with the old
+        // category-duplication patch, worse still without it) — hell
+        // looked easier than medium on this schema specifically, because
+        // healthcare's most reliable column across entities happens to be
+        // protected by a category ("dates") that got diluted by hell's
+        // larger category list. The compounding passes model must not
+        // regress this.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas");
+        let schema = load_schema("healthcare", &dir).expect("load healthcare.json");
+        let light = estimate_difficulty("healthcare", 5000, 42, "light", 0.1, &schema).unwrap();
+        let medium = estimate_difficulty("healthcare", 5000, 42, "medium", 0.1, &schema).unwrap();
+        let hell = estimate_difficulty("healthcare", 5000, 42, "hell", 0.1, &schema).unwrap();
+        assert!(medium.f1_max <= light.f1_max);
+        assert!(hell.f1_max <= medium.f1_max);
     }
 
     #[test]

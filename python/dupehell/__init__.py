@@ -17,6 +17,7 @@ Quick start::
 """
 
 import json as _json
+import warnings as _warnings
 from pathlib import Path as _Path
 
 import dupehell._core as _core
@@ -25,6 +26,7 @@ import dupehell.schema as schema
 
 from dupehell._core import generate as _generate, estimate_difficulty as _estimate
 from dupehell._core import GenerateResult as _GenerateResult
+from dupehell._core import default_singleton_master_fraction as _default_singleton_master_fraction
 from dupehell.models import DomainSchema, DifficultyReport as _DifficultyReport
 from dupehell.schema import load_and_validate
 
@@ -37,7 +39,7 @@ __all__ = [
 GenerateResult = _GenerateResult
 DifficultyReport = _DifficultyReport
 
-_VALID_DIFFICULTIES = {"light", "medium", "hard", "hell"}
+_VALID_DIFFICULTIES = {"light", "medium", "hell"}
 _VALID_LOCALES = {"en", "fr", "de", "es", "it", "pt"}
 
 
@@ -105,7 +107,7 @@ def generate(
     schemas_dir: str | None = None,
     output_format: str = "parquet",
     hard_neg_ratio: float = 0.3,
-    singleton_master_fraction: float = 0.10,
+    singleton_master_fraction: float | None = None,
     generate_graph: bool = False,
     graph_format: str = "parquet",
 ) -> GenerateResult:
@@ -117,7 +119,7 @@ def generate(
         size: Number of base records to generate. Minimum 10.
             Total output includes duplicates and hard negatives (typically size * 1.01-1.05).
         seed: Random seed for deterministic reproducibility. Same seed + domain = identical output.
-        difficulty: Noise/difficulty level. One of ``"light"``, ``"medium"``, ``"hard"``, ``"hell"``.
+        difficulty: Noise/difficulty level. One of ``"light"``, ``"medium"``, ``"hell"``.
         hard_neg_ratio: Internal scaling knob for the hard-negative count, **not**
             the literal fraction of records that become hard negatives. Actual
             count is approximately ``size * hard_neg_ratio * 0.05`` (default
@@ -132,6 +134,13 @@ def generate(
             If None (default), tries ``./schemas`` then the package-installed path.
         output_format: Output file format. ``"parquet"`` (default, ZSTD compressed)
             or ``"ipc"`` (Arrow IPC).
+        singleton_master_fraction: Fraction of masters with only one record
+            (0.0 to 1.0). If None (default), uses the chosen ``difficulty``
+            tier's own value (0.50/0.30/0.10 for light/medium/hell).
+            Pass an explicit value only to override that tier default — doing
+            so emits a :class:`UserWarning` since it makes the actual
+            duplicate volume diverge from what :func:`estimate_difficulty`
+            reports for the same ``difficulty``.
         generate_graph: If true, also emit a property graph
             (``{run_id}_nodes.{ext}`` and ``{run_id}_edges.{ext}`` files). Defaults to false;
             tabular output, RNG sequence, and memory baseline are unchanged when disabled.
@@ -172,6 +181,18 @@ def generate(
         raise ValueError(f"graph_format must be 'ipc' or 'parquet', got {graph_format!r}")
     if difficulty not in _VALID_DIFFICULTIES:
         raise ValueError(f"difficulty must be one of {_VALID_DIFFICULTIES}, got {difficulty!r}")
+    tier_default_singleton = _default_singleton_master_fraction(difficulty)
+    if singleton_master_fraction is None:
+        singleton_master_fraction = tier_default_singleton
+    elif singleton_master_fraction != tier_default_singleton:
+        _warnings.warn(
+            f"singleton_master_fraction={singleton_master_fraction!r} overrides the "
+            f"{difficulty!r} tier's default ({tier_default_singleton}) — duplicate volume "
+            "will differ from what estimate_difficulty() reports for the same difficulty "
+            "unless it's given the same override.",
+            UserWarning,
+            stacklevel=2,
+        )
     if locale.lower() not in _VALID_LOCALES:
         raise ValueError(f"locale must be one of {_VALID_LOCALES}, got {locale!r}")
     if hard_neg_ratio < 0.0:
@@ -215,7 +236,7 @@ def estimate_difficulty(
         domain: Domain name. See :func:`list_domains` or :data:`DOMAINS`.
         size: Number of records to simulate. Larger sizes give more stable estimates.
         seed: Random seed. Must match the seed used for actual generation.
-        difficulty: Difficulty level. ``"light"``, ``"medium"``, ``"hard"``, or ``"hell"``.
+        difficulty: Difficulty level. ``"light"``, ``"medium"``, or ``"hell"``.
         schemas_dir: Path to schema JSON directory.
             If None (default), tries ``./schemas`` then the package-installed path.
         hard_neg_ratio: Same scaling knob as in :func:`generate` (actual count
@@ -234,7 +255,7 @@ def estimate_difficulty(
     Example::
 
         >>> from dupehell import estimate_difficulty
-        >>> est = estimate_difficulty("kyc", 10000, difficulty="hard")
+        >>> est = estimate_difficulty("kyc", 10000, difficulty="hell")
         >>> f"{est.f1_max:.1%}"
         '83.3%'
     """

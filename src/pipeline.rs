@@ -33,6 +33,12 @@ pub struct PipelineConfig {
 
     pub hard_neg_ratio: f64,
 
+    /// Number of independent noise passes applied to each duplicate copy —
+    /// see the doc comment on `schema::DifficultySettings::passes` for why
+    /// this (not the noise_types category count) is the actual difficulty
+    /// lever between tiers.
+    pub noise_passes: usize,
+
     pub graph_enabled: bool,
     pub graph_format: String,
 }
@@ -479,6 +485,53 @@ fn unchanged_row_mask(
         }
     }
     Ok(changed.into_iter().map(|c| !c).collect())
+}
+
+/// Apply `noise_type` to `orig`, retrying with fresh randomness (merging in
+/// only the still-unchanged rows via `zip`) up to `MAX_NOISE_ATTEMPTS` times,
+/// until every row's target columns differ from `orig` or attempts run out.
+/// Returns the resulting batch and the final per-row "unchanged" mask
+/// (`true` = still byte-identical to `orig` on this noise_type's target
+/// columns).
+///
+/// When `target_cols` comes back empty (no column in this entity's schema
+/// matches `noise_type` at all), every row is returned unchanged (`true`)
+/// with no retries attempted — retrying can't manufacture a matching column
+/// that doesn't exist; this is a schema/config-level gap, not a per-row
+/// randomness one.
+fn apply_noise_with_retry(
+    orig: &RecordBatch,
+    noise_type: &str,
+    plan_cols: &[String],
+    rng: &mut Rng,
+    exclude_cols: &[String],
+) -> Result<(RecordBatch, Vec<bool>), String> {
+    const MAX_NOISE_ATTEMPTS: usize = 4;
+    let (mut noisy, target_cols) =
+        apply_noise_to_batch(orig, noise_type, plan_cols, rng, exclude_cols)?;
+    if target_cols.is_empty() {
+        return Ok((noisy, vec![true; orig.num_rows()]));
+    }
+    let mut unchanged = unchanged_row_mask(orig, &noisy, &target_cols)?;
+    let mut attempt = 1;
+    while unchanged.iter().any(|&u| u) && attempt < MAX_NOISE_ATTEMPTS {
+        let mut retry_rng = Rng::new(rng.next_u64());
+        let (retried, _) =
+            apply_noise_to_batch(orig, noise_type, plan_cols, &mut retry_rng, exclude_cols)?;
+        let mask = arrow::array::BooleanArray::from(unchanged.clone());
+        let mut merged_cols = Vec::with_capacity(noisy.num_columns());
+        for i in 0..noisy.num_columns() {
+            merged_cols.push(
+                arrow::compute::kernels::zip::zip(&mask, retried.column(i), noisy.column(i))
+                    .map_err(|e| format!("zip noise retry col {i}: {e}"))?,
+            );
+        }
+        noisy = RecordBatch::try_new(noisy.schema(), merged_cols)
+            .map_err(|e| format!("rebuild retried dup batch: {e}"))?;
+        unchanged = unchanged_row_mask(orig, &noisy, &target_cols)?;
+        attempt += 1;
+    }
+    Ok((noisy, unchanged))
 }
 
 // ── Topological sort for FK dependency ordering ────────────────────────────
@@ -993,6 +1046,17 @@ pub fn run_pipeline_with_progress(
                 })
                 .collect();
 
+            // Distinct active noise_type names for this entity, used by
+            // additional noise passes (below) to independently draw a type
+            // to apply on top of the first pass's result.
+            let all_types: Vec<&str> = plan
+                .noise_types
+                .iter()
+                .map(|n| n.noise_type.as_str())
+                .collect();
+            let all_types_ref = &all_types;
+            let noise_passes = config.noise_passes.max(1);
+
             type DupNoiseResult = Result<(RecordBatch, Vec<String>, Vec<bool>), String>;
             let mut results: Vec<DupNoiseResult> = Vec::with_capacity(ndata.len());
             let fk_exclude_ref = &fk_exclude_cols;
@@ -1010,57 +1074,39 @@ pub fn run_pipeline_with_progress(
                     handles.push(s.spawn(move || {
                         let dup = pick_rows(last_rb, indices)?;
                         let mut rng = Rng::new(*seed);
-                        let (mut noisy, target_cols) =
-                            apply_noise_to_batch(&dup, ntype, cols, &mut rng, fk_exclude_ref)?;
 
-                        // Guarantee the assigned noise type actually produced a
-                        // visible change: some noise functions have their own
-                        // internal chance of a no-op per row (noise/names.rs,
-                        // noise/extra.rs), and corrupting an already-null target
-                        // column (e.g. optional email/phone) leaves it null.
-                        // Without this, a "noised" duplicate can silently stay a
-                        // byte-for-byte copy of its master. Retry with fresh
-                        // randomness, merging only the still-unchanged rows via
-                        // `zip`, until every row differs or attempts run out.
-                        // Skipped when `target_cols` is empty: no column in this
-                        // entity's schema matches this noise_type at all, which
-                        // a retry can't fix (a schema/config-level gap, not a
-                        // per-row randomness one).
-                        const MAX_NOISE_ATTEMPTS: usize = 4;
-                        let mut unchanged = if target_cols.is_empty() {
-                            vec![false; dup.num_rows()]
-                        } else {
-                            unchanged_row_mask(&dup, &noisy, &target_cols)?
-                        };
-                        let mut attempt = 1;
-                        while !target_cols.is_empty()
-                            && unchanged.iter().any(|&u| u)
-                            && attempt < MAX_NOISE_ATTEMPTS
-                        {
-                            let mut retry_rng = Rng::new(rng.next_u64());
-                            let (retried, _) = apply_noise_to_batch(
-                                &dup,
-                                ntype,
-                                cols,
-                                &mut retry_rng,
+                        // First pass: the noise_type this bucket was
+                        // assigned, with the retry-until-changed guarantee
+                        // (see `apply_noise_with_retry`) so a "noised"
+                        // duplicate can't silently stay a byte-for-byte
+                        // copy of its master.
+                        let (mut noisy, mut unchanged) =
+                            apply_noise_with_retry(&dup, ntype, cols, &mut rng, fk_exclude_ref)?;
+
+                        // Additional independent passes (difficulty-
+                        // controlled, see `schema::DifficultySettings::
+                        // passes`): each draws its own noise_type from this
+                        // entity's active list and applies it on top of the
+                        // previous pass's result, compounding corruption.
+                        // This — not adding more categories to
+                        // `noise_types` — is what makes a tier reliably
+                        // harder without diluting any single category's
+                        // weight (see the doc comment on `passes`). A row
+                        // is only "still identical" overall once every
+                        // pass left it unchanged.
+                        for _ in 1..noise_passes {
+                            let extra_type = all_types_ref[rng.next_usize(all_types_ref.len())];
+                            let (next_noisy, pass_unchanged) = apply_noise_with_retry(
+                                &noisy,
+                                extra_type,
+                                &[],
+                                &mut rng,
                                 fk_exclude_ref,
                             )?;
-                            let mask = arrow::array::BooleanArray::from(unchanged.clone());
-                            let mut merged_cols = Vec::with_capacity(noisy.num_columns());
-                            for i in 0..noisy.num_columns() {
-                                merged_cols.push(
-                                    arrow::compute::kernels::zip::zip(
-                                        &mask,
-                                        retried.column(i),
-                                        noisy.column(i),
-                                    )
-                                    .map_err(|e| format!("zip noise retry col {i}: {e}"))?,
-                                );
+                            noisy = next_noisy;
+                            for (u, pu) in unchanged.iter_mut().zip(pass_unchanged.iter()) {
+                                *u = *u && *pu;
                             }
-                            noisy = RecordBatch::try_new(noisy.schema(), merged_cols)
-                                .map_err(|e| format!("rebuild retried dup batch: {e}"))?;
-                            unchanged = unchanged_row_mask(&dup, &noisy, &target_cols)?;
-                            attempt += 1;
                         }
 
                         let mut mb = Vec::with_capacity(*cnt);
@@ -1707,6 +1753,118 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(a, "E00000");
         assert_eq!(entity_prefix(42), "E00042");
+    }
+
+    #[test]
+    fn test_run_pipeline_hell_multi_pass_touches_multiple_columns() {
+        // At `hell` (3 noise passes, see `schema::DifficultySettings::
+        // passes`), at least one duplicate copy should differ from its
+        // master on 2+ distinct columns — a single pass only ever touches
+        // the columns its one chosen noise_type's predicate matches
+        // (`noise_type_targets_column`), so seeing 2+ changed columns on
+        // the same row is direct evidence that multiple independent passes
+        // actually landed on it, not just a coincidence of one pass hitting
+        // a multi-column noise_type like "typo".
+        let dir = scratch_dir("hell_multipass");
+        let schema = load_schema("kyc", &manifest_dir().join("schemas")).expect("load kyc.json");
+        let mut ctx = Context::new(
+            "kyc",
+            "en",
+            &manifest_dir().join("assets/pools").to_string_lossy(),
+        )
+        .expect("load context");
+        let config = build_pipeline_config(
+            "kyc",
+            5000,
+            7,
+            "hell",
+            0.1,
+            0.3,
+            &schema,
+            "pipeline_test_hell_multipass",
+            "ipc",
+            false,
+            "ipc",
+        )
+        .expect("build config");
+        ctx.enable_watermark(&config.domain, config.size, config.seed);
+        let output = run_pipeline(&ctx, &config, &dir.to_string_lossy()).expect("run_pipeline");
+
+        let read_all = |path: &str| -> RecordBatch {
+            let file = std::fs::File::open(path).unwrap();
+            let reader = arrow::ipc::reader::FileReader::try_new(file, None).unwrap();
+            let batches: Vec<RecordBatch> = reader.map(|b| b.unwrap()).collect();
+            let schema = batches[0].schema();
+            let refs: Vec<Vec<&dyn Array>> = (0..schema.fields().len())
+                .map(|i| batches.iter().map(|b| b.column(i).as_ref()).collect())
+                .collect();
+            let cols: Vec<ArrayRef> = refs
+                .iter()
+                .map(|r| arrow::compute::concat(r).unwrap())
+                .collect();
+            RecordBatch::try_new(schema, cols).unwrap()
+        };
+        let ds = read_all(&output.output_files[0]);
+        let gt = read_all(&output.gt_file);
+
+        let ds_rid = ds.column_by_name("record_id").unwrap().as_string::<i32>();
+        let ds_mid = ds.column_by_name("master_id").unwrap().as_string::<i32>();
+        let gt_rid = gt.column_by_name("record_id").unwrap().as_string::<i32>();
+        let gt_mt = gt.column_by_name("match_type").unwrap().as_string::<i32>();
+
+        let mut match_type_by_rid: HashMap<&str, &str> = HashMap::new();
+        for i in 0..gt.num_rows() {
+            match_type_by_rid.insert(gt_rid.value(i), gt_mt.value(i));
+        }
+
+        let mut master_row_by_mid: HashMap<&str, usize> = HashMap::new();
+        for i in 0..ds.num_rows() {
+            if match_type_by_rid.get(ds_rid.value(i)) == Some(&"exact_dup")
+                && !master_row_by_mid.contains_key(ds_mid.value(i))
+            {
+                master_row_by_mid.insert(ds_mid.value(i), i);
+            }
+        }
+
+        let compare_cols: Vec<usize> = (0..ds.num_columns())
+            .filter(|&i| {
+                let field = ds.schema().field(i).clone();
+                matches!(field.data_type(), DataType::Utf8)
+                    && !matches!(
+                        field.name().as_str(),
+                        "record_id" | "domain" | "entity_type" | "master_id"
+                    )
+                    && !field.name().ends_with("_id")
+            })
+            .collect();
+
+        let mut max_changed_cols = 0usize;
+        for i in 0..ds.num_rows() {
+            if match_type_by_rid.get(ds_rid.value(i)) != Some(&"fuzzy_dup") {
+                continue;
+            }
+            let Some(&master_i) = master_row_by_mid.get(ds_mid.value(i)) else {
+                continue;
+            };
+            let mut changed = 0usize;
+            for &col_i in &compare_cols {
+                let col = ds.column(col_i).as_string::<i32>();
+                let a = (!col.is_null(i)).then(|| col.value(i));
+                let b = (!col.is_null(master_i)).then(|| col.value(master_i));
+                if a != b {
+                    changed += 1;
+                }
+            }
+            max_changed_cols = max_changed_cols.max(changed);
+        }
+
+        assert!(
+            max_changed_cols >= 2,
+            "expected at least one fuzzy_dup row to differ from its master on \
+             2+ columns (evidence of multiple noise passes), got max {max_changed_cols}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

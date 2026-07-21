@@ -14,6 +14,7 @@ class GenerateResult:
     ground_truth: str
     total_records: int
     exact_dups: int
+    fuzzy_dups: int
     hard_negs: int
     uniques: int
     masters: int
@@ -55,4 +56,9 @@ def estimate_difficulty(
     hard_neg_ratio: float,
 ) -> str:
     """Estimate the maximum achievable F1 score without generating data."""
+    ...
+
+def default_singleton_master_fraction(difficulty: str) -> float:
+    """The chosen difficulty tier's own singleton-master fraction
+    (0.50/0.30/0.10 for light/medium/hell)."""
     ...
