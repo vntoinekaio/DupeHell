@@ -145,15 +145,24 @@ pub fn chrono_now() -> String {
 }
 
 /// Deterministic run ID derived from generation parameters, so the same
-/// (domain, size, seed, difficulty, hard_neg_ratio) always produces the same
-/// output filename regardless of output format (IPC vs Parquet) or how many
-/// times it's run.
+/// (domain, size, seed, difficulty, hard_neg_ratio, singleton_master_fraction,
+/// locale) always produces the same output filename regardless of output
+/// format (IPC vs Parquet) or how many times it's run — and, just as
+/// important, a *different* filename whenever any of these parameters
+/// differ, since they all affect the generated data. `singleton_master_fraction`
+/// and `locale` were missing from this list until this was flagged as a bug
+/// (BUGS.md C14/C15): two runs differing only in `--singleton-master-fraction`
+/// or `--locale` produced the exact same filename, so the second run silently
+/// overwrote the first's output.
+#[allow(clippy::too_many_arguments)]
 pub fn deterministic_run_id(
     domain: &str,
     size: usize,
     seed: u64,
     difficulty: &str,
     hard_neg_ratio: f64,
+    singleton_master_fraction: f64,
+    locale: &str,
 ) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -162,6 +171,8 @@ pub fn deterministic_run_id(
     seed.hash(&mut hasher);
     difficulty.hash(&mut hasher);
     hard_neg_ratio.to_bits().hash(&mut hasher);
+    singleton_master_fraction.to_bits().hash(&mut hasher);
+    locale.hash(&mut hasher);
     format!("{}_{:x}", domain, hasher.finish())
 }
 
@@ -506,11 +517,25 @@ mod tests {
 
     #[test]
     fn test_deterministic_run_id_stable_and_sensitive() {
-        let a = deterministic_run_id("kyc", 1000, 42, "medium", 0.1);
-        let b = deterministic_run_id("kyc", 1000, 42, "medium", 0.1);
+        let a = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en");
+        let b = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en");
         assert_eq!(a, b);
-        let c = deterministic_run_id("kyc", 1000, 43, "medium", 0.1);
+        let c = deterministic_run_id("kyc", 1000, 43, "medium", 0.1, 0.3, "en");
         assert_ne!(a, c);
+    }
+
+    /// Regression: BUGS.md C14/C15 — `singleton_master_fraction` and
+    /// `locale` weren't hashed into the run ID, so two runs differing only
+    /// in one of these parameters (but producing genuinely different data)
+    /// got the exact same output filename, silently overwriting each other.
+    #[test]
+    fn test_deterministic_run_id_sensitive_to_singleton_fraction_and_locale() {
+        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en");
+        let diff_fraction = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.5, "en");
+        let diff_locale = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "fr");
+        assert_ne!(base, diff_fraction);
+        assert_ne!(base, diff_locale);
+        assert_ne!(diff_fraction, diff_locale);
     }
 
     #[test]

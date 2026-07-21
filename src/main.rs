@@ -253,6 +253,8 @@ fn main() {
         cli.seed,
         &cli.difficulty,
         cli.hard_neg_ratio,
+        singleton_master_fraction,
+        &cli.locale,
     );
     let config = match build_pipeline_config(
         &cli.domain,
@@ -273,6 +275,25 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // `run_id` is deterministic (BUGS.md C14/C15 fixed it to hash every
+    // parameter that affects the data), so a matching file only exists here
+    // if this exact run was already generated before — warn instead of
+    // silently overwriting it (BUGS.md C16). Advisory only: there's no
+    // `--force` gate, since deliberately regenerating an identical run is a
+    // normal, common thing to want to do.
+    let dataset_ext = if effective_format == "parquet" {
+        "parquet"
+    } else {
+        "ipc"
+    };
+    let dataset_path = cli.output_dir.join(format!("{run_id}.{dataset_ext}"));
+    if dataset_path.exists() {
+        eprintln!(
+            "Warning: {} already exists and will be overwritten by this run.",
+            dataset_path.display()
+        );
+    }
 
     ctx.enable_watermark(&config.domain, config.size, config.seed);
 

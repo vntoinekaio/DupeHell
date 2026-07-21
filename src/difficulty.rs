@@ -224,9 +224,19 @@ pub fn estimate_difficulty(
     hard_neg_ratio: f64,
     schema: &DomainSchema,
 ) -> Result<DifficultyReport, String> {
-    let run_id =
-        crate::schema::deterministic_run_id(domain, size, seed, difficulty, hard_neg_ratio);
     let singleton_master_fraction = crate::schema::default_singleton_master_fraction(difficulty);
+    // `run_id` is never used to name a file on this path (`--estimate` never
+    // writes output) — `locale` is passed as a fixed placeholder since it
+    // doesn't affect the column-level estimation model either way.
+    let run_id = crate::schema::deterministic_run_id(
+        domain,
+        size,
+        seed,
+        difficulty,
+        hard_neg_ratio,
+        singleton_master_fraction,
+        "en",
+    );
     let config = build_pipeline_config(
         domain,
         size,
