@@ -170,8 +170,15 @@ struct HnPool {
 /// domain schemas — see the 40-domain schema audit in the 2026-07 session).
 const PERSON_NAME_WORDS: &[&str] = &[
     "name",
-    "first",
-    "last",
+    // Not bare "first"/"last": those also matched non-name columns like
+    // `first_seen`/`last_active`/`last_login`/`last_updated`, sending them
+    // through char-level typo/homoglyph noise and injecting letters into
+    // what are actually timestamps (BUGS.md C13). Every legitimate name
+    // column across the 40 domain schemas is literally `*first_name*` /
+    // `*last_name*` (e.g. `agent_first_name`, `pat_first_name`), so this
+    // loses no real coverage.
+    "first_name",
+    "last_name",
     "given",
     "family",
     "operator",
@@ -221,11 +228,18 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
         "typo" | "typo_aggressive" | "typo_extreme" | "qwerty_azerty" | "visual" | "homoglyph"
         | "unicode_pollution" | "ocr_errors" | "case_swap" | "char_dropout" | "language_mix"
         | "blocking_fail" => {
-            // Skip email-like columns — typo/visual noise destroys '@'
-            if lower.contains("email") {
+            // Skip email-like columns — typo/visual noise destroys '@'.
+            // Skip `ip_address` too — it matches the "address" fragment
+            // below by name collision, but it isn't a postal address; this
+            // char-level noise injected letters into octets (BUGS.md C20).
+            if lower.contains("email") || lower.contains("ip_address") {
                 return false;
             }
-            contains_any(&lower, &["address", "street", "city", "phone"])
+            // Not "phone": that's digit-formatted data, not free text —
+            // char-level typo/homoglyph noise injected letters into phone
+            // numbers (BUGS.md C12). `identifiers`/`corrupt_phone` already
+            // corrupts phone columns digit-aware.
+            contains_any(&lower, &["address", "street", "city"])
                 || contains_any(&lower, PERSON_NAME_WORDS)
                 || contains_any(&lower, COMPANY_NAME_WORDS)
         }
@@ -268,21 +282,28 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
         | "blocking_fail_partial"
         | "fuzzy_match"
         | "phonetic" => {
-            // Skip email-like columns — extra noise destroys '@'
-            if lower.contains("email") {
+            // Same exclusions as the typo/visual arm above (BUGS.md C12/C20):
+            // skip email (destroys '@') and `ip_address` (not a postal
+            // address despite the name collision), and don't target `phone`
+            // with this char-level noise — `identifiers` already handles it
+            // digit-aware.
+            if lower.contains("email") || lower.contains("ip_address") {
                 return false;
             }
-            contains_any(
-                &lower,
-                &["phone", "address", "street", "city", "note", "comment"],
-            ) || contains_any(&lower, PERSON_NAME_WORDS)
+            contains_any(&lower, &["address", "street", "city", "note", "comment"])
+                || contains_any(&lower, PERSON_NAME_WORDS)
                 || contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "companies" | "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
             contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "addresses" | "address_scramble" | "postal_corrupt" => {
-            contains_any(&lower, &["address", "street", "postal", "city"])
+            // `ip_address` matches "address" by name collision but isn't a
+            // postal address — scrambling/postal-corrupting it doesn't make
+            // sense (see the same exclusion on the typo/visual arm above,
+            // BUGS.md C20).
+            !lower.contains("ip_address")
+                && contains_any(&lower, &["address", "street", "postal", "city"])
         }
         "exact" | "english_name" | "estonian_name" | "lithuanian_name" | "slovak_name"
         | "serbian_name" | "norwegian_name" | "swedish_name" | "dutch_name" | "czech_name"
