@@ -590,6 +590,80 @@ fn apply_noise_with_retry(
     Ok((noisy, unchanged))
 }
 
+/// Applies one additional noise pass, drawing an independent noise_type per
+/// ROW from `all_types` instead of one type for the entire batch.
+///
+/// The original implementation drew a single `extra_type` for the whole
+/// batch (`all_types[rng.next_usize(all_types.len())]`), applied once. If
+/// that one draw landed on a type with no matching column in this entity's
+/// schema at all (`noise_type_targets_column` false for every column —
+/// common: `dates`/`identifiers`/`addresses`/`companies` are frequently
+/// no-ops for entities that simply have no date/identifier/address/company
+/// column, e.g. an aviation `passenger` row), `apply_noise_with_retry`
+/// returns every row unchanged with *no retry attempted* (retrying can't
+/// manufacture a matching column that doesn't exist) — so the entire batch
+/// silently skipped this pass. With only 2-3 total passes, whether a batch's
+/// "still identical after all passes" fate landed on such a no-op type was
+/// close to a coin flip per pass, and that coin flip's odds shifted with
+/// unrelated RNG-stream position (traced empirically: the same aviation
+/// domain/seed/difficulty produced a real byte-identical-duplicate rate
+/// swinging from ~12% to ~0.003% between two dataset sizes differing by
+/// under 5%, tracking exactly when a per-entity batch boundary was crossed
+/// elsewhere in the run — same root-cause family as `distribute_by_weight`).
+///
+/// Per-row assignment means every batch always has a healthy mix of types,
+/// so a handful of schema-inapplicable categories can no longer determine
+/// the whole batch's fate — same fix class as `noise::apply_random_subtype`,
+/// applied one level up (noise *type* selection, not just sub-type selection
+/// within one already-chosen type).
+fn apply_extra_pass_per_row(
+    noisy: &RecordBatch,
+    unchanged: &mut [bool],
+    all_types: &[&str],
+    rng: &mut Rng,
+    exclude_cols: &[String],
+) -> Result<RecordBatch, String> {
+    let n = noisy.num_rows();
+    if all_types.is_empty() || n == 0 {
+        return Ok(noisy.clone());
+    }
+    let per_row_type: Vec<usize> = (0..n).map(|_| rng.next_usize(all_types.len())).collect();
+
+    let mut current = noisy.clone();
+    let mut pass_unchanged = vec![true; n];
+    for (type_idx, &ttype) in all_types.iter().enumerate() {
+        let mask: Vec<bool> = per_row_type.iter().map(|&t| t == type_idx).collect();
+        if !mask.iter().any(|&m| m) {
+            continue;
+        }
+        let (candidate, cand_unchanged) =
+            apply_noise_with_retry(&current, ttype, &[], rng, exclude_cols)?;
+        let bool_mask = arrow::array::BooleanArray::from(mask.clone());
+        let mut merged_cols = Vec::with_capacity(current.num_columns());
+        for i in 0..current.num_columns() {
+            merged_cols.push(
+                arrow::compute::kernels::zip::zip(
+                    &bool_mask,
+                    candidate.column(i),
+                    current.column(i),
+                )
+                .map_err(|e| format!("zip extra-pass col {i}: {e}"))?,
+            );
+        }
+        current = RecordBatch::try_new(current.schema(), merged_cols)
+            .map_err(|e| format!("rebuild extra-pass batch: {e}"))?;
+        for (row, &m) in mask.iter().enumerate() {
+            if m {
+                pass_unchanged[row] = cand_unchanged[row];
+            }
+        }
+    }
+    for (u, pu) in unchanged.iter_mut().zip(pass_unchanged.iter()) {
+        *u = *u && *pu;
+    }
+    Ok(current)
+}
+
 // ── Topological sort for FK dependency ordering ────────────────────────────
 
 /// Order entity plans so that FK target entities are processed before dependents.
@@ -1118,18 +1192,13 @@ pub fn run_pipeline_with_progress(
                             // is only "still identical" overall once every
                             // pass left it unchanged.
                             for _ in 1..noise_passes {
-                                let extra_type = all_types_ref[rng.next_usize(all_types_ref.len())];
-                                let (next_noisy, pass_unchanged) = apply_noise_with_retry(
+                                noisy = apply_extra_pass_per_row(
                                     &noisy,
-                                    extra_type,
-                                    &[],
+                                    &mut unchanged,
+                                    all_types_ref,
                                     &mut rng,
                                     fk_exclude_ref,
                                 )?;
-                                noisy = next_noisy;
-                                for (u, pu) in unchanged.iter_mut().zip(pass_unchanged.iter()) {
-                                    *u = *u && *pu;
-                                }
                             }
 
                             let mut mb = Vec::with_capacity(*cnt);
