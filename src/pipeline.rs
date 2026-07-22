@@ -138,6 +138,41 @@ pub(crate) fn record_id_strs(range: std::ops::Range<usize>) -> Vec<String> {
     range.map(record_id_string).collect()
 }
 
+/// Splits `total` proportionally across `weights` (largest-remainder
+/// method), so the sum of the result is always exactly `total`.
+///
+/// Used to spread each noise_type's planned duplicate count across every
+/// batch of masters in proportion to batch size, instead of assigning it
+/// all to a single batch — see the doc comment on the "Dups" section in
+/// `run_pipeline_with_progress` for why that matters.
+fn distribute_by_weight(total: usize, weights: &[usize]) -> Vec<usize> {
+    let weight_sum: usize = weights.iter().sum();
+    if weight_sum == 0 || total == 0 {
+        return vec![0; weights.len()];
+    }
+    let raw: Vec<f64> = weights
+        .iter()
+        .map(|&w| total as f64 * w as f64 / weight_sum as f64)
+        .collect();
+    let mut counts: Vec<usize> = raw.iter().map(|&r| r as usize).collect();
+    let assigned: usize = counts.iter().sum();
+    let mut remainder = total - assigned;
+    let mut order: Vec<usize> = (0..counts.len()).collect();
+    order.sort_by(|&a, &b| {
+        let fa = raw[a] - counts[a] as f64;
+        let fb = raw[b] - counts[b] as f64;
+        fb.partial_cmp(&fa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for &i in &order {
+        if remainder == 0 {
+            break;
+        }
+        counts[i] += 1;
+        remainder -= 1;
+    }
+    counts
+}
+
 // ── Entity prefix ──────────────────────────────────────────────────────────
 
 /// Per-entity master_id prefix, derived from the entity's position in
@@ -812,9 +847,29 @@ pub fn run_pipeline_with_progress(
         let hn_targeted = hn_pool_sizing.contains_key(plan.name.as_str());
         let mut hn_slices: Vec<RecordBatch> = Vec::new();
         let mut hn_slice_rids: Vec<Vec<String>> = Vec::new();
-        let mut last_batch: Option<(RecordBatch, usize, usize)> = None;
         let mut batch_rng = Rng::new(config.seed.wrapping_add(100));
         let mut fk_rng = Rng::new(config.seed.wrapping_add(42));
+
+        // Each noise_type's planned `count` is spread across every batch of
+        // masters in proportion to batch size (largest-remainder method),
+        // so duplicates land on masters throughout the whole entity instead
+        // of being sampled only from whichever batch happens to run last —
+        // see the "Dups" section below, at the end of each batch iteration.
+        let batch_bounds: Vec<(usize, usize)> = (0..plan.n_base)
+            .step_by(crate::entity_gen::BATCH_SIZE)
+            .map(|offset| {
+                (
+                    offset,
+                    (plan.n_base - offset).min(crate::entity_gen::BATCH_SIZE),
+                )
+            })
+            .collect();
+        let batch_weights: Vec<usize> = batch_bounds.iter().map(|&(_, bn)| bn).collect();
+        let per_batch_noise_counts: Vec<Vec<usize>> = plan
+            .noise_types
+            .iter()
+            .map(|n| distribute_by_weight(n.count, &batch_weights))
+            .collect();
 
         // Build col_lookup from first batch (it has the entity's schema)
         let mut col_lookup: Option<Vec<Option<usize>>> = None;
@@ -961,7 +1016,208 @@ pub fn run_pipeline_with_progress(
             if let Some(cb) = &mut progress {
                 cb(global_rid_offset, config.size);
             }
-            last_batch = Some((rb, batch_n, offset));
+
+            // ── Dups ─────────────────────────────────────────────────────
+            // Sampled from *this* batch's masters only (`rb`/`batch_n`/
+            // `offset`), using this batch's share of each noise_type's
+            // total count (`per_batch_noise_counts`, computed once before
+            // the loop). Every batch of masters gets duplicates this way,
+            // instead of concentrating all of them on whichever batch
+            // happened to run last — see `distribute_by_weight`.
+            let has_dups: bool = per_batch_noise_counts
+                .iter()
+                .any(|counts| counts[batch_idx] > 0);
+            if has_dups {
+                let t_d0 = std::time::Instant::now();
+                let mut dup_batches: Vec<RecordBatch> = Vec::new();
+                let mut dup_mids_buf: Vec<String> = Vec::new();
+
+                // Collect FK columns to exclude from noise
+                let fk_exclude_cols: Vec<String> = plan
+                    .fk_remaps
+                    .iter()
+                    .map(|r| r.source_col.clone())
+                    .collect();
+
+                // Pre-generate indices + parallel noise (Phase 13c)
+                let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan
+                    .noise_types
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(ni, n)| {
+                        let cnt = per_batch_noise_counts[ni][batch_idx];
+                        if cnt == 0 {
+                            return None;
+                        }
+                        let mut b = UInt64Builder::with_capacity(cnt);
+                        for _ in 0..cnt {
+                            b.append_value(batch_rng.next_usize(batch_n) as u64);
+                        }
+                        Some((
+                            b.finish(),
+                            batch_rng.next_u64(),
+                            n.noise_type.as_str(),
+                            n.columns.as_slice(),
+                            cnt,
+                        ))
+                    })
+                    .collect();
+
+                // Distinct active noise_type names for this entity, used by
+                // additional noise passes (below) to independently draw a type
+                // to apply on top of the first pass's result.
+                let all_types: Vec<&str> = plan
+                    .noise_types
+                    .iter()
+                    .map(|n| n.noise_type.as_str())
+                    .collect();
+                let all_types_ref = &all_types;
+                let noise_passes = config.noise_passes.max(1);
+
+                type DupNoiseResult = Result<(RecordBatch, Vec<String>, Vec<bool>), String>;
+                let mut results: Vec<DupNoiseResult> = Vec::with_capacity(ndata.len());
+                let fk_exclude_ref = &fk_exclude_cols;
+                let rb_ref = &rb;
+                std::thread::scope(|s| {
+                    let mut handles = Vec::with_capacity(ndata.len());
+                    for (indices, seed, ntype, cols, cnt) in &ndata {
+                        // `thread::scope` lets each spawned closure borrow
+                        // `rb`/`indices`/`cols`/`fk_exclude_cols` directly —
+                        // the scope guarantees every thread joins before these
+                        // borrows end, so the per-thread `.clone()` of the
+                        // batch, index array, column list and exclude list
+                        // (all cheap Arc/Vec clones, but still real allocations
+                        // times the noise-type count) was unnecessary.
+                        let prefix_ref: &str = &prefix;
+                        handles.push(s.spawn(move || {
+                            let dup = pick_rows(rb_ref, indices)?;
+                            let mut rng = Rng::new(*seed);
+
+                            // First pass: the noise_type this bucket was
+                            // assigned, with the retry-until-changed guarantee
+                            // (see `apply_noise_with_retry`) so a "noised"
+                            // duplicate can't silently stay a byte-for-byte
+                            // copy of its master.
+                            let (mut noisy, mut unchanged) = apply_noise_with_retry(
+                                &dup,
+                                ntype,
+                                cols,
+                                &mut rng,
+                                fk_exclude_ref,
+                            )?;
+
+                            // Additional independent passes (difficulty-
+                            // controlled, see `schema::DifficultySettings::
+                            // passes`): each draws its own noise_type from this
+                            // entity's active list and applies it on top of the
+                            // previous pass's result, compounding corruption.
+                            // This — not adding more categories to
+                            // `noise_types` — is what makes a tier reliably
+                            // harder without diluting any single category's
+                            // weight (see the doc comment on `passes`). A row
+                            // is only "still identical" overall once every
+                            // pass left it unchanged.
+                            for _ in 1..noise_passes {
+                                let extra_type = all_types_ref[rng.next_usize(all_types_ref.len())];
+                                let (next_noisy, pass_unchanged) = apply_noise_with_retry(
+                                    &noisy,
+                                    extra_type,
+                                    &[],
+                                    &mut rng,
+                                    fk_exclude_ref,
+                                )?;
+                                noisy = next_noisy;
+                                for (u, pu) in unchanged.iter_mut().zip(pass_unchanged.iter()) {
+                                    *u = *u && *pu;
+                                }
+                            }
+
+                            let mut mb = Vec::with_capacity(*cnt);
+                            for j in 0..*cnt {
+                                // `indices` are local to `rb` (0..batch_n); the master_id
+                                // is a pure function of (prefix, global index) — same
+                                // formula as `batch_mids` above — so it's recomputed here
+                                // instead of being cloned out of a retained master_id_pool.
+                                let global_idx = offset + indices.value(j) as usize;
+                                mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
+                            }
+                            Ok((noisy, mb, unchanged))
+                        }));
+                    }
+                    for h in handles {
+                        results.push(h.join().unwrap());
+                    }
+                });
+                let mut dup_is_identical_buf: Vec<bool> = Vec::new();
+                for res in results {
+                    let (rb, mb, unchanged) = res?;
+                    dup_batches.push(rb);
+                    dup_mids_buf.extend(mb);
+                    dup_is_identical_buf.extend(unchanged);
+                }
+                _t_dup += t_d0.elapsed().as_secs_f64();
+
+                // Write dups
+                if !dup_batches.is_empty() {
+                    let dup_total = dup_mids_buf.len();
+                    let dup_rids = record_id_strs(global_rid_offset..global_rid_offset + dup_total);
+
+                    let concated = if dup_batches.len() == 1 {
+                        dup_batches.into_iter().next().unwrap()
+                    } else {
+                        let schema = dup_batches[0].schema();
+                        let n_fields = dup_batches[0].num_columns();
+                        let mut concat_arrays = Vec::with_capacity(n_fields);
+                        for i in 0..n_fields {
+                            let refs: Vec<&dyn Array> =
+                                dup_batches.iter().map(|b| b.column(i).as_ref()).collect();
+                            concat_arrays.push(
+                                arrow::compute::concat(&refs)
+                                    .map_err(|e| format!("concat dup col {i}: {e}"))?,
+                            );
+                        }
+                        RecordBatch::try_new(schema, concat_arrays)
+                            .map_err(|e| format!("concat dups: {e}"))?
+                    };
+
+                    let dup_rb_full = add_metadata_and_align(
+                        &concated,
+                        &config.domain,
+                        &plan.name,
+                        &dup_rids,
+                        &dup_mids_buf,
+                        &full_arc,
+                        col_lookup.as_ref().unwrap(),
+                        &mut null_cache,
+                        &mut const_arr_cache,
+                    )?;
+
+                    let t_wd = std::time::Instant::now();
+                    writer
+                        .write(&dup_rb_full)
+                        .map_err(|e| format!("write dups: {e}"))?;
+                    _t_write += t_wd.elapsed().as_secs_f64();
+                    _write_calls += 1;
+
+                    // Graph: write duplicate nodes (edges emitted post-GT)
+                    if config.graph_enabled
+                        && let Some(nw) = node_writer.as_mut()
+                    {
+                        nw.write_batch(&dup_rb_full)
+                            .map_err(|e| format!("write dup node: {e}"))?;
+                    }
+
+                    let is_identical_arr: ArrayRef =
+                        Arc::new(arrow::array::BooleanArray::from(dup_is_identical_buf));
+                    gt_acc.push_dup_batch(
+                        dup_rb_full.column(0),
+                        dup_rb_full.column(2),
+                        dup_rb_full.column(3),
+                        &is_identical_arr,
+                    )?;
+                    global_rid_offset += dup_total;
+                }
+            }
         }
 
         // Save FK pool for cross-entity remapping
@@ -1031,190 +1287,6 @@ pub fn run_pipeline_with_progress(
                     record_ids,
                 },
             );
-        }
-
-        // ── Dups (use last_batch) ──────────────────────────────────────────
-        let has_dups: bool = plan.noise_types.iter().any(|n| n.count > 0);
-        if has_dups && let Some((ref last_rb, last_n, last_offset)) = last_batch {
-            let t_d0 = std::time::Instant::now();
-            let mut dup_batches: Vec<RecordBatch> = Vec::new();
-            let mut dup_mids_buf: Vec<String> = Vec::new();
-
-            // Collect FK columns to exclude from noise
-            let fk_exclude_cols: Vec<String> = plan
-                .fk_remaps
-                .iter()
-                .map(|r| r.source_col.clone())
-                .collect();
-
-            // Pre-generate indices + parallel noise (Phase 13c)
-            let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan
-                .noise_types
-                .iter()
-                .filter(|n| n.count > 0)
-                .map(|n| {
-                    let mut b = UInt64Builder::with_capacity(n.count);
-                    for _ in 0..n.count {
-                        b.append_value(batch_rng.next_usize(last_n) as u64);
-                    }
-                    (
-                        b.finish(),
-                        batch_rng.next_u64(),
-                        n.noise_type.as_str(),
-                        n.columns.as_slice(),
-                        n.count,
-                    )
-                })
-                .collect();
-
-            // Distinct active noise_type names for this entity, used by
-            // additional noise passes (below) to independently draw a type
-            // to apply on top of the first pass's result.
-            let all_types: Vec<&str> = plan
-                .noise_types
-                .iter()
-                .map(|n| n.noise_type.as_str())
-                .collect();
-            let all_types_ref = &all_types;
-            let noise_passes = config.noise_passes.max(1);
-
-            type DupNoiseResult = Result<(RecordBatch, Vec<String>, Vec<bool>), String>;
-            let mut results: Vec<DupNoiseResult> = Vec::with_capacity(ndata.len());
-            let fk_exclude_ref = &fk_exclude_cols;
-            std::thread::scope(|s| {
-                let mut handles = Vec::with_capacity(ndata.len());
-                for (indices, seed, ntype, cols, cnt) in &ndata {
-                    // `thread::scope` lets each spawned closure borrow
-                    // `last_rb`/`indices`/`cols`/`fk_exclude_cols` directly —
-                    // the scope guarantees every thread joins before these
-                    // borrows end, so the per-thread `.clone()` of the
-                    // batch, index array, column list and exclude list
-                    // (all cheap Arc/Vec clones, but still real allocations
-                    // times the noise-type count) was unnecessary.
-                    let prefix_ref: &str = &prefix;
-                    handles.push(s.spawn(move || {
-                        let dup = pick_rows(last_rb, indices)?;
-                        let mut rng = Rng::new(*seed);
-
-                        // First pass: the noise_type this bucket was
-                        // assigned, with the retry-until-changed guarantee
-                        // (see `apply_noise_with_retry`) so a "noised"
-                        // duplicate can't silently stay a byte-for-byte
-                        // copy of its master.
-                        let (mut noisy, mut unchanged) =
-                            apply_noise_with_retry(&dup, ntype, cols, &mut rng, fk_exclude_ref)?;
-
-                        // Additional independent passes (difficulty-
-                        // controlled, see `schema::DifficultySettings::
-                        // passes`): each draws its own noise_type from this
-                        // entity's active list and applies it on top of the
-                        // previous pass's result, compounding corruption.
-                        // This — not adding more categories to
-                        // `noise_types` — is what makes a tier reliably
-                        // harder without diluting any single category's
-                        // weight (see the doc comment on `passes`). A row
-                        // is only "still identical" overall once every
-                        // pass left it unchanged.
-                        for _ in 1..noise_passes {
-                            let extra_type = all_types_ref[rng.next_usize(all_types_ref.len())];
-                            let (next_noisy, pass_unchanged) = apply_noise_with_retry(
-                                &noisy,
-                                extra_type,
-                                &[],
-                                &mut rng,
-                                fk_exclude_ref,
-                            )?;
-                            noisy = next_noisy;
-                            for (u, pu) in unchanged.iter_mut().zip(pass_unchanged.iter()) {
-                                *u = *u && *pu;
-                            }
-                        }
-
-                        let mut mb = Vec::with_capacity(*cnt);
-                        for j in 0..*cnt {
-                            // `indices` are local to `last_rb` (0..last_n); the master_id
-                            // is a pure function of (prefix, global index) — same
-                            // formula as `batch_mids` above — so it's recomputed here
-                            // instead of being cloned out of a retained master_id_pool.
-                            let global_idx = last_offset + indices.value(j) as usize;
-                            mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
-                        }
-                        Ok((noisy, mb, unchanged))
-                    }));
-                }
-                for h in handles {
-                    results.push(h.join().unwrap());
-                }
-            });
-            let mut dup_is_identical_buf: Vec<bool> = Vec::new();
-            for res in results {
-                let (rb, mb, unchanged) = res?;
-                dup_batches.push(rb);
-                dup_mids_buf.extend(mb);
-                dup_is_identical_buf.extend(unchanged);
-            }
-            _t_dup += t_d0.elapsed().as_secs_f64();
-
-            // Write dups
-            if !dup_batches.is_empty() {
-                let dup_total = dup_mids_buf.len();
-                let dup_rids = record_id_strs(global_rid_offset..global_rid_offset + dup_total);
-
-                let concated = if dup_batches.len() == 1 {
-                    dup_batches.into_iter().next().unwrap()
-                } else {
-                    let schema = dup_batches[0].schema();
-                    let n_fields = dup_batches[0].num_columns();
-                    let mut concat_arrays = Vec::with_capacity(n_fields);
-                    for i in 0..n_fields {
-                        let refs: Vec<&dyn Array> =
-                            dup_batches.iter().map(|b| b.column(i).as_ref()).collect();
-                        concat_arrays.push(
-                            arrow::compute::concat(&refs)
-                                .map_err(|e| format!("concat dup col {i}: {e}"))?,
-                        );
-                    }
-                    RecordBatch::try_new(schema, concat_arrays)
-                        .map_err(|e| format!("concat dups: {e}"))?
-                };
-
-                let dup_rb_full = add_metadata_and_align(
-                    &concated,
-                    &config.domain,
-                    &plan.name,
-                    &dup_rids,
-                    &dup_mids_buf,
-                    &full_arc,
-                    col_lookup.as_ref().unwrap(),
-                    &mut null_cache,
-                    &mut const_arr_cache,
-                )?;
-
-                let t_wd = std::time::Instant::now();
-                writer
-                    .write(&dup_rb_full)
-                    .map_err(|e| format!("write dups: {e}"))?;
-                _t_write += t_wd.elapsed().as_secs_f64();
-                _write_calls += 1;
-
-                // Graph: write duplicate nodes (edges emitted post-GT)
-                if config.graph_enabled
-                    && let Some(nw) = node_writer.as_mut()
-                {
-                    nw.write_batch(&dup_rb_full)
-                        .map_err(|e| format!("write dup node: {e}"))?;
-                }
-
-                let is_identical_arr: ArrayRef =
-                    Arc::new(arrow::array::BooleanArray::from(dup_is_identical_buf));
-                gt_acc.push_dup_batch(
-                    dup_rb_full.column(0),
-                    dup_rb_full.column(2),
-                    dup_rb_full.column(3),
-                    &is_identical_arr,
-                )?;
-                global_rid_offset += dup_total;
-            }
         }
     }
     let t1e_elapsed = t1e.elapsed().as_secs_f64();
@@ -1765,6 +1837,31 @@ mod tests {
         assert_eq!(a.stats.masters, b.stats.masters);
         let _ = std::fs::remove_dir_all(&dir_a);
         let _ = std::fs::remove_dir_all(&dir_b);
+    }
+
+    #[test]
+    fn test_distribute_by_weight_sums_to_total_and_is_proportional() {
+        // Regression: duplicates used to be sampled only from the last
+        // batch of masters (`last_batch`), so for any entity spanning 2+
+        // batches, earlier batches never received a single duplicate —
+        // the observed symptom was the overall duplicate rate silently
+        // drifting down as dataset size grew past `BATCH_SIZE`. Fixed by
+        // spreading each noise_type's count across every batch in
+        // proportion to its size via this helper.
+        let weights = [500_000usize, 216_666];
+        let counts = distribute_by_weight(283_334, &weights);
+        assert_eq!(counts.len(), 2);
+        assert_eq!(counts.iter().sum::<usize>(), 283_334);
+        // Every batch gets a non-zero share proportional to its size —
+        // in particular the *first* batch (which the old code starved
+        // entirely) must receive the majority share here.
+        assert!(counts[0] > 0, "first batch got zero duplicates");
+        assert!(counts[1] > 0, "last batch got zero duplicates");
+        assert!(counts[0] > counts[1]);
+
+        // Edge cases: zero total, zero weights.
+        assert_eq!(distribute_by_weight(0, &weights), vec![0, 0]);
+        assert_eq!(distribute_by_weight(100, &[0, 0]), vec![0, 0]);
     }
 
     #[test]
