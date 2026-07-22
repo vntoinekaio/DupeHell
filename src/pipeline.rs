@@ -1935,13 +1935,15 @@ mod tests {
             match_type_by_rid.insert(gt_rid.value(i), gt_mt.value(i));
         }
 
+        // The true master row for a given master_id is whichever row was
+        // written *first* (base rows are always written before any of their
+        // duplicate copies, within a batch) — not "whichever row happens to
+        // be labeled `exact_dup`": a cluster with only fuzzy copies has no
+        // `exact_dup` row at all (a base row only reads `exact_dup` when the
+        // cluster actually contains a byte-identical copy — see `gt.rs`).
         let mut master_row_by_mid: HashMap<&str, usize> = HashMap::new();
         for i in 0..ds.num_rows() {
-            if match_type_by_rid.get(ds_rid.value(i)) == Some(&"exact_dup")
-                && !master_row_by_mid.contains_key(ds_mid.value(i))
-            {
-                master_row_by_mid.insert(ds_mid.value(i), i);
-            }
+            master_row_by_mid.entry(ds_mid.value(i)).or_insert(i);
         }
 
         let compare_cols: Vec<usize> = (0..ds.num_columns())
