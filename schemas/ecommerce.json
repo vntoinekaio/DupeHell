@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "customer",
+      "weight": 100,
       "columns": [
         {
           "name": "customer_id",
@@ -63,6 +64,7 @@
     },
     {
       "name": "address",
+      "weight": 150,
       "columns": [
         {
           "name": "address_id",
@@ -113,6 +115,7 @@
     },
     {
       "name": "order",
+      "weight": 300,
       "columns": [
         {
           "name": "order_id",
@@ -195,6 +198,7 @@
     },
     {
       "name": "order_line_item",
+      "weight": 750,
       "columns": [
         {
           "name": "order_line_id",
@@ -253,6 +257,7 @@
     },
     {
       "name": "product",
+      "weight": 2,
       "columns": [
         {
           "name": "product_id",
@@ -283,6 +288,7 @@
     },
     {
       "name": "product_variant",
+      "weight": 6,
       "columns": [
         {
           "name": "variant_id",

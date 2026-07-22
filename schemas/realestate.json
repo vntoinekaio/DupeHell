@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "property",
+      "weight": 1,
       "columns": [
         {
           "name": "property_id",
@@ -81,6 +82,7 @@
     },
     {
       "name": "property_owner",
+      "weight": 2,
       "columns": [
         {
           "name": "owner_id",
@@ -133,6 +135,7 @@
     },
     {
       "name": "property_ownership",
+      "weight": 2,
       "columns": [
         {
           "name": "ownership_id",
@@ -167,6 +170,7 @@
     },
     {
       "name": "listing",
+      "weight": 5,
       "columns": [
         {
           "name": "listing_id",
@@ -210,6 +214,7 @@
     },
     {
       "name": "sale_transaction",
+      "weight": 3,
       "columns": [
         {
           "name": "sale_id",

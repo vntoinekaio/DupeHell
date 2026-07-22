@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "supplier_part",
+      "weight": 5,
       "columns": [
         {
           "name": "part_id",
@@ -39,6 +40,7 @@
     },
     {
       "name": "product_bom",
+      "weight": 1,
       "columns": [
         {
           "name": "bom_id",
@@ -72,6 +74,7 @@
     },
     {
       "name": "manufacturing_order",
+      "weight": 10,
       "columns": [
         {
           "name": "order_id",
@@ -120,6 +123,7 @@
     },
     {
       "name": "batch",
+      "weight": 30,
       "columns": [
         {
           "name": "batch_id",
@@ -159,6 +163,7 @@
     },
     {
       "name": "quality_control",
+      "weight": 30,
       "columns": [
         {
           "name": "qc_id",

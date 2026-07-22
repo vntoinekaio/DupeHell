@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "customer",
+      "weight": 100,
       "columns": [
         {
           "name": "customer_id",
@@ -69,6 +70,7 @@
     },
     {
       "name": "account",
+      "weight": 150,
       "columns": [
         {
           "name": "account_id",
@@ -123,6 +125,7 @@
     },
     {
       "name": "payment_transaction",
+      "weight": 500,
       "columns": [
         {
           "name": "transaction_id",
@@ -187,6 +190,7 @@
     },
     {
       "name": "merchant",
+      "weight": 2,
       "columns": [
         {
           "name": "merchant_id",
@@ -240,6 +244,7 @@
     },
     {
       "name": "dispute",
+      "weight": 5,
       "columns": [
         {
           "name": "dispute_id",

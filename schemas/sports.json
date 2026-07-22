@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "athlete",
+      "weight": 15,
       "columns": [
         {
           "name": "athlete_id",
@@ -52,6 +53,7 @@
     },
     {
       "name": "team",
+      "weight": 1,
       "columns": [
         {
           "name": "team_id",
@@ -90,6 +92,7 @@
     },
     {
       "name": "contract",
+      "weight": 20,
       "columns": [
         {
           "name": "contract_id",
@@ -145,6 +148,7 @@
     },
     {
       "name": "competition",
+      "weight": 2,
       "columns": [
         {
           "name": "competition_id",
@@ -178,6 +182,7 @@
     },
     {
       "name": "game",
+      "weight": 50,
       "columns": [
         {
           "name": "game_id",
@@ -221,6 +226,7 @@
     },
     {
       "name": "game_stat",
+      "weight": 500,
       "columns": [
         {
           "name": "stat_id",
@@ -263,6 +269,7 @@
     },
     {
       "name": "transfer",
+      "weight": 2,
       "columns": [
         {
           "name": "transfer_id",

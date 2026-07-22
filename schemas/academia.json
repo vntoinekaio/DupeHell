@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "researcher",
+      "weight": 5,
       "columns": [
         {
           "name": "researcher_id",
@@ -48,6 +49,7 @@
     },
     {
       "name": "publication",
+      "weight": 50,
       "columns": [
         {
           "name": "publication_id",
@@ -93,6 +95,7 @@
     },
     {
       "name": "grant",
+      "weight": 2,
       "columns": [
         {
           "name": "grant_id",
@@ -137,6 +140,7 @@
     },
     {
       "name": "conference",
+      "weight": 3,
       "columns": [
         {
           "name": "conference_id",

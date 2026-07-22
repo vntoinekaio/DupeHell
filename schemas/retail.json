@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "store",
+      "weight": 1,
       "columns": [
         {
           "name": "store_id",
@@ -51,6 +52,7 @@
     },
     {
       "name": "product",
+      "weight": 20,
       "columns": [
         {
           "name": "product_id",
@@ -88,6 +90,7 @@
     },
     {
       "name": "customer",
+      "weight": 50,
       "columns": [
         {
           "name": "customer_id",
@@ -128,6 +131,7 @@
     },
     {
       "name": "sale",
+      "weight": 150,
       "columns": [
         {
           "name": "sale_id",
@@ -167,6 +171,7 @@
     },
     {
       "name": "sale_item",
+      "weight": 300,
       "columns": [
         {
           "name": "item_id",

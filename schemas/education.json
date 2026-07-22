@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "student",
+      "weight": 100,
       "columns": [
         {
           "name": "student_id",
@@ -78,6 +79,7 @@
     },
     {
       "name": "faculty",
+      "weight": 2,
       "columns": [
         {
           "name": "faculty_id",
@@ -125,6 +127,7 @@
     },
     {
       "name": "course",
+      "weight": 10,
       "columns": [
         {
           "name": "course_id",
@@ -159,6 +162,7 @@
     },
     {
       "name": "enrollment",
+      "weight": 500,
       "columns": [
         {
           "name": "enrollment_id",

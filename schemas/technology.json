@@ -3,90 +3,276 @@
   "entities": [
     {
       "name": "saas_product",
+      "weight": 2,
       "columns": [
-        { "name": "product_id", "type": "string" },
-        { "name": "product_name", "type": "string", "pool_name": "product_names" },
-        { "name": "category", "type": "string", "pool_name": "product_category" },
-        { "name": "version", "type": "string" },
-        { "name": "description", "type": "string", "pool_name": "word" },
-        { "name": "monthly_price", "type": "float" },
-        { "name": "annual_price", "type": "float" },
-        { "name": "launch_date", "type": "date" },
-        { "name": "status", "type": "string", "pool_name": "status_active" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "product_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "pool_name": "product_category"
+        },
+        {
+          "name": "version",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "monthly_price",
+          "type": "float"
+        },
+        {
+          "name": "annual_price",
+          "type": "float"
+        },
+        {
+          "name": "launch_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": []
     },
     {
       "name": "subscriber",
+      "weight": 200,
       "columns": [
-        { "name": "subscriber_id", "type": "string" },
-        { "name": "first_name", "type": "string" },
-        { "name": "last_name", "type": "string" },
-        { "name": "company_name", "type": "string", "pool_name": "company" },
-        { "name": "email", "type": "string" },
-        { "name": "phone", "type": "string", "null_rate_default": 0.25 },
-        { "name": "city", "type": "string" },
-        { "name": "country", "type": "string" },
-        { "name": "industry", "type": "string", "pool_name": "industry_sector" },
-        { "name": "employee_count", "type": "int" },
-        { "name": "signup_date", "type": "date" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "subscriber_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "company_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.25
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "country",
+          "type": "string"
+        },
+        {
+          "name": "industry",
+          "type": "string",
+          "pool_name": "industry_sector"
+        },
+        {
+          "name": "employee_count",
+          "type": "int"
+        },
+        {
+          "name": "signup_date",
+          "type": "date"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": []
     },
     {
       "name": "subscription",
+      "weight": 240,
       "columns": [
-        { "name": "subscription_id", "type": "string" },
-        { "name": "subscriber_id", "type": "string" },
-        { "name": "product_id", "type": "string" },
-        { "name": "plan_tier", "type": "string", "pool_name": "tier" },
-        { "name": "seats", "type": "int" },
-        { "name": "billing_cycle", "type": "string", "pool_name": "word" },
-        { "name": "start_date", "type": "date" },
-        { "name": "end_date", "type": "date", "null_rate_default": 0.7 },
-        { "name": "status", "type": "string", "pool_name": "status_account" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "subscription_id",
+          "type": "string"
+        },
+        {
+          "name": "subscriber_id",
+          "type": "string"
+        },
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "plan_tier",
+          "type": "string",
+          "pool_name": "tier"
+        },
+        {
+          "name": "seats",
+          "type": "int"
+        },
+        {
+          "name": "billing_cycle",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "null_rate_default": 0.7
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_account"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "subscriber_id", "target_entity": "subscriber" },
-        { "source_col": "product_id", "target_entity": "saas_product" }
+        {
+          "source_col": "subscriber_id",
+          "target_entity": "subscriber"
+        },
+        {
+          "source_col": "product_id",
+          "target_entity": "saas_product"
+        }
       ]
     },
     {
       "name": "license",
+      "weight": 240,
       "columns": [
-        { "name": "license_id", "type": "string" },
-        { "name": "subscription_id", "type": "string" },
-        { "name": "license_key", "type": "string" },
-        { "name": "activation_date", "type": "date" },
-        { "name": "expiry_date", "type": "date" },
-        { "name": "max_activations", "type": "int" },
-        { "name": "current_activations", "type": "int" },
-        { "name": "status", "type": "string", "pool_name": "status_active" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "license_id",
+          "type": "string"
+        },
+        {
+          "name": "subscription_id",
+          "type": "string"
+        },
+        {
+          "name": "license_key",
+          "type": "string"
+        },
+        {
+          "name": "activation_date",
+          "type": "date"
+        },
+        {
+          "name": "expiry_date",
+          "type": "date"
+        },
+        {
+          "name": "max_activations",
+          "type": "int"
+        },
+        {
+          "name": "current_activations",
+          "type": "int"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "subscription_id", "target_entity": "subscription" }
+        {
+          "source_col": "subscription_id",
+          "target_entity": "subscription"
+        }
       ]
     },
     {
       "name": "support_ticket",
+      "weight": 20,
       "columns": [
-        { "name": "ticket_id", "type": "string" },
-        { "name": "subscriber_id", "type": "string" },
-        { "name": "product_id", "type": "string" },
-        { "name": "issue_category", "type": "string", "pool_name": "product_category" },
-        { "name": "severity", "type": "string", "pool_name": "severity_level" },
-        { "name": "submitted_date", "type": "datetime" },
-        { "name": "resolved_date", "type": "datetime", "null_rate_default": 0.5 },
-        { "name": "status", "type": "string", "pool_name": "status_crm_lead" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "ticket_id",
+          "type": "string"
+        },
+        {
+          "name": "subscriber_id",
+          "type": "string"
+        },
+        {
+          "name": "product_id",
+          "type": "string"
+        },
+        {
+          "name": "issue_category",
+          "type": "string",
+          "pool_name": "product_category"
+        },
+        {
+          "name": "severity",
+          "type": "string",
+          "pool_name": "severity_level"
+        },
+        {
+          "name": "submitted_date",
+          "type": "datetime"
+        },
+        {
+          "name": "resolved_date",
+          "type": "datetime",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_crm_lead"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "subscriber_id", "target_entity": "subscriber" },
-        { "source_col": "product_id", "target_entity": "saas_product" }
+        {
+          "source_col": "subscriber_id",
+          "target_entity": "subscriber"
+        },
+        {
+          "source_col": "product_id",
+          "target_entity": "saas_product"
+        }
       ]
     }
   ],

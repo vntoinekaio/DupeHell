@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "employee",
+      "weight": 100,
       "columns": [
         {
           "name": "employee_id",
@@ -94,6 +95,7 @@
     },
     {
       "name": "department",
+      "weight": 2,
       "columns": [
         {
           "name": "department_id",
@@ -124,6 +126,7 @@
     },
     {
       "name": "payroll_record",
+      "weight": 500,
       "columns": [
         {
           "name": "payroll_id",
@@ -166,6 +169,7 @@
     },
     {
       "name": "performance_review",
+      "weight": 100,
       "columns": [
         {
           "name": "review_id",

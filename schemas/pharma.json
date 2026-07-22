@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "drug",
+      "weight": 1,
       "columns": [
         {
           "name": "drug_id",
@@ -37,6 +38,7 @@
     },
     {
       "name": "clinical_trial",
+      "weight": 3,
       "columns": [
         {
           "name": "trial_id",
@@ -88,6 +90,7 @@
     },
     {
       "name": "trial_site",
+      "weight": 10,
       "columns": [
         {
           "name": "site_id",
@@ -121,6 +124,7 @@
     },
     {
       "name": "subject",
+      "weight": 100,
       "columns": [
         {
           "name": "subject_id",
@@ -166,6 +170,7 @@
     },
     {
       "name": "dispensation",
+      "weight": 600,
       "columns": [
         {
           "name": "dispensation_id",
@@ -204,6 +209,7 @@
     },
     {
       "name": "adverse_event",
+      "weight": 100,
       "columns": [
         {
           "name": "event_id",

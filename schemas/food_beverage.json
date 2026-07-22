@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "restaurant",
+      "weight": 1,
       "columns": [
         {
           "name": "restaurant_id",
@@ -51,6 +52,7 @@
     },
     {
       "name": "menu_item",
+      "weight": 30,
       "columns": [
         {
           "name": "item_id",
@@ -88,6 +90,7 @@
     },
     {
       "name": "inspection",
+      "weight": 2,
       "columns": [
         {
           "name": "inspection_id",
@@ -135,6 +138,7 @@
     },
     {
       "name": "supplier",
+      "weight": 5,
       "columns": [
         {
           "name": "supplier_id",

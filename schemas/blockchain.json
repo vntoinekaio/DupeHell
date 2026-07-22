@@ -3,90 +3,273 @@
   "entities": [
     {
       "name": "wallet",
+      "weight": 50,
       "columns": [
-        { "name": "wallet_id", "type": "string" },
-        { "name": "wallet_address", "type": "string" },
-        { "name": "owner_name", "type": "string" },
-        { "name": "owner_email", "type": "string", "null_rate_default": 0.3 },
-        { "name": "wallet_type", "type": "string", "pool_name": "account_type" },
-        { "name": "network", "type": "string", "pool_name": "line_type" },
-        { "name": "balance", "type": "float" },
-        { "name": "created_date", "type": "date" },
-        { "name": "last_active", "type": "datetime" },
-        { "name": "status", "type": "string", "pool_name": "status_active" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "wallet_id",
+          "type": "string"
+        },
+        {
+          "name": "wallet_address",
+          "type": "string"
+        },
+        {
+          "name": "owner_name",
+          "type": "string"
+        },
+        {
+          "name": "owner_email",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "wallet_type",
+          "type": "string",
+          "pool_name": "account_type"
+        },
+        {
+          "name": "network",
+          "type": "string",
+          "pool_name": "line_type"
+        },
+        {
+          "name": "balance",
+          "type": "float"
+        },
+        {
+          "name": "created_date",
+          "type": "date"
+        },
+        {
+          "name": "last_active",
+          "type": "datetime"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": []
     },
     {
       "name": "blockchain_transaction",
+      "weight": 500,
       "columns": [
-        { "name": "tx_id", "type": "string" },
-        { "name": "from_wallet", "type": "string" },
-        { "name": "to_wallet", "type": "string" },
-        { "name": "amount", "type": "float" },
-        { "name": "token_id", "type": "string", "null_rate_default": 0.4 },
-        { "name": "fee", "type": "float" },
-        { "name": "gas_price", "type": "float" },
-        { "name": "block_number", "type": "int" },
-        { "name": "tx_date", "type": "datetime" },
-        { "name": "status", "type": "string", "pool_name": "status_active" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "tx_id",
+          "type": "string"
+        },
+        {
+          "name": "from_wallet",
+          "type": "string"
+        },
+        {
+          "name": "to_wallet",
+          "type": "string"
+        },
+        {
+          "name": "amount",
+          "type": "float"
+        },
+        {
+          "name": "token_id",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "fee",
+          "type": "float"
+        },
+        {
+          "name": "gas_price",
+          "type": "float"
+        },
+        {
+          "name": "block_number",
+          "type": "int"
+        },
+        {
+          "name": "tx_date",
+          "type": "datetime"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "from_wallet", "target_entity": "wallet" },
-        { "source_col": "to_wallet", "target_entity": "wallet" }
+        {
+          "source_col": "from_wallet",
+          "target_entity": "wallet"
+        },
+        {
+          "source_col": "to_wallet",
+          "target_entity": "wallet"
+        }
       ]
     },
     {
       "name": "exchange",
+      "weight": 1,
       "columns": [
-        { "name": "exchange_id", "type": "string" },
-        { "name": "exchange_name", "type": "string", "pool_name": "company" },
-        { "name": "website", "type": "string" },
-        { "name": "wallet_id", "type": "string" },
-        { "name": "trading_volume_24h", "type": "float" },
-        { "name": "num_listings", "type": "int" },
-        { "name": "founding_date", "type": "date" },
-        { "name": "headquarters_city", "type": "string", "pool_name": "city" },
-        { "name": "regulatory_status", "type": "string", "pool_name": "status_active" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "exchange_id",
+          "type": "string"
+        },
+        {
+          "name": "exchange_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "website",
+          "type": "string"
+        },
+        {
+          "name": "wallet_id",
+          "type": "string"
+        },
+        {
+          "name": "trading_volume_24h",
+          "type": "float"
+        },
+        {
+          "name": "num_listings",
+          "type": "int"
+        },
+        {
+          "name": "founding_date",
+          "type": "date"
+        },
+        {
+          "name": "headquarters_city",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "regulatory_status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "wallet_id", "target_entity": "wallet" }
+        {
+          "source_col": "wallet_id",
+          "target_entity": "wallet"
+        }
       ]
     },
     {
       "name": "token",
+      "weight": 10,
       "columns": [
-        { "name": "token_id", "type": "string" },
-        { "name": "token_name", "type": "string", "pool_name": "product_names" },
-        { "name": "token_symbol", "type": "string" },
-        { "name": "total_supply", "type": "float" },
-        { "name": "decimals", "type": "int" },
-        { "name": "token_standard", "type": "string", "pool_name": "word" },
-        { "name": "launch_date", "type": "date" },
-        { "name": "contract_address", "type": "string" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "token_id",
+          "type": "string"
+        },
+        {
+          "name": "token_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "token_symbol",
+          "type": "string"
+        },
+        {
+          "name": "total_supply",
+          "type": "float"
+        },
+        {
+          "name": "decimals",
+          "type": "int"
+        },
+        {
+          "name": "token_standard",
+          "type": "string",
+          "pool_name": "word"
+        },
+        {
+          "name": "launch_date",
+          "type": "date"
+        },
+        {
+          "name": "contract_address",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": []
     },
     {
       "name": "smart_contract",
+      "weight": 3,
       "columns": [
-        { "name": "contract_id", "type": "string" },
-        { "name": "contract_name", "type": "string", "pool_name": "product_names" },
-        { "name": "wallet_id", "type": "string" },
-        { "name": "contract_address", "type": "string" },
-        { "name": "language", "type": "string", "pool_name": "language" },
-        { "name": "deployment_date", "type": "date" },
-        { "name": "gas_used", "type": "float" },
-        { "name": "num_transactions", "type": "int" },
-        { "name": "verified", "type": "boolean" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "contract_id",
+          "type": "string"
+        },
+        {
+          "name": "contract_name",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "wallet_id",
+          "type": "string"
+        },
+        {
+          "name": "contract_address",
+          "type": "string"
+        },
+        {
+          "name": "language",
+          "type": "string",
+          "pool_name": "language"
+        },
+        {
+          "name": "deployment_date",
+          "type": "date"
+        },
+        {
+          "name": "gas_used",
+          "type": "float"
+        },
+        {
+          "name": "num_transactions",
+          "type": "int"
+        },
+        {
+          "name": "verified",
+          "type": "boolean"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "wallet_id", "target_entity": "wallet" }
+        {
+          "source_col": "wallet_id",
+          "target_entity": "wallet"
+        }
       ]
     }
   ],

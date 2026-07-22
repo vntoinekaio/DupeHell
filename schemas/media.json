@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "author",
+      "weight": 30,
       "columns": [
         {
           "name": "author_id",
@@ -43,6 +44,7 @@
     },
     {
       "name": "publisher",
+      "weight": 1,
       "columns": [
         {
           "name": "publisher_id",
@@ -75,6 +77,7 @@
     },
     {
       "name": "publication",
+      "weight": 5,
       "columns": [
         {
           "name": "publication_id",
@@ -116,6 +119,7 @@
     },
     {
       "name": "article",
+      "weight": 100,
       "columns": [
         {
           "name": "article_id",
@@ -163,6 +167,7 @@
     },
     {
       "name": "review",
+      "weight": 200,
       "columns": [
         {
           "name": "review_id",

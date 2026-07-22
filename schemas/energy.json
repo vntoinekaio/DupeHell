@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "utility_customer",
+      "weight": 2,
       "columns": [
         {
           "name": "customer_id",
@@ -62,6 +63,7 @@
     },
     {
       "name": "service_point",
+      "weight": 3,
       "columns": [
         {
           "name": "service_point_id",
@@ -110,6 +112,7 @@
     },
     {
       "name": "meter",
+      "weight": 3,
       "columns": [
         {
           "name": "meter_id",
@@ -141,6 +144,7 @@
     },
     {
       "name": "meter_reading",
+      "weight": 500,
       "columns": [
         {
           "name": "reading_id",
@@ -176,6 +180,7 @@
     },
     {
       "name": "invoice",
+      "weight": 24,
       "columns": [
         {
           "name": "invoice_id",

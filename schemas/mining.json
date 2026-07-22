@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "mine_site",
+      "weight": 1,
       "columns": [
         {
           "name": "site_id",
@@ -49,6 +50,7 @@
     },
     {
       "name": "claim",
+      "weight": 5,
       "columns": [
         {
           "name": "claim_id",
@@ -88,6 +90,7 @@
     },
     {
       "name": "production_run",
+      "weight": 30,
       "columns": [
         {
           "name": "run_id",
@@ -128,6 +131,7 @@
     },
     {
       "name": "environmental_report",
+      "weight": 5,
       "columns": [
         {
           "name": "report_id",

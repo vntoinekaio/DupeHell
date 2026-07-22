@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "farm",
+      "weight": 1,
       "columns": [
         {
           "name": "farm_id",
@@ -66,6 +67,7 @@
     },
     {
       "name": "crop",
+      "weight": 5,
       "columns": [
         {
           "name": "crop_id",
@@ -116,6 +118,7 @@
     },
     {
       "name": "livestock",
+      "weight": 30,
       "columns": [
         {
           "name": "animal_id",
@@ -162,6 +165,7 @@
     },
     {
       "name": "harvest",
+      "weight": 15,
       "columns": [
         {
           "name": "harvest_id",

@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "traveler",
+      "weight": 1,
       "columns": [
         {
           "name": "traveler_id",
@@ -42,6 +43,7 @@
     },
     {
       "name": "booking",
+      "weight": 5,
       "columns": [
         {
           "name": "booking_id",
@@ -77,6 +79,7 @@
     },
     {
       "name": "hotel_stay",
+      "weight": 3,
       "columns": [
         {
           "name": "stay_id",
@@ -121,6 +124,7 @@
     },
     {
       "name": "flight_segment",
+      "weight": 10,
       "columns": [
         {
           "name": "segment_id",

@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "account_holder",
+      "weight": 5,
       "columns": [
         {
           "name": "holder_id",
@@ -75,6 +76,7 @@
     },
     {
       "name": "account",
+      "weight": 10,
       "columns": [
         {
           "name": "account_id",
@@ -125,6 +127,7 @@
     },
     {
       "name": "transaction",
+      "weight": 500,
       "columns": [
         {
           "name": "transaction_id",
