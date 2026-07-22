@@ -112,7 +112,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "subscriber_id",
+          "target_entity": "subscriber"
+        }
+      ]
     },
     {
       "name": "device",
@@ -165,7 +170,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "line_id",
+          "target_entity": "phone_line"
+        }
+      ]
     },
     {
       "name": "call_record",
@@ -204,7 +214,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "line_id",
+          "target_entity": "phone_line"
+        }
+      ]
     }
   ],
   "hn_types": [

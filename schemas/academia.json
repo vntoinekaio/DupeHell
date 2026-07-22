@@ -91,7 +91,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "researcher_id",
+          "target_entity": "researcher"
+        }
+      ]
     },
     {
       "name": "grant",
@@ -136,7 +141,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "researcher_id",
+          "target_entity": "researcher"
+        }
+      ]
     },
     {
       "name": "conference",
@@ -179,7 +189,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "researcher_id",
+          "target_entity": "researcher"
+        }
+      ]
     }
   ],
   "hn_types": [

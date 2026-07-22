@@ -86,7 +86,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "site_id",
+          "target_entity": "mine_site"
+        }
+      ]
     },
     {
       "name": "production_run",
@@ -127,7 +132,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "site_id",
+          "target_entity": "mine_site"
+        }
+      ]
     },
     {
       "name": "environmental_report",
@@ -165,7 +175,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "site_id",
+          "target_entity": "mine_site"
+        }
+      ]
     }
   ],
   "hn_types": [

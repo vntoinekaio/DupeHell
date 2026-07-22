@@ -77,7 +77,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "line_id",
+          "target_entity": "shipping_line"
+        }
+      ]
     },
     {
       "name": "voyage",
@@ -123,7 +128,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "vessel_id",
+          "target_entity": "vessel"
+        }
+      ]
     },
     {
       "name": "cargo_manifest",
@@ -165,7 +175,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "voyage_id",
+          "target_entity": "voyage"
+        }
+      ]
     }
   ],
   "hn_types": [

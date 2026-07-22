@@ -166,7 +166,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "property_id",
+          "target_entity": "property"
+        },
+        {
+          "source_col": "owner_id",
+          "target_entity": "property_owner"
+        }
+      ]
     },
     {
       "name": "listing",
@@ -210,7 +219,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "property_id",
+          "target_entity": "property"
+        }
+      ]
     },
     {
       "name": "sale_transaction",
@@ -250,7 +264,20 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "listing_id",
+          "target_entity": "listing"
+        },
+        {
+          "source_col": "buyer_id",
+          "target_entity": "property_owner"
+        },
+        {
+          "source_col": "seller_id",
+          "target_entity": "property_owner"
+        }
+      ]
     }
   ],
   "hn_types": [

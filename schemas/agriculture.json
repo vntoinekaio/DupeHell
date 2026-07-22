@@ -114,7 +114,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "farm_id",
+          "target_entity": "farm"
+        }
+      ]
     },
     {
       "name": "livestock",
@@ -161,7 +166,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "farm_id",
+          "target_entity": "farm"
+        }
+      ]
     },
     {
       "name": "harvest",
@@ -199,7 +209,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "crop_id",
+          "target_entity": "crop"
+        }
+      ]
     }
   ],
   "hn_types": [

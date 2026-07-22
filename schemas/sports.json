@@ -144,7 +144,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "athlete_id",
+          "target_entity": "athlete"
+        },
+        {
+          "source_col": "team_id",
+          "target_entity": "team"
+        }
+      ]
     },
     {
       "name": "competition",
@@ -222,7 +231,20 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "competition_id",
+          "target_entity": "competition"
+        },
+        {
+          "source_col": "home_team_id",
+          "target_entity": "team"
+        },
+        {
+          "source_col": "away_team_id",
+          "target_entity": "team"
+        }
+      ]
     },
     {
       "name": "game_stat",
@@ -265,7 +287,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "game_id",
+          "target_entity": "game"
+        },
+        {
+          "source_col": "athlete_id",
+          "target_entity": "athlete"
+        }
+      ]
     },
     {
       "name": "transfer",
@@ -305,7 +336,20 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "athlete_id",
+          "target_entity": "athlete"
+        },
+        {
+          "source_col": "from_team_id",
+          "target_entity": "team"
+        },
+        {
+          "source_col": "to_team_id",
+          "target_entity": "team"
+        }
+      ]
     }
   ],
   "hn_types": [

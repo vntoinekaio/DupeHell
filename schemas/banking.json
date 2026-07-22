@@ -123,7 +123,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "holder_id",
+          "target_entity": "account_holder"
+        }
+      ]
     },
     {
       "name": "transaction",
@@ -166,7 +171,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "account_id",
+          "target_entity": "account"
+        }
+      ]
     }
   ],
   "hn_types": [

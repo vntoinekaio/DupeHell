@@ -74,7 +74,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "brand_id",
+          "target_entity": "brand"
+        }
+      ]
     },
     {
       "name": "product",
@@ -126,7 +131,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "collection_id",
+          "target_entity": "collection"
+        }
+      ]
     },
     {
       "name": "supplier",
@@ -167,7 +177,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "brand_id",
+          "target_entity": "brand"
+        }
+      ]
     }
   ],
   "hn_types": [

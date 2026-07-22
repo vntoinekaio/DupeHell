@@ -103,7 +103,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "cur_pcp_prov_id",
+          "target_entity": "provider"
+        }
+      ]
     },
     {
       "name": "provider",
@@ -207,7 +212,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "patient_id",
+          "target_entity": "patient"
+        },
+        {
+          "source_col": "provider_id",
+          "target_entity": "provider"
+        }
+      ]
     },
     {
       "name": "coverage",
@@ -254,7 +268,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "patient_id",
+          "target_entity": "patient"
+        }
+      ]
     }
   ],
   "hn_types": [

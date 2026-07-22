@@ -91,7 +91,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "carrier_id",
+          "target_entity": "carrier"
+        }
+      ]
     },
     {
       "name": "package",
@@ -135,7 +140,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "shipment_id",
+          "target_entity": "shipment"
+        }
+      ]
     },
     {
       "name": "delivery",
@@ -175,11 +185,24 @@
           "null_rate_default": 0.5
         },
         {
+          "name": "package_id",
+          "type": "string"
+        },
+        {
           "name": "source_system",
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "shipment_id",
+          "target_entity": "shipment"
+        },
+        {
+          "source_col": "package_id",
+          "target_entity": "package"
+        }
+      ]
     }
   ],
   "hn_types": [

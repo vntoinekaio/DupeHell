@@ -71,7 +71,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "account_id",
+          "target_entity": "account"
+        }
+      ]
     },
     {
       "name": "account",
@@ -193,11 +198,21 @@
           "type": "datetime"
         },
         {
+          "name": "contact_id",
+          "type": "string",
+          "null_rate_default": 0.7
+        },
+        {
           "name": "source_system",
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "contact_id",
+          "target_entity": "contact"
+        }
+      ]
     }
   ],
   "hn_types": [

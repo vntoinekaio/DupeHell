@@ -76,11 +76,20 @@
           "pool_name": "cause_category"
         },
         {
+          "name": "program_id",
+          "type": "string"
+        },
+        {
           "name": "source_system",
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "program_id",
+          "target_entity": "program"
+        }
+      ]
     },
     {
       "name": "donation",
@@ -116,7 +125,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "donor_id",
+          "target_entity": "donor"
+        },
+        {
+          "source_col": "campaign_id",
+          "target_entity": "campaign"
+        }
+      ]
     },
     {
       "name": "grant",
@@ -149,11 +167,20 @@
           "type": "int"
         },
         {
+          "name": "program_id",
+          "type": "string"
+        },
+        {
           "name": "source_system",
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "program_id",
+          "target_entity": "program"
+        }
+      ]
     },
     {
       "name": "volunteer",
@@ -181,11 +208,20 @@
           "type": "int"
         },
         {
+          "name": "program_id",
+          "type": "string"
+        },
+        {
           "name": "source_system",
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "program_id",
+          "target_entity": "program"
+        }
+      ]
     },
     {
       "name": "program",

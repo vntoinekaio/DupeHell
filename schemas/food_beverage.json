@@ -86,7 +86,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "restaurant_id",
+          "target_entity": "restaurant"
+        }
+      ]
     },
     {
       "name": "inspection",
@@ -134,7 +139,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "restaurant_id",
+          "target_entity": "restaurant"
+        }
+      ]
     },
     {
       "name": "supplier",
@@ -172,7 +182,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "restaurant_id",
+          "target_entity": "restaurant"
+        }
+      ]
     }
   ],
   "hn_types": [

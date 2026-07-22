@@ -180,7 +180,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "client_id",
+          "target_entity": "client"
+        },
+        {
+          "source_col": "assigned_lawyer_id",
+          "target_entity": "lawyer"
+        }
+      ]
     },
     {
       "name": "case_document",
@@ -226,7 +235,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "case_id",
+          "target_entity": "case"
+        },
+        {
+          "source_col": "lawyer_id",
+          "target_entity": "lawyer"
+        }
+      ]
     },
     {
       "name": "hearing",
@@ -269,7 +287,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "case_id",
+          "target_entity": "case"
+        }
+      ]
     },
     {
       "name": "billing_entry",
@@ -319,7 +342,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "case_id",
+          "target_entity": "case"
+        },
+        {
+          "source_col": "lawyer_id",
+          "target_entity": "lawyer"
+        }
+      ]
     }
   ],
   "hn_types": [
