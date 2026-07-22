@@ -39,12 +39,22 @@ fn draft_schema() -> Arc<Schema> {
         Field::new("record_id", DataType::Utf8, false),
         Field::new("master_id", DataType::Utf8, false),
         Field::new("entity_type", DataType::Utf8, false),
-        // `true` for base/master rows (identical to themselves by
-        // definition) and for duplicate-copy rows whose assigned noise
-        // ended up not changing anything visible; `false` for duplicate
-        // copies that were genuinely altered. Meaningless for hard_neg/
-        // canary rows (classified by master_id prefix regardless).
+        // `true` for duplicate-copy rows whose assigned noise ended up not
+        // changing anything visible; `false` for duplicate copies that were
+        // genuinely altered, and for base/master rows (a base row is never
+        // itself "a copy that happened to match" — see `is_base` below for
+        // how its match_type is actually resolved). Meaningless for
+        // hard_neg/canary rows (classified by master_id prefix regardless).
         Field::new("is_identical", DataType::Boolean, false),
+        // `true` only for base/master rows (one per entity, written by
+        // `push_base_batch`); `false` for every duplicate copy and for
+        // hard_neg/canary rows. Lets `finish` tell a base row apart from a
+        // genuine fuzzy copy when both carry `is_identical = false` — without
+        // it, a duplicated master's own base row would be misclassified
+        // `exact_dup` unconditionally (it used to hardcode
+        // `is_identical = true` for every base row, regardless of whether
+        // any of its actual duplicate copies were byte-identical to it).
+        Field::new("is_base", DataType::Boolean, false),
     ]))
 }
 
@@ -89,6 +99,13 @@ pub struct GtAccumulator {
     writer: arrow::ipc::writer::FileWriter<std::fs::File>,
     schema: Arc<Schema>,
     dup_masters: rustc_hash::FxHashSet<String>,
+    /// Masters that have at least one duplicate copy whose assigned noise
+    /// ended up a genuine no-op (byte-identical to the base) — as opposed to
+    /// `dup_masters`, which just means "has any duplicate copy at all,
+    /// exact or fuzzy". Used at `finish` so a base row can tell whether it
+    /// actually has an identical twin instead of unconditionally claiming
+    /// one.
+    masters_with_exact_copy: rustc_hash::FxHashSet<String>,
     n_base_masters: usize,
 }
 
@@ -104,6 +121,7 @@ impl GtAccumulator {
             writer,
             schema,
             dup_masters: rustc_hash::FxHashSet::default(),
+            masters_with_exact_copy: rustc_hash::FxHashSet::default(),
             n_base_masters: 0,
         })
     }
@@ -114,6 +132,7 @@ impl GtAccumulator {
         entity_types: &ArrayRef,
         master_ids: &ArrayRef,
         is_identical: &ArrayRef,
+        is_base: &ArrayRef,
     ) -> Result<(), String> {
         let batch = RecordBatch::try_new(
             self.schema.clone(),
@@ -122,6 +141,7 @@ impl GtAccumulator {
                 master_ids.clone(),
                 entity_types.clone(),
                 is_identical.clone(),
+                is_base.clone(),
             ],
         )
         .map_err(|e| format!("build gt draft batch: {e}"))?;
@@ -132,8 +152,6 @@ impl GtAccumulator {
 
     /// Feed a batch of rows that each introduce a brand-new, not-yet-seen
     /// master (base records — one master per row, never a duplicate copy).
-    /// A base row is trivially identical to itself, so it always carries
-    /// `is_identical = true`.
     pub fn push_base_batch(
         &mut self,
         record_ids: &ArrayRef,
@@ -146,8 +164,15 @@ impl GtAccumulator {
                 self.n_base_masters += 1;
             }
         }
+        // `is_identical = false`: a base row is not itself a "copy that
+        // happened to match" — whether it should read as `exact_dup` is
+        // resolved at `finish` from `masters_with_exact_copy`, not hardcoded
+        // here (this used to be `true` unconditionally, which mislabeled
+        // every duplicated master's base row `exact_dup` even when all of
+        // its actual duplicate copies were fuzzy — none byte-identical).
+        let all_false: ArrayRef = Arc::new(BooleanArray::from(vec![false; mids.len()]));
         let all_true: ArrayRef = Arc::new(BooleanArray::from(vec![true; mids.len()]));
-        self.write_draft(record_ids, entity_types, master_ids, &all_true)
+        self.write_draft(record_ids, entity_types, master_ids, &all_false, &all_true)
     }
 
     /// Feed a batch of duplicate-copy rows (each `master_id` matches an
@@ -157,7 +182,9 @@ impl GtAccumulator {
     /// cluster at `finish`, classified `exact_dup` or `fuzzy_dup` per-row
     /// based on `is_identical` (`true` when the noise assigned to this copy
     /// ended up a no-op — see `pipeline::unchanged_row_mask` — `false` when
-    /// it produced a real, visible change).
+    /// it produced a real, visible change). Also records which masters have
+    /// at least one genuinely identical copy, for the base row's own
+    /// classification at `finish`.
     pub fn push_dup_batch(
         &mut self,
         record_ids: &ArrayRef,
@@ -166,15 +193,29 @@ impl GtAccumulator {
         is_identical: &ArrayRef,
     ) -> Result<(), String> {
         let mids = master_ids.as_string::<i32>();
+        let idents = is_identical.as_boolean();
         for i in 0..mids.len() {
             if !mids.is_null(i) {
                 let mid = mids.value(i);
                 if !self.dup_masters.contains(mid) {
                     self.dup_masters.insert(mid.to_string());
                 }
+                if !idents.is_null(i)
+                    && idents.value(i)
+                    && !self.masters_with_exact_copy.contains(mid)
+                {
+                    self.masters_with_exact_copy.insert(mid.to_string());
+                }
             }
         }
-        self.write_draft(record_ids, entity_types, master_ids, is_identical)
+        let all_false: ArrayRef = Arc::new(BooleanArray::from(vec![false; mids.len()]));
+        self.write_draft(
+            record_ids,
+            entity_types,
+            master_ids,
+            is_identical,
+            &all_false,
+        )
     }
 
     /// Feed a batch of rows whose classification is fully determined by
@@ -186,10 +227,11 @@ impl GtAccumulator {
         entity_types: &ArrayRef,
         master_ids: &ArrayRef,
     ) -> Result<(), String> {
-        // `is_identical` is meaningless for hard_neg/canary rows (classified
-        // by master_id prefix regardless), so the value doesn't matter.
+        // `is_identical`/`is_base` are meaningless for hard_neg/canary rows
+        // (classified by master_id prefix regardless), so the values don't
+        // matter.
         let all_false: ArrayRef = Arc::new(BooleanArray::from(vec![false; record_ids.len()]));
-        self.write_draft(record_ids, entity_types, master_ids, &all_false)
+        self.write_draft(record_ids, entity_types, master_ids, &all_false, &all_false)
     }
 
     /// Consumes the accumulator: closes the draft, re-reads it batch by
@@ -207,6 +249,7 @@ impl GtAccumulator {
             draft_path,
             mut writer,
             dup_masters,
+            masters_with_exact_copy,
             n_base_masters,
             ..
         } = self;
@@ -248,6 +291,7 @@ impl GtAccumulator {
             let mid_col = batch.column(1).as_string::<i32>();
             let rid_col = batch.column(0).as_string::<i32>();
             let ident_col = batch.column(3).as_boolean();
+            let base_col = batch.column(4).as_boolean();
 
             let mut mt_builder = StringBuilder::with_capacity(n, n * 10);
             for i in 0..n {
@@ -256,17 +300,27 @@ impl GtAccumulator {
                 } else {
                     mid_col.value(i)
                 };
+                let is_base = !base_col.is_null(i) && base_col.value(i);
+                // Per-row, not per-cluster: a cluster can mix a base row, a
+                // copy the noise happened not to change, and a copy that's
+                // genuinely different. A base row has no noise of its own —
+                // it reads `exact_dup` only if the cluster actually contains
+                // a byte-identical copy (`masters_with_exact_copy`), never
+                // unconditionally (that used to mislabel every duplicated
+                // master's base row `exact_dup` even when all of its copies
+                // were fuzzy).
+                let is_identical = if is_base {
+                    masters_with_exact_copy.contains(mid)
+                } else {
+                    !ident_col.is_null(i) && ident_col.value(i)
+                };
                 let mt = if mid.starts_with("HN-") {
                     n_hard_neg += 1;
                     "hard_neg"
                 } else if mid.starts_with("CANARY-") {
                     "canary"
                 } else if dup_masters.contains(mid) {
-                    // Per-row, not per-cluster: a cluster can mix a base row,
-                    // a copy the noise happened not to change, and a copy
-                    // that's genuinely different — each is classified on its
-                    // own `is_identical` value, not the cluster's as a whole.
-                    if !ident_col.is_null(i) && ident_col.value(i) {
+                    if is_identical {
                         n_exact_dup += 1;
                         "exact_dup"
                     } else {
@@ -281,7 +335,6 @@ impl GtAccumulator {
                 // Every row of a duplicated master belongs to its cluster,
                 // tagged with its own identical/fuzzy status.
                 if dup_masters.contains(mid) {
-                    let is_identical = !ident_col.is_null(i) && ident_col.value(i);
                     cluster_map
                         .entry(mid.to_string())
                         .or_default()
@@ -644,9 +697,13 @@ mod tests {
         assert_eq!(m1, vec![("R1".to_string(), true), ("R2".to_string(), true)]);
         let mut m5 = cm.get("M-0000005").unwrap().clone();
         m5.sort();
+        // R6 is the base of M-0000005; its only copy (R7) was genuinely
+        // noised, so the cluster has no byte-identical pair at all — R6
+        // must NOT read as identical just because it's the base (that was
+        // the bug: base rows used to hardcode `is_identical = true`).
         assert_eq!(
             m5,
-            vec![("R6".to_string(), true), ("R7".to_string(), false)]
+            vec![("R6".to_string(), false), ("R7".to_string(), false)]
         );
         assert!(!cm.contains_key("M-0000002"));
 
