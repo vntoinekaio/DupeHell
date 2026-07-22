@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "warehouse",
+      "weight": 2,
       "columns": [
         {
           "name": "warehouse_id",
@@ -49,6 +50,7 @@
     },
     {
       "name": "inventory_item",
+      "weight": 200,
       "columns": [
         {
           "name": "inventory_id",
@@ -104,6 +106,7 @@
     },
     {
       "name": "shipment",
+      "weight": 100,
       "columns": [
         {
           "name": "shipment_id",
@@ -164,6 +167,7 @@
     },
     {
       "name": "carrier",
+      "weight": 1,
       "columns": [
         {
           "name": "carrier_id",

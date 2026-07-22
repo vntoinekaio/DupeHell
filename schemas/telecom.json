@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "subscriber",
+      "weight": 2,
       "columns": [
         {
           "name": "subscriber_id",
@@ -68,6 +69,7 @@
     },
     {
       "name": "phone_line",
+      "weight": 3,
       "columns": [
         {
           "name": "line_id",
@@ -114,6 +116,7 @@
     },
     {
       "name": "device",
+      "weight": 3,
       "columns": [
         {
           "name": "device_id",
@@ -166,6 +169,7 @@
     },
     {
       "name": "call_record",
+      "weight": 500,
       "columns": [
         {
           "name": "call_id",

@@ -1,0 +1,179 @@
+domain,entity,weight,note
+academia,researcher,5,chercheurs — entité racine du domaine
+academia,publication,50,publications nombreuses par chercheur
+academia,grant,2,subventions — moins nombreuses que les publications
+academia,conference,3,conférences — ~0.6/chercheur (1-4/an en réalité, plafonné)
+agriculture,farm,1,exploitations agricoles — unité de base
+agriculture,crop,5,cultures variées par exploitation
+agriculture,livestock,30,têtes de bétail par exploitation
+agriculture,harvest,15,récoltes multiples par an par culture
+automotive,vehicle,1,véhicules — unité de base
+automotive,vehicle_owner,1,propriétaires — environ 1:1 avec les véhicules
+automotive,service_record,15,interventions d'entretien par véhicule
+automotive,part_replacement,8,pièces remplacées lors d'interventions
+automotive,accident_claim,1,sinistres — ~1 par véhicule sur sa durée de vie (plancher weight=1, réel ~0.7)
+aviation,airline,1,compagnies aériennes — très peu
+aviation,aircraft,5,flotte de quelques dizaines d'appareils par compagnie
+aviation,flight,50,vols quotidiens par appareil sur la période
+aviation,passenger,500,passagers par vol — 10 pax/vol en moyenne (vs 69 en réalité)
+banking,account_holder,5,titulaires de compte
+banking,account,10,comptes (1 à 3 par titulaire)
+banking,transaction,500,transactions nombreuses par compte
+biotech,laboratory,1,laboratoires de recherche
+biotech,research_project,10,projets par laboratoire
+biotech,sample,50,échantillons par projet
+biotech,experiment,100,expériences par échantillon
+blockchain,exchange,1,plateformes d'échange — peu nombreuses
+blockchain,smart_contract,3,contrats intelligents — plus nombreux que les exchange
+blockchain,token,10,tokens — diversité modérée
+blockchain,wallet,50,portefeuilles — nombreux utilisateurs
+blockchain,blockchain_transaction,500,transactions — ~10 tx/wallet pour ~1 semaine d'activité
+construction,project,1,projets de construction
+construction,permit,2,permis par projet
+construction,contractor,5,entrepreneurs intervenant par projet
+construction,inspection,10,inspections multiples par projet
+crm,account,1,comptes clients — les moins nombreux
+crm,contact,3,contacts par compte
+crm,lead,50,pistes commerciales — très nombreuses, peu converties
+cybersecurity,threat_actor,1,acteurs malveillants — peu nombreux
+cybersecurity,incident,10,incidents par acteur
+cybersecurity,asset,100,actifs informatiques — nombreux
+cybersecurity,vulnerability,300,vulnérabilités par actif — ratio réaliste ~5000x plafonné à 300x
+ecommerce,product,2,produits au catalogue — les moins nombreux
+ecommerce,product_variant,6,déclinaisons par produit
+ecommerce,address,150,adresses de livraison — ~1.5/customer (billing + shipping)
+ecommerce,customer,100,clients — nombreux
+ecommerce,order,300,commandes par client
+ecommerce,order_line_item,750,lignes de commande — ~2.5 items/commande (vs 2.5-3 réel)
+education,faculty,2,enseignants-chercheurs
+education,course,10,cours par enseignant
+education,student,100,étudiants — nombreux
+education,enrollment,500,inscriptions par étudiant — ratio réaliste ~5000x plafonné à 500x
+energy,utility_customer,2,clients du réseau
+energy,service_point,3,points de livraison par client
+energy,meter,3,compteurs par point
+energy,invoice,24,factures mensuelles
+energy,meter_reading,500,relevés quotidiens — ratio réaliste ~10000x plafonné à 500x
+fashion,brand,1,marques de mode
+fashion,collection,5,collections par marque par saison
+fashion,supplier,10,fournisseurs par marque
+fashion,product,100,produits par collection
+fintech,merchant,2,marchands — les moins nombreux
+fintech,dispute,5,contestations — petite fraction des transactions (~1%)
+fintech,customer,100,clients — nombreux
+fintech,account,150,comptes par client
+fintech,payment_transaction,500,transactions — ratio réaliste ~50000x plafonné à 500x
+food_beverage,restaurant,1,restaurants
+food_beverage,inspection,2,contrôles par restaurant par an
+food_beverage,supplier,5,fournisseurs par restaurant
+food_beverage,menu_item,30,plats à la carte (20-40 en fast-casual)
+gaming,player,1,joueurs
+gaming,game_account,2,comptes par joueur
+gaming,item_purchase,20,achats intégrés par joueur
+gaming,match_session,50,parties par joueur
+healthcare,provider,1,professionnels de santé — les moins nombreux
+healthcare,patient,100,patients par professionnel
+healthcare,coverage,150,couvertures d'assurance par patient
+healthcare,encounter,300,consultations par patient (~3.2 visites/an réel)
+hospitality,hotel_property,1,établissements hôteliers
+hospitality,loyalty_account,30,comptes fidélité (~30% des clients)
+hospitality,guest,100,clients par hôtel
+hospitality,booking,200,réservations par client
+hr,department,2,directions et services
+hr,employee,100,salariés par direction
+hr,performance_review,100,entretiens annuels (1 par employé)
+hr,payroll_record,500,bulletins de paie mensuels
+insurance,agent,1,agents et courtiers
+insurance,claim,15,sinistres déclarés (~10-15% des polices par an)
+insurance,policy_holder,100,souscripteurs par agent
+insurance,policy,200,contrats par souscripteur (~2.3 polices/ménage en moyenne)
+kyc,legal_entity,1,personnes morales — les moins nombreuses
+kyc,natural_person,15,personnes physiques — bien plus nombreuses en KYC
+legal,lawyer,1,avocats et juristes
+legal,client,10,clients par avocat
+legal,hearing,15,audiences par dossier
+legal,case,20,dossiers par client
+legal,case_document,200,documents par dossier (~10 docs/dossier, plaidoiries + motions)
+legal,billing_entry,300,entrées de facturation par dossier
+logistics,carrier,1,transporteurs
+logistics,shipment,50,expéditions par transporteur
+logistics,package,200,colis par expédition (~4 par envoi)
+logistics,delivery,200,livraisons (une par colis)
+manufacturing,product_bom,1,nomenclatures produits
+manufacturing,supplier_part,5,composants par nomenclature
+manufacturing,manufacturing_order,10,ordres de fabrication
+manufacturing,batch,30,lots par ordre (~3 lots/MO)
+manufacturing,quality_control,30,contrôles qualité par lot
+maritime,shipping_line,1,compagnies maritimes
+maritime,vessel,15,navires par compagnie
+maritime,voyage,50,trajets par navire (~3-6 par an)
+maritime,cargo_manifest,50,manifestes par trajet
+media,publisher,1,maisons d'édition / médias
+media,publication,5,périodiques / lignes éditoriales
+media,author,30,auteurs par publication
+media,review,200,critiques par article (~2 relecteurs/article, minimum pour peer review)
+media,article,100,articles par auteur
+mining,mine_site,1,sites miniers
+mining,claim,5,concessions par site
+mining,environmental_report,5,rapports environnementaux
+mining,production_run,30,campagnes de production
+nonprofit,program,1,programmes d'action
+nonprofit,campaign,3,campagnes de levée de fonds par programme
+nonprofit,grant,5,subventions par programme
+nonprofit,volunteer,30,bénévoles par programme
+nonprofit,donor,50,donateurs
+nonprofit,donation,200,dons par donateur (~4 dons/donateur, 2x/an sur 2 ans)
+pharma,drug,1,médicaments — peu nombreux
+pharma,clinical_trial,3,essais cliniques par médicament (Phases I-II-III)
+pharma,trial_site,10,sites par essai
+pharma,adverse_event,100,événements indésirables (~1/sujet, 40-80% des sujets en réel)
+pharma,subject,100,sujets par site
+pharma,dispensation,600,délivrances par sujet (~6 visites/essai sur 6-12 mois)
+publishing,publisher,1,maisons d'édition
+publishing,author,5,auteurs par maison
+publishing,book,20,livres par auteur (~3.6 livres/auteur en moyenne)
+publishing,library_catalog,50,entrées de catalogue
+publishing,patron,80,usagers par bibliothèque
+realestate,property,1,biens immobiliers
+realestate,property_owner,2,propriétaires par bien
+realestate,property_ownership,2,enregistrements de propriété
+realestate,listing,5,annonces par bien
+realestate,sale_transaction,3,ventes par bien
+renewable_energy,energy_asset,1,actifs de production d'énergie
+renewable_energy,maintenance,3,opérations de maintenance (trimestriel + annuel)
+renewable_energy,certificate,10,certificats d'origine
+renewable_energy,energy_generation_record,365,relevés quotidiens de production
+retail,store,1,magasins
+retail,product,20,produits par magasin
+retail,customer,50,clients
+retail,sale,150,ventes par client (~3 transactions/client)
+retail,sale_item,300,lignes de vente (~2 articles/vente, conforme NPD 2024)
+social_media,user,2,utilisateurs
+social_media,profile,2,profils (1 par utilisateur)
+social_media,post,10,publications par utilisateur
+social_media,engagement,140,interactions par publication (~14/post, source Sprout Social 2025)
+social_media,connection,600,connexions par utilisateur (~300/user, médiane LinkedIn 400-500)
+sports,team,1,équipes sportives
+sports,competition,2,compétitions par saison
+sports,transfer,2,transferts par club sur la période (~2.4/club/an FIFA 2024, soit ~0.13/athlète)
+sports,athlete,15,athlètes par équipe
+sports,contract,20,contrats par athlète
+sports,game,50,rencontres par compétition
+sports,game_stat,500,statistiques par rencontre (~10/jeu vs 490 en NBA réel — plafonné)
+supplychain,carrier,1,transporteurs
+supplychain,warehouse,2,entrepôts
+supplychain,shipment,100,expéditions
+supplychain,inventory_item,200,articles en stock
+technology,saas_product,2,produits SaaS — peu nombreux
+technology,support_ticket,20,tickets de support (~0.1/abonné, conforme benchmarks SaaS)
+technology,subscriber,200,abonnés par produit
+technology,subscription,240,abonnements souscrits (~1.2/abonné, Kaspersky 2024)
+technology,license,240,licences attribuées
+telecom,subscriber,2,abonnés
+telecom,phone_line,3,lignes téléphoniques par abonné (~1.5, Ericsson Mobility 2025)
+telecom,device,3,appareils par abonné
+telecom,call_record,500,relevés d'appels — ratio réaliste ~100000x plafonné à 500x
+travel,traveler,1,voyageurs
+travel,hotel_stay,3,séjours hôteliers par voyageur (~15.3 nuits/an)
+travel,booking,5,réservations par voyageur
+travel,flight_segment,10,segments aériens par voyageur (~4/trajet AR avec corres)

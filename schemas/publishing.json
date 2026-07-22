@@ -3,87 +3,275 @@
   "entities": [
     {
       "name": "author",
+      "weight": 5,
       "columns": [
-        { "name": "author_id", "type": "string" },
-        { "name": "first_name", "type": "string" },
-        { "name": "last_name", "type": "string" },
-        { "name": "middle_name", "type": "string", "null_rate_default": 0.6 },
-        { "name": "birth_date", "type": "date", "null_rate_default": 0.3 },
-        { "name": "language", "type": "string", "pool_name": "language" },
-        { "name": "email", "type": "string", "null_rate_default": 0.15 },
-        { "name": "orcid", "type": "string", "null_rate_default": 0.4 },
-        { "name": "biography", "type": "string", "null_rate_default": 0.5 },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "author_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "middle_name",
+          "type": "string",
+          "null_rate_default": 0.6
+        },
+        {
+          "name": "birth_date",
+          "type": "date",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "language",
+          "type": "string",
+          "pool_name": "language"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.15
+        },
+        {
+          "name": "orcid",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "biography",
+          "type": "string",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": []
     },
     {
       "name": "publisher",
+      "weight": 1,
       "columns": [
-        { "name": "publisher_id", "type": "string" },
-        { "name": "publisher_name", "type": "string", "pool_name": "company" },
-        { "name": "address_line1", "type": "string" },
-        { "name": "city", "type": "string" },
-        { "name": "country", "type": "string" },
-        { "name": "website", "type": "string" },
-        { "name": "email", "type": "string", "null_rate_default": 0.2 },
-        { "name": "phone", "type": "string", "null_rate_default": 0.4 },
-        { "name": "founding_year", "type": "int" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "publisher_id",
+          "type": "string"
+        },
+        {
+          "name": "publisher_name",
+          "type": "string",
+          "pool_name": "company"
+        },
+        {
+          "name": "address_line1",
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "type": "string"
+        },
+        {
+          "name": "country",
+          "type": "string"
+        },
+        {
+          "name": "website",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "null_rate_default": 0.2
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.4
+        },
+        {
+          "name": "founding_year",
+          "type": "int"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": []
     },
     {
       "name": "book",
+      "weight": 20,
       "columns": [
-        { "name": "book_id", "type": "string" },
-        { "name": "title", "type": "string", "pool_name": "product_names" },
-        { "name": "isbn", "type": "string", "null_rate_default": 0.05 },
-        { "name": "issn", "type": "string", "null_rate_default": 0.85 },
-        { "name": "doi", "type": "string", "null_rate_default": 0.5 },
-        { "name": "edition", "type": "int" },
-        { "name": "publication_date", "type": "date" },
-        { "name": "language", "type": "string", "pool_name": "language" },
-        { "name": "pages", "type": "string" },
-        { "name": "volume", "type": "string", "null_rate_default": 0.7 },
-        { "name": "subject_category", "type": "string", "pool_name": "publication_type" },
-        { "name": "author_id", "type": "string" },
-        { "name": "publisher_id", "type": "string" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "book_id",
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "pool_name": "product_names"
+        },
+        {
+          "name": "isbn",
+          "type": "string",
+          "null_rate_default": 0.05
+        },
+        {
+          "name": "issn",
+          "type": "string",
+          "null_rate_default": 0.85
+        },
+        {
+          "name": "doi",
+          "type": "string",
+          "null_rate_default": 0.5
+        },
+        {
+          "name": "edition",
+          "type": "int"
+        },
+        {
+          "name": "publication_date",
+          "type": "date"
+        },
+        {
+          "name": "language",
+          "type": "string",
+          "pool_name": "language"
+        },
+        {
+          "name": "pages",
+          "type": "string"
+        },
+        {
+          "name": "volume",
+          "type": "string",
+          "null_rate_default": 0.7
+        },
+        {
+          "name": "subject_category",
+          "type": "string",
+          "pool_name": "publication_type"
+        },
+        {
+          "name": "author_id",
+          "type": "string"
+        },
+        {
+          "name": "publisher_id",
+          "type": "string"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "author_id", "target_entity": "author" },
-        { "source_col": "publisher_id", "target_entity": "publisher" }
+        {
+          "source_col": "author_id",
+          "target_entity": "author"
+        },
+        {
+          "source_col": "publisher_id",
+          "target_entity": "publisher"
+        }
       ]
     },
     {
       "name": "library_catalog",
+      "weight": 50,
       "columns": [
-        { "name": "catalog_id", "type": "string" },
-        { "name": "book_id", "type": "string" },
-        { "name": "branch_location", "type": "string", "pool_name": "city" },
-        { "name": "acquisition_date", "type": "date" },
-        { "name": "copies_owned", "type": "int" },
-        { "name": "shelf_location", "type": "string" },
-        { "name": "status", "type": "string", "pool_name": "status_active" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "catalog_id",
+          "type": "string"
+        },
+        {
+          "name": "book_id",
+          "type": "string"
+        },
+        {
+          "name": "branch_location",
+          "type": "string",
+          "pool_name": "city"
+        },
+        {
+          "name": "acquisition_date",
+          "type": "date"
+        },
+        {
+          "name": "copies_owned",
+          "type": "int"
+        },
+        {
+          "name": "shelf_location",
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": [
-        { "source_col": "book_id", "target_entity": "book" }
+        {
+          "source_col": "book_id",
+          "target_entity": "book"
+        }
       ]
     },
     {
       "name": "patron",
+      "weight": 80,
       "columns": [
-        { "name": "patron_id", "type": "string" },
-        { "name": "first_name", "type": "string" },
-        { "name": "last_name", "type": "string" },
-        { "name": "email", "type": "string" },
-        { "name": "phone", "type": "string", "null_rate_default": 0.3 },
-        { "name": "membership_date", "type": "date" },
-        { "name": "membership_tier", "type": "string", "pool_name": "tier" },
-        { "name": "status", "type": "string", "pool_name": "status_active" },
-        { "name": "source_system", "type": "string" }
+        {
+          "name": "patron_id",
+          "type": "string"
+        },
+        {
+          "name": "first_name",
+          "type": "string"
+        },
+        {
+          "name": "last_name",
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "phone",
+          "type": "string",
+          "null_rate_default": 0.3
+        },
+        {
+          "name": "membership_date",
+          "type": "date"
+        },
+        {
+          "name": "membership_tier",
+          "type": "string",
+          "pool_name": "tier"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "pool_name": "status_active"
+        },
+        {
+          "name": "source_system",
+          "type": "string"
+        }
       ],
       "fk_remaps": []
     }

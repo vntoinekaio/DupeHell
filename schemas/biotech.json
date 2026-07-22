@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "laboratory",
+      "weight": 1,
       "columns": [
         {
           "name": "lab_id",
@@ -46,6 +47,7 @@
     },
     {
       "name": "research_project",
+      "weight": 10,
       "columns": [
         {
           "name": "project_id",
@@ -96,6 +98,7 @@
     },
     {
       "name": "sample",
+      "weight": 50,
       "columns": [
         {
           "name": "sample_id",
@@ -137,6 +140,7 @@
     },
     {
       "name": "experiment",
+      "weight": 100,
       "columns": [
         {
           "name": "experiment_id",

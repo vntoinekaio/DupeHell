@@ -15,12 +15,28 @@ pub struct DomainSchema {
     pub hn_types: Vec<HnSchema>,
 }
 
+fn default_entity_weight() -> f64 {
+    1.0
+}
+
 #[derive(serde::Deserialize)]
 pub struct EntitySchema {
     pub name: String,
     pub columns: Vec<serde_json::Value>,
     #[serde(default)]
     pub fk_remaps: Vec<serde_json::Value>,
+    /// Relative population size of this entity within the domain, used to
+    /// split `total_unique` identities across entities (`build_pipeline_config`).
+    /// Defaults to `1.0` (every entity gets an equal share) when a schema
+    /// doesn't set it — every schema written before this field existed keeps
+    /// behaving exactly as before. Set explicit weights when entities aren't
+    /// realistically equal in population (e.g. aviation: far more
+    /// `passenger` identities than `airline` ones) — see `docs/` or ask
+    /// before picking numbers for a domain you don't know well; a wrong
+    /// weight is as misleading as the uniform default, just in the other
+    /// direction.
+    #[serde(default = "default_entity_weight")]
+    pub weight: f64,
 }
 
 #[derive(serde::Deserialize)]
@@ -278,11 +294,11 @@ pub fn build_pipeline_config(
     let total_unique = n_singleton + n_doublet / 2 + n_triplet / 3;
     let n_duplicates = total.max(total_unique) - total_unique;
 
-    let total_ratio: f64 = schema.entities.iter().map(|_| 1.0).sum::<f64>();
+    let total_ratio: f64 = schema.entities.iter().map(|e| e.weight).sum::<f64>();
     let raw_floats: Vec<(&str, f64)> = schema
         .entities
         .iter()
-        .map(|e| (e.name.as_str(), total_unique as f64 / total_ratio))
+        .map(|e| (e.name.as_str(), total_unique as f64 * e.weight / total_ratio))
         .collect();
 
     let mut floor_map: HashMap<&str, usize> = HashMap::new();

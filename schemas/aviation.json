@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "airline",
+      "weight": 1,
       "columns": [
         {
           "name": "airline_id",
@@ -39,6 +40,7 @@
     },
     {
       "name": "aircraft",
+      "weight": 5,
       "columns": [
         {
           "name": "aircraft_id",
@@ -79,6 +81,7 @@
     },
     {
       "name": "flight",
+      "weight": 50,
       "columns": [
         {
           "name": "flight_id",
@@ -128,6 +131,7 @@
     },
     {
       "name": "passenger",
+      "weight": 500,
       "columns": [
         {
           "name": "passenger_id",

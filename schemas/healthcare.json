@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "patient",
+      "weight": 100,
       "columns": [
         {
           "name": "enterprise_patient_id",
@@ -106,6 +107,7 @@
     },
     {
       "name": "provider",
+      "weight": 1,
       "columns": [
         {
           "name": "provider_id",
@@ -152,6 +154,7 @@
     },
     {
       "name": "encounter",
+      "weight": 300,
       "columns": [
         {
           "name": "encounter_id",
@@ -208,6 +211,7 @@
     },
     {
       "name": "coverage",
+      "weight": 150,
       "columns": [
         {
           "name": "coverage_id",

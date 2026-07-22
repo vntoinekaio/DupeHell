@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "brand",
+      "weight": 1,
       "columns": [
         {
           "name": "brand_id",
@@ -40,6 +41,7 @@
     },
     {
       "name": "collection",
+      "weight": 5,
       "columns": [
         {
           "name": "collection_id",
@@ -76,6 +78,7 @@
     },
     {
       "name": "product",
+      "weight": 100,
       "columns": [
         {
           "name": "product_id",
@@ -127,6 +130,7 @@
     },
     {
       "name": "supplier",
+      "weight": 10,
       "columns": [
         {
           "name": "supplier_id",

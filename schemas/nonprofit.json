@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "donor",
+      "weight": 50,
       "columns": [
         {
           "name": "donor_id",
@@ -45,6 +46,7 @@
     },
     {
       "name": "campaign",
+      "weight": 3,
       "columns": [
         {
           "name": "campaign_id",
@@ -82,6 +84,7 @@
     },
     {
       "name": "donation",
+      "weight": 200,
       "columns": [
         {
           "name": "donation_id",
@@ -117,6 +120,7 @@
     },
     {
       "name": "grant",
+      "weight": 5,
       "columns": [
         {
           "name": "grant_id",
@@ -153,6 +157,7 @@
     },
     {
       "name": "volunteer",
+      "weight": 30,
       "columns": [
         {
           "name": "volunteer_id",
@@ -184,6 +189,7 @@
     },
     {
       "name": "program",
+      "weight": 1,
       "columns": [
         {
           "name": "program_id",

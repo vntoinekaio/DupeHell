@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "client",
+      "weight": 10,
       "columns": [
         {
           "name": "client_id",
@@ -76,6 +77,7 @@
     },
     {
       "name": "lawyer",
+      "weight": 1,
       "columns": [
         {
           "name": "lawyer_id",
@@ -126,6 +128,7 @@
     },
     {
       "name": "case",
+      "weight": 20,
       "columns": [
         {
           "name": "case_id",
@@ -181,6 +184,7 @@
     },
     {
       "name": "case_document",
+      "weight": 200,
       "columns": [
         {
           "name": "document_id",
@@ -226,6 +230,7 @@
     },
     {
       "name": "hearing",
+      "weight": 15,
       "columns": [
         {
           "name": "hearing_id",
@@ -268,6 +273,7 @@
     },
     {
       "name": "billing_entry",
+      "weight": 300,
       "columns": [
         {
           "name": "billing_id",

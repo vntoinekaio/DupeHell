@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "project",
+      "weight": 1,
       "columns": [
         {
           "name": "project_id",
@@ -61,6 +62,7 @@
     },
     {
       "name": "contractor",
+      "weight": 5,
       "columns": [
         {
           "name": "contractor_id",
@@ -97,6 +99,7 @@
     },
     {
       "name": "permit",
+      "weight": 2,
       "columns": [
         {
           "name": "permit_id",
@@ -136,6 +139,7 @@
     },
     {
       "name": "inspection",
+      "weight": 10,
       "columns": [
         {
           "name": "inspection_id",

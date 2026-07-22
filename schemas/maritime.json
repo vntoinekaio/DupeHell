@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "shipping_line",
+      "weight": 1,
       "columns": [
         {
           "name": "line_id",
@@ -34,6 +35,7 @@
     },
     {
       "name": "vessel",
+      "weight": 15,
       "columns": [
         {
           "name": "vessel_id",
@@ -79,6 +81,7 @@
     },
     {
       "name": "voyage",
+      "weight": 50,
       "columns": [
         {
           "name": "voyage_id",
@@ -124,6 +127,7 @@
     },
     {
       "name": "cargo_manifest",
+      "weight": 50,
       "columns": [
         {
           "name": "manifest_id",

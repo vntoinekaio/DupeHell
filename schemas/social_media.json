@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "user",
+      "weight": 2,
       "columns": [
         {
           "name": "user_id",
@@ -43,6 +44,7 @@
     },
     {
       "name": "profile",
+      "weight": 2,
       "columns": [
         {
           "name": "profile_id",
@@ -82,6 +84,7 @@
     },
     {
       "name": "post",
+      "weight": 10,
       "columns": [
         {
           "name": "post_id",
@@ -118,6 +121,7 @@
     },
     {
       "name": "engagement",
+      "weight": 140,
       "columns": [
         {
           "name": "engagement_id",
@@ -149,6 +153,7 @@
     },
     {
       "name": "connection",
+      "weight": 600,
       "columns": [
         {
           "name": "connection_id",

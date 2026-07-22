@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "policy_holder",
+      "weight": 100,
       "columns": [
         {
           "name": "holder_id",
@@ -69,6 +70,7 @@
     },
     {
       "name": "policy",
+      "weight": 200,
       "columns": [
         {
           "name": "policy_id",
@@ -155,6 +157,7 @@
     },
     {
       "name": "claim",
+      "weight": 15,
       "columns": [
         {
           "name": "claim_id",
@@ -201,6 +204,7 @@
     },
     {
       "name": "agent",
+      "weight": 1,
       "columns": [
         {
           "name": "agent_id",

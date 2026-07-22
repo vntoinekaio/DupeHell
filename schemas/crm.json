@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "contact",
+      "weight": 3,
       "columns": [
         {
           "name": "contact_id",
@@ -74,6 +75,7 @@
     },
     {
       "name": "account",
+      "weight": 1,
       "columns": [
         {
           "name": "account_id",
@@ -145,6 +147,7 @@
     },
     {
       "name": "lead",
+      "weight": 50,
       "columns": [
         {
           "name": "lead_id",

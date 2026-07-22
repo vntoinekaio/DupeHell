@@ -3,6 +3,7 @@
   "entities": [
     {
       "name": "asset",
+      "weight": 100,
       "columns": [
         {
           "name": "asset_id",
@@ -45,6 +46,7 @@
     },
     {
       "name": "vulnerability",
+      "weight": 300,
       "columns": [
         {
           "name": "vuln_id",
@@ -82,6 +84,7 @@
     },
     {
       "name": "incident",
+      "weight": 10,
       "columns": [
         {
           "name": "incident_id",
@@ -137,6 +140,7 @@
     },
     {
       "name": "threat_actor",
+      "weight": 1,
       "columns": [
         {
           "name": "actor_id",
