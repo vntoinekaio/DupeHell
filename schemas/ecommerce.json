@@ -111,7 +111,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "customer_id",
+          "target_entity": "customer"
+        }
+      ]
     },
     {
       "name": "order",
@@ -194,7 +199,20 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "customer_id",
+          "target_entity": "customer"
+        },
+        {
+          "source_col": "billing_address_id",
+          "target_entity": "address"
+        },
+        {
+          "source_col": "shipping_address_id",
+          "target_entity": "address"
+        }
+      ]
     },
     {
       "name": "order_line_item",
@@ -253,7 +271,20 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "order_id",
+          "target_entity": "order"
+        },
+        {
+          "source_col": "product_id",
+          "target_entity": "product"
+        },
+        {
+          "source_col": "variant_id",
+          "target_entity": "product_variant"
+        }
+      ]
     },
     {
       "name": "product",
@@ -331,7 +362,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "product_id",
+          "target_entity": "product"
+        }
+      ]
     }
   ],
   "hn_types": [

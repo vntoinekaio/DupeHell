@@ -167,7 +167,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "store_id",
+          "target_entity": "store"
+        },
+        {
+          "source_col": "customer_id",
+          "target_entity": "customer"
+        }
+      ]
     },
     {
       "name": "sale_item",
@@ -202,7 +211,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "sale_id",
+          "target_entity": "sale"
+        },
+        {
+          "source_col": "product_id",
+          "target_entity": "product"
+        }
+      ]
     }
   ],
   "hn_types": [

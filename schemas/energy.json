@@ -108,7 +108,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "customer_id",
+          "target_entity": "utility_customer"
+        }
+      ]
     },
     {
       "name": "meter",
@@ -140,7 +145,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "service_point_id",
+          "target_entity": "service_point"
+        }
+      ]
     },
     {
       "name": "meter_reading",
@@ -176,7 +186,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "meter_id",
+          "target_entity": "meter"
+        }
+      ]
     },
     {
       "name": "invoice",
@@ -224,7 +239,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "service_point_id",
+          "target_entity": "service_point"
+        }
+      ]
     }
   ],
   "hn_types": [

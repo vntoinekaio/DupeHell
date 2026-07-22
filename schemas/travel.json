@@ -75,7 +75,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "traveler_id",
+          "target_entity": "traveler"
+        }
+      ]
     },
     {
       "name": "hotel_stay",
@@ -120,7 +125,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "booking_id",
+          "target_entity": "booking"
+        }
+      ]
     },
     {
       "name": "flight_segment",
@@ -169,7 +179,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "booking_id",
+          "target_entity": "booking"
+        }
+      ]
     }
   ],
   "hn_types": [

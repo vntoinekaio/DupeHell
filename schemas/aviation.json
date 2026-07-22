@@ -77,7 +77,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "airline_id",
+          "target_entity": "airline"
+        }
+      ]
     },
     {
       "name": "flight",
@@ -127,7 +132,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "airline_id",
+          "target_entity": "airline"
+        },
+        {
+          "source_col": "aircraft_id",
+          "target_entity": "aircraft"
+        }
+      ]
     },
     {
       "name": "passenger",
@@ -172,7 +186,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "flight_id",
+          "target_entity": "flight"
+        }
+      ]
     }
   ],
   "hn_types": [

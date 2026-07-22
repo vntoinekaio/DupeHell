@@ -115,7 +115,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "publisher_id",
+          "target_entity": "publisher"
+        }
+      ]
     },
     {
       "name": "article",
@@ -163,7 +168,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "publication_id",
+          "target_entity": "publication"
+        },
+        {
+          "source_col": "author_id",
+          "target_entity": "author"
+        }
+      ]
     },
     {
       "name": "review",
@@ -201,7 +215,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "article_id",
+          "target_entity": "article"
+        },
+        {
+          "source_col": "reviewer_id",
+          "target_entity": "author"
+        }
+      ]
     }
   ],
   "hn_types": [

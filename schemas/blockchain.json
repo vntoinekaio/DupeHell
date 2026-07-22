@@ -115,6 +115,10 @@
         {
           "source_col": "to_wallet",
           "target_entity": "wallet"
+        },
+        {
+          "source_col": "token_id",
+          "target_entity": "token"
         }
       ]
     },

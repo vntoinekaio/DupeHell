@@ -153,7 +153,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "holder_id",
+          "target_entity": "policy_holder"
+        },
+        {
+          "source_col": "agent_id",
+          "target_entity": "agent"
+        }
+      ]
     },
     {
       "name": "claim",
@@ -200,7 +209,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "policy_id",
+          "target_entity": "policy"
+        },
+        {
+          "source_col": "adjuster_id",
+          "target_entity": "agent"
+        }
+      ]
     },
     {
       "name": "agent",

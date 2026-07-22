@@ -120,7 +120,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "trial_id",
+          "target_entity": "clinical_trial"
+        }
+      ]
     },
     {
       "name": "subject",
@@ -166,7 +171,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "site_id",
+          "target_entity": "trial_site"
+        }
+      ]
     },
     {
       "name": "dispensation",
@@ -205,7 +215,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "subject_id",
+          "target_entity": "subject"
+        },
+        {
+          "source_col": "drug_id",
+          "target_entity": "drug"
+        }
+      ]
     },
     {
       "name": "adverse_event",
@@ -247,7 +266,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "subject_id",
+          "target_entity": "subject"
+        }
+      ]
     }
   ],
   "hn_types": [

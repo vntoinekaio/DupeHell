@@ -80,7 +80,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "asset_id",
+          "target_entity": "energy_asset"
+        }
+      ]
     },
     {
       "name": "maintenance",
@@ -122,7 +127,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "asset_id",
+          "target_entity": "energy_asset"
+        }
+      ]
     },
     {
       "name": "certificate",
@@ -163,7 +173,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "asset_id",
+          "target_entity": "energy_asset"
+        }
+      ]
     }
   ],
   "hn_types": [

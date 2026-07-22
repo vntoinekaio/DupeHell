@@ -102,7 +102,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "warehouse_id",
+          "target_entity": "warehouse"
+        }
+      ]
     },
     {
       "name": "shipment",
@@ -163,7 +168,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "from_warehouse_id",
+          "target_entity": "warehouse"
+        },
+        {
+          "source_col": "to_warehouse_id",
+          "target_entity": "warehouse"
+        }
+      ]
     },
     {
       "name": "carrier",
@@ -198,8 +212,12 @@
           "type": "float"
         },
         {
-          "name": "is_preferred",
-          "type": "boolean"
+          "name": "shipping_cost",
+          "type": "float"
+        },
+        {
+          "name": "carrier_id",
+          "type": "string"
         },
         {
           "name": "source_system",

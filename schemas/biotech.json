@@ -94,7 +94,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "lab_id",
+          "target_entity": "laboratory"
+        }
+      ]
     },
     {
       "name": "sample",
@@ -136,7 +141,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "project_id",
+          "target_entity": "research_project"
+        }
+      ]
     },
     {
       "name": "experiment",
@@ -185,7 +195,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "sample_id",
+          "target_entity": "sample"
+        }
+      ]
     }
   ],
   "hn_types": [

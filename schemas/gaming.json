@@ -104,7 +104,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "player_id",
+          "target_entity": "player"
+        }
+      ]
     },
     {
       "name": "match_session",
@@ -150,7 +155,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "account_id",
+          "target_entity": "game_account"
+        }
+      ]
     },
     {
       "name": "item_purchase",
@@ -192,7 +202,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "account_id",
+          "target_entity": "game_account"
+        }
+      ]
     }
   ],
   "hn_types": [

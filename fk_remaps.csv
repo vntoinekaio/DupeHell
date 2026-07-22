@@ -1,0 +1,142 @@
+domain,entity,source_col,target_entity,note
+academia,publication,researcher_id,researcher,publication rattachée à un chercheur
+academia,grant,researcher_id,researcher,subvention attribuée à un chercheur
+academia,conference,researcher_id,researcher,conférence présentée par un chercheur
+agriculture,crop,farm_id,farm,culture cultivée sur une exploitation
+agriculture,livestock,farm_id,farm,bétail élevé sur une exploitation
+agriculture,harvest,crop_id,crop,récolte liée à une culture
+automotive,vehicle_owner,vehicle_id,vehicle,propriétaire lié à un véhicule
+automotive,service_record,vehicle_id,vehicle,intervention d'entretien sur un véhicule
+automotive,part_replacement,service_id,service_record,pièce remplacée lors d'une intervention
+automotive,accident_claim,vehicle_id,vehicle,sinistre lié à un véhicule
+automotive,accident_claim,owner_id,vehicle_owner,sinistre lié au propriétaire
+aviation,aircraft,airline_id,airline,avion rattaché à une compagnie
+aviation,flight,airline_id,airline,vol opéré par une compagnie
+aviation,flight,aircraft_id,aircraft,vol assuré par un avion
+aviation,passenger,flight_id,flight,passager rattaché à un vol
+banking,account,holder_id,account_holder,compte détenu par un titulaire
+banking,transaction,account_id,account,transaction rattachée à un compte
+biotech,research_project,lab_id,laboratory,projet mené dans un laboratoire
+biotech,sample,project_id,research_project,échantillon issu d'un projet
+biotech,experiment,sample_id,sample,expérience réalisée sur un échantillon
+blockchain,blockchain_transaction,token_id,token,transaction portant sur un token (null 40%)
+construction,permit,project_id,project,permis rattaché à un projet
+construction,inspection,permit_id,permit,inspection liée à un permis
+construction,contractor,project_id,project,entrepreneur intervenant sur un projet
+crm,contact,account_id,account,contact rattaché à un compte
+crm,lead,contact_id,contact,prospect converti en contact (nullable 70%)
+cybersecurity,incident,asset_id,asset,incident impliquant un actif
+cybersecurity,incident,vuln_id,vulnerability,incident exploitant une vulnérabilité
+cybersecurity,incident,actor_id,threat_actor,incident attribué à un acteur malveillant
+ecommerce,address,customer_id,customer,adresse rattachée à un client
+ecommerce,order,customer_id,customer,commande passée par un client
+ecommerce,order,billing_address_id,address,adresse de facturation de la commande
+ecommerce,order,shipping_address_id,address,adresse de livraison de la commande
+ecommerce,order_line_item,order_id,order,ligne rattachée à une commande
+ecommerce,order_line_item,product_id,product,produit commandé dans la ligne
+ecommerce,order_line_item,variant_id,product_variant,variante du produit commandé
+ecommerce,product_variant,product_id,product,variante rattachée à un produit
+education,course,faculty_id,faculty,cours enseigné par un professeur
+education,enrollment,student_id,student,inscription d'un étudiant
+education,enrollment,course_id,course,inscription dans un cours
+energy,service_point,customer_id,utility_customer,point de livraison d'un client
+energy,meter,service_point_id,service_point,compteur rattaché à un point de livraison
+energy,meter_reading,meter_id,meter,relevé issu d'un compteur
+energy,invoice,service_point_id,service_point,facture liée à un point de livraison
+fashion,collection,brand_id,brand,collection d'une marque
+fashion,product,collection_id,collection,produit d'une collection
+fashion,supplier,brand_id,brand,fournisseur d'une marque
+food_beverage,menu_item,restaurant_id,restaurant,plat proposé par un restaurant
+food_beverage,inspection,restaurant_id,restaurant,contrôle sanitaire d'un restaurant
+food_beverage,supplier,restaurant_id,restaurant,fournisseur d'un restaurant
+gaming,game_account,player_id,player,compte de jeu d'un joueur
+gaming,match_session,account_id,game_account,partie liée à un compte
+gaming,item_purchase,account_id,game_account,achat lié à un compte
+healthcare,patient,cur_pcp_prov_id,provider,médecin traitant du patient (FK vers provider)
+healthcare,encounter,patient_id,patient,consultation d'un patient
+healthcare,encounter,provider_id,provider,consultation réalisée par un professionnel
+healthcare,coverage,patient_id,patient,couverture d'assurance d'un patient
+hospitality,booking,guest_id,guest,réservation faite par un client
+hospitality,booking,hotel_id,hotel_property,réservation dans un hôtel
+hospitality,loyalty_account,guest_id,guest,compte fidélité d'un client
+hr,employee,department_id,department,salarié rattaché à un service
+hr,payroll_record,employee_id,employee,bulletin de paie d'un salarié
+hr,performance_review,employee_id,employee,entretien d'un salarié
+insurance,policy,holder_id,policy_holder,contrat souscrit par un assuré
+insurance,policy,agent_id,agent,contrat géré par un agent
+insurance,claim,policy_id,policy,sinistre rattaché à un contrat
+insurance,claim,adjuster_id,agent,sinistre instruit par un gestionnaire (adjuster = référencé comme agent)
+legal,case,client_id,client,dossier lié à un client
+legal,case,assigned_lawyer_id,lawyer,dossier assigné à un avocat
+legal,case_document,case_id,case,document rattaché à un dossier
+legal,case_document,lawyer_id,lawyer,document préparé par un avocat
+legal,hearing,case_id,case,audience liée à un dossier
+legal,billing_entry,case_id,case,entrée de facturation liée à un dossier
+legal,billing_entry,lawyer_id,lawyer,entrée de facturation liée à un avocat
+logistics,shipment,carrier_id,carrier,expédition confiée à un transporteur
+logistics,package,shipment_id,shipment,colis rattaché à une expédition
+logistics,delivery,shipment_id,shipment,livraison liée à une expédition
+logistics,delivery,package_id,package,livraison rattachée à un colis (1:1 avec les poids)
+manufacturing,supplier_part,bom_id,product_bom,composant utilisé dans une nomenclature
+manufacturing,manufacturing_order,bom_id,product_bom,ordre de fabrication basé sur une nomenclature
+manufacturing,batch,order_id,manufacturing_order,lot issu d'un ordre de fabrication
+manufacturing,quality_control,batch_id,batch,contrôle qualité d'un lot
+maritime,vessel,line_id,shipping_line,navire rattaché à une compagnie maritime
+maritime,voyage,vessel_id,vessel,trajet effectué par un navire
+maritime,cargo_manifest,voyage_id,voyage,manifeste lié à un trajet
+media,publication,publisher_id,publisher,publication éditée par une maison
+media,article,publication_id,publication,article publié dans une publication
+media,article,author_id,author,article écrit par un auteur
+media,review,article_id,article,critique liée à un article
+media,review,reviewer_id,author,relecteur (considéré comme un auteur — pas d'entité reviewer distincte)
+mining,claim,site_id,mine_site,concession rattachée à un site minier
+mining,production_run,site_id,mine_site,campagne de production sur un site
+mining,environmental_report,site_id,mine_site,rapport environnemental d'un site
+nonprofit,donation,donor_id,donor,don lié à un donateur
+nonprofit,donation,campaign_id,campaign,don rattaché à une campagne
+nonprofit,campaign,program_id,program,campagne rattachée à un programme
+nonprofit,grant,program_id,program,subvention rattachée à un programme
+nonprofit,volunteer,program_id,program,bénévole rattaché à un programme
+pharma,trial_site,trial_id,clinical_trial,site participant à un essai clinique
+pharma,subject,site_id,trial_site,sujet inscrit dans un site d'essai
+pharma,dispensation,subject_id,subject,délivrance à un sujet
+pharma,dispensation,drug_id,drug,médicament délivré
+pharma,adverse_event,subject_id,subject,événement indésirable chez un sujet
+realestate,property_ownership,property_id,property,lien de propriété vers un bien
+realestate,property_ownership,owner_id,property_owner,lien de propriété vers un propriétaire
+realestate,listing,property_id,property,annonce liée à un bien
+realestate,sale_transaction,listing_id,listing,vente liée à une annonce
+realestate,sale_transaction,buyer_id,property_owner,acheteur (personne physique ou morale)
+realestate,sale_transaction,seller_id,property_owner,vendeur (personne physique ou morale)
+renewable_energy,energy_generation_record,asset_id,energy_asset,relevé de production d'un actif
+renewable_energy,maintenance,asset_id,energy_asset,maintenance effectuée sur un actif
+renewable_energy,certificate,asset_id,energy_asset,certificat lié à un actif
+retail,sale,store_id,store,vente réalisée dans un magasin
+retail,sale,customer_id,customer,vente liée à un client
+retail,sale_item,sale_id,sale,ligne de vente rattachée à une vente
+retail,sale_item,product_id,product,produit vendu dans la ligne
+social_media,profile,user_id,user,profil d'un utilisateur
+social_media,post,user_id,user,publication d'un utilisateur
+social_media,engagement,post_id,post,interaction liée à une publication
+social_media,engagement,user_id,user,interaction faite par un utilisateur
+social_media,connection,user_id,user,connexion initiée par un utilisateur
+social_media,connection,connected_user_id,user,connexion vers un autre utilisateur (deuxième FK vers user)
+sports,contract,athlete_id,athlete,contrat lié à un athlète
+sports,contract,team_id,team,contrat lié à une équipe
+sports,game,competition_id,competition,rencontre d'une compétition
+sports,game,home_team_id,team,équipe à domicile
+sports,game,away_team_id,team,équipe à l'extérieur
+sports,game_stat,game_id,game,statistique d'une rencontre
+sports,game_stat,athlete_id,athlete,statistique d'un athlète
+sports,transfer,athlete_id,athlete,transfert d'un athlète
+sports,transfer,from_team_id,team,équipe d'origine du transfert
+sports,transfer,to_team_id,team,équipe de destination du transfert
+supplychain,inventory_item,warehouse_id,warehouse,article stocké dans un entrepôt
+supplychain,shipment,from_warehouse_id,warehouse,expédition depuis un entrepôt
+supplychain,shipment,to_warehouse_id,warehouse,expédition vers un entrepôt
+telecom,phone_line,subscriber_id,subscriber,ligne téléphonique d'un abonné
+telecom,device,line_id,phone_line,appareil associé à une ligne
+telecom,call_record,line_id,phone_line,appel passé sur une ligne
+travel,booking,traveler_id,traveler,réservation faite par un voyageur
+travel,hotel_stay,booking_id,booking,séjour hôtelier lié à une réservation
+travel,flight_segment,booking_id,booking,segment aérien lié à une réservation

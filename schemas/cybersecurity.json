@@ -132,11 +132,28 @@
           "pool_name": "first_name"
         },
         {
+          "name": "actor_id",
+          "type": "string"
+        },
+        {
           "name": "source_system",
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "asset_id",
+          "target_entity": "asset"
+        },
+        {
+          "source_col": "vuln_id",
+          "target_entity": "vulnerability"
+        },
+        {
+          "source_col": "actor_id",
+          "target_entity": "threat_actor"
+        }
+      ]
     },
     {
       "name": "threat_actor",

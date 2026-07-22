@@ -80,7 +80,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "user_id",
+          "target_entity": "user"
+        }
+      ]
     },
     {
       "name": "post",
@@ -117,7 +122,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "user_id",
+          "target_entity": "user"
+        }
+      ]
     },
     {
       "name": "engagement",
@@ -149,7 +159,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "post_id",
+          "target_entity": "post"
+        },
+        {
+          "source_col": "user_id",
+          "target_entity": "user"
+        }
+      ]
     },
     {
       "name": "connection",
@@ -181,7 +200,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "user_id",
+          "target_entity": "user"
+        },
+        {
+          "source_col": "connected_user_id",
+          "target_entity": "user"
+        }
+      ]
     }
   ],
   "hn_types": [

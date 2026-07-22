@@ -180,7 +180,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "guest_id",
+          "target_entity": "guest"
+        },
+        {
+          "source_col": "hotel_id",
+          "target_entity": "hotel_property"
+        }
+      ]
     },
     {
       "name": "loyalty_account",
@@ -219,7 +228,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "guest_id",
+          "target_entity": "guest"
+        }
+      ]
     }
   ],
   "hn_types": [

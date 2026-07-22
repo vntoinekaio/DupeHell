@@ -91,7 +91,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "department_id",
+          "target_entity": "department"
+        }
+      ]
     },
     {
       "name": "department",
@@ -165,7 +170,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "employee_id",
+          "target_entity": "employee"
+        }
+      ]
     },
     {
       "name": "performance_review",
@@ -201,7 +211,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "employee_id",
+          "target_entity": "employee"
+        }
+      ]
     }
   ],
   "hn_types": [

@@ -80,7 +80,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "vehicle_id",
+          "target_entity": "vehicle"
+        }
+      ]
     },
     {
       "name": "service_record",
@@ -121,7 +126,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "vehicle_id",
+          "target_entity": "vehicle"
+        }
+      ]
     },
     {
       "name": "part_replacement",
@@ -153,7 +163,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "service_id",
+          "target_entity": "service_record"
+        }
+      ]
     },
     {
       "name": "accident_claim",
@@ -194,7 +209,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "vehicle_id",
+          "target_entity": "vehicle"
+        },
+        {
+          "source_col": "owner_id",
+          "target_entity": "vehicle_owner"
+        }
+      ]
     }
   ],
   "hn_types": [

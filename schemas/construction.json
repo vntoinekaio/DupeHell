@@ -91,11 +91,20 @@
           "type": "int"
         },
         {
+          "name": "project_id",
+          "type": "string"
+        },
+        {
           "name": "source_system",
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "project_id",
+          "target_entity": "project"
+        }
+      ]
     },
     {
       "name": "permit",
@@ -135,7 +144,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "project_id",
+          "target_entity": "project"
+        }
+      ]
     },
     {
       "name": "inspection",
@@ -174,7 +188,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "permit_id",
+          "target_entity": "permit"
+        }
+      ]
     }
   ],
   "hn_types": [

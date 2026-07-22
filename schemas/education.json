@@ -158,7 +158,12 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "faculty_id",
+          "target_entity": "faculty"
+        }
+      ]
     },
     {
       "name": "enrollment",
@@ -193,7 +198,16 @@
           "type": "string"
         }
       ],
-      "fk_remaps": []
+      "fk_remaps": [
+        {
+          "source_col": "student_id",
+          "target_entity": "student"
+        },
+        {
+          "source_col": "course_id",
+          "target_entity": "course"
+        }
+      ]
     }
   ],
   "hn_types": [
