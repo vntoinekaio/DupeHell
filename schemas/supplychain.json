@@ -216,10 +216,6 @@
           "type": "float"
         },
         {
-          "name": "carrier_id",
-          "type": "string"
-        },
-        {
           "name": "source_system",
           "type": "string"
         }
