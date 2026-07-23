@@ -13,6 +13,22 @@ This tool generates **synthetic data** that does not correspond to any real
 individuals, organizations, or entities. No real personally identifiable
 information (PII) is used, generated, or distributed by this project.
 
+### Reserved value spaces
+
+Several generated fields are deliberately confined to ranges reserved by the
+relevant standards body for documentation/fictional use, so that no generated
+value can ever coincide with a real, resolvable resource:
+
+- **Email/URL domains** — `example.com`/`.example`/`.test`/`.invalid`
+  (RFC 2606), never a real, deliverable mailbox or registrable domain.
+- **IP addresses** — the RFC 5737 documentation blocks (`192.0.2.0/24`,
+  `198.51.100.0/24`, `203.0.113.0/24`), never routed on the public Internet.
+- **Phone numbers** — the NANP fictional-use exchange `555-0100`–`555-0199`,
+  reserved by the numbering plan administrator and never assigned to a real
+  subscriber.
+- **SSNs** — area numbers `900`–`999`, an area block documented by the SSA
+  as never assigned to a real Social Security number.
+
 ---
 
 ## Prohibited uses

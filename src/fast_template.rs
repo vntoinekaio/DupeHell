@@ -63,8 +63,8 @@ fn write_num(buf: &mut Vec<u8>, val: usize) {
 
 // ── Template generators ───────────────────────────────────────────────────
 
-fn gen_email(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    buf_email(n, rng)
+fn gen_email(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    buf_email(n, rng, ctx)
 }
 
 fn gen_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
@@ -137,7 +137,11 @@ fn gen_url(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     // every call — `k < first.len()` picks the same element `names[k]`
     // would have under `first.iter().chain(last.iter())`.
     let total = first.len() + last.len();
-    let tlds = [".com", ".org", ".net", ".io"];
+    // `.example`/`.test`/`.invalid` are reserved by RFC 2606 for use as a
+    // second-level label under ANY name -- e.g. `johnsmith.example` is
+    // guaranteed to never be a real, registrable domain, unlike `.com`/
+    // `.org`/`.net`/`.io`, which are live and could already be registered.
+    let tlds = [".example", ".test", ".invalid"];
     build_string_array(n, 28, |buf| {
         buf.extend_from_slice(b"www.");
         let k = rng.next_usize(total);
@@ -155,12 +159,15 @@ fn gen_url(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_username(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    // 6 prefixes x ~900,000 suffix values (was 4 digits / ~59,400 total) --
+    // the previous range was small enough to cause accidental collisions
+    // between unrelated entities once a dataset's population grew past it.
     let prefixes = ["user", "admin", "guest", "member", "player", "fan"];
-    build_string_array(n, 12, |buf| {
+    build_string_array(n, 14, |buf| {
         let p = prefixes[rng.next_usize(prefixes.len())];
         buf.extend_from_slice(p.as_bytes());
-        let num = rng.next_usize(9900) + 100;
-        write_zpad(buf, num, 4);
+        let num = rng.next_usize(900_000) + 100_000;
+        write_zpad(buf, num, 6);
     })
 }
 
@@ -271,11 +278,15 @@ fn gen_license(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     })
 }
 
+/// RFC 5737 documentation/test address blocks (`192.0.2.0/24`,
+/// `198.51.100.0/24`, `203.0.113.0/24`) -- never routed on the public
+/// Internet, so no generated IP can ever belong to a real host or
+/// organization (unlike arbitrary octets, which produce real routable IPs).
+const RFC5737_BLOCKS: [(usize, usize, usize); 3] = [(192, 0, 2), (198, 51, 100), (203, 0, 113)];
+
 fn gen_ip(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     build_string_array(n, 15, |buf| {
-        let o1 = rng.next_usize(254) + 1;
-        let o2 = rng.next_usize(254) + 1;
-        let o3 = rng.next_usize(254) + 1;
+        let (o1, o2, o3) = RFC5737_BLOCKS[rng.next_usize(RFC5737_BLOCKS.len())];
         let o4 = rng.next_usize(254) + 1;
         write_num(buf, o1);
         buf.push(b'.');
@@ -490,10 +501,11 @@ fn gen_upc(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 }
 
 fn gen_case_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build_string_array(n, 16, |buf| {
+    // 7 digits (~9M values, was 5 digits / 90,000) -- see gen_part_num.
+    build_string_array(n, 18, |buf| {
         buf.extend_from_slice(b"CASE-2024-");
-        let num = rng.next_usize(90000) + 10000;
-        write_zpad(buf, num, 5);
+        let num = rng.next_usize(9_000_000) + 1_000_000;
+        write_zpad(buf, num, 7);
     })
 }
 
@@ -574,10 +586,13 @@ fn gen_pages(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_part_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build_string_array(n, 10, |buf| {
+    // 7 digits (~9M values, was 5 digits / 90,000) -- the previous range
+    // was small enough to cause accidental, unlabeled collisions between
+    // unrelated parts once a dataset's population grew past it.
+    build_string_array(n, 12, |buf| {
         buf.extend_from_slice(b"PRT-");
-        let num = rng.next_usize(90000) + 10000;
-        write_zpad(buf, num, 5);
+        let num = rng.next_usize(9_000_000) + 1_000_000;
+        write_zpad(buf, num, 7);
     })
 }
 
@@ -598,10 +613,11 @@ fn gen_nct(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 fn gen_subj_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    build_string_array(n, 10, |buf| {
+    // 7 digits (~9M values, was 5 digits / 90,000) -- see gen_part_num.
+    build_string_array(n, 12, |buf| {
         buf.extend_from_slice(b"SUB-");
-        let num = rng.next_usize(90000) + 10000;
-        write_zpad(buf, num, 5);
+        let num = rng.next_usize(9_000_000) + 1_000_000;
+        write_zpad(buf, num, 7);
     })
 }
 
@@ -1211,8 +1227,8 @@ mod tests {
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             let v = s.value(i);
-            assert_eq!(v.len(), 18, "email[{i}] = {v:?}");
             assert!(v.contains('@'), "email[{i}] = {v:?}");
+            assert!(v.ends_with("@example.com"), "email[{i}] = {v:?}");
         }
     }
 
@@ -1242,10 +1258,7 @@ mod tests {
             let v = s.value(i);
             assert!(v.starts_with("www."), "url[{i}] = {v:?}");
             assert!(
-                v.ends_with(".com")
-                    || v.ends_with(".org")
-                    || v.ends_with(".net")
-                    || v.ends_with(".io"),
+                v.ends_with(".example") || v.ends_with(".test") || v.ends_with(".invalid"),
                 "url[{i}] = {v:?}"
             );
         }
