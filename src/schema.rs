@@ -298,7 +298,12 @@ pub fn build_pipeline_config(
     let raw_floats: Vec<(&str, f64)> = schema
         .entities
         .iter()
-        .map(|e| (e.name.as_str(), total_unique as f64 * e.weight / total_ratio))
+        .map(|e| {
+            (
+                e.name.as_str(),
+                total_unique as f64 * e.weight / total_ratio,
+            )
+        })
         .collect();
 
     let mut floor_map: HashMap<&str, usize> = HashMap::new();
