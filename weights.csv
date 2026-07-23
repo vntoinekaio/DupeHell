@@ -13,9 +13,9 @@ automotive,service_record,15,interventions d'entretien par véhicule
 automotive,part_replacement,8,pièces remplacées lors d'interventions
 automotive,accident_claim,1,sinistres — ~1 par véhicule sur sa durée de vie (plancher weight=1, réel ~0.7)
 aviation,airline,1,compagnies aériennes — très peu
-aviation,aircraft,5,flotte de quelques dizaines d'appareils par compagnie
-aviation,flight,50,vols quotidiens par appareil sur la période
-aviation,passenger,500,passagers par vol — 10 pax/vol en moyenne (vs 69 en réalité)
+aviation,aircraft,20,flotte par compagnie — relevé pour rééquilibrer la distribution ER (compromis réalisme, cf note passenger)
+aviation,flight,300,vols par appareil sur la période — relevé pour la même raison
+aviation,passenger,250,passagers — réduit volontairement (~0.8 pax/vol, vs 69 en réalité) pour que l'entité ER cible reste <50% du dataset filtré à grande échelle
 banking,account_holder,5,titulaires de compte
 banking,account,10,comptes (1 à 3 par titulaire)
 banking,transaction,500,transactions nombreuses par compte
@@ -33,8 +33,8 @@ construction,permit,2,permis par projet
 construction,contractor,5,entrepreneurs intervenant par projet
 construction,inspection,10,inspections multiples par projet
 crm,account,1,comptes clients — les moins nombreux
-crm,contact,3,contacts par compte
-crm,lead,50,pistes commerciales — très nombreuses, peu converties
+crm,contact,16,contacts par compte — relevé pour rééquilibrer la distribution ER (compromis réalisme, cf note lead)
+crm,lead,15,pistes commerciales — réduit volontairement (vs funnel réel bien plus large) pour que l'entité ER cible reste <50% du dataset filtré
 cybersecurity,threat_actor,1,acteurs malveillants — peu nombreux
 cybersecurity,incident,10,incidents par acteur
 cybersecurity,asset,100,actifs informatiques — nombreux
@@ -87,8 +87,8 @@ insurance,agent,1,agents et courtiers
 insurance,claim,15,sinistres déclarés (~10-15% des polices par an)
 insurance,policy_holder,100,souscripteurs par agent
 insurance,policy,200,contrats par souscripteur (~2.3 polices/ménage en moyenne)
-kyc,legal_entity,1,personnes morales — les moins nombreuses
-kyc,natural_person,15,personnes physiques — bien plus nombreuses en KYC
+kyc,legal_entity,15,personnes morales — relevé à parité avec natural_person (compromis ER : seulement 2 entités dans le domaine, 50/50 est le meilleur équilibre atteignable)
+kyc,natural_person,15,personnes physiques — ramené à parité avec legal_entity, cf note ci-dessus
 legal,lawyer,1,avocats et juristes
 legal,client,10,clients par avocat
 legal,hearing,15,audiences par dossier
