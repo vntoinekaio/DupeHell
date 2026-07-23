@@ -308,6 +308,13 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
                 "license",
                 "siren",
                 "national_id",
+                // Added: `difficulty::base_noise_damage` already models a
+                // 0.6 damage weight for "registration"-matching columns
+                // (e.g. kyc's `registration_number`), but this predicate
+                // never actually targeted them -- a real column with zero
+                // noise coverage regardless of `passes`, floor-ing hell's
+                // f1_max well above its intended ceiling on that schema.
+                "registration",
             ],
         ),
         "extra"
@@ -337,8 +344,18 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             // postal address — scrambling/postal-corrupting it doesn't make
             // sense (see the same exclusion on the typo/visual arm above,
             // BUGS.md C20).
+            //
+            // "state"/"country" added: `difficulty::base_noise_damage`
+            // already models a 0.5 damage weight for them (same bucket as
+            // address/street/city/postal), but this predicate never
+            // actually targeted them -- e.g. kyc's `residential_state` /
+            // `residential_country` / `registered_country` had zero real
+            // noise coverage regardless of `passes`.
             !lower.contains("ip_address")
-                && contains_any(&lower, &["address", "street", "postal", "city"])
+                && contains_any(
+                    &lower,
+                    &["address", "street", "postal", "city", "state", "country"],
+                )
         }
         "exact" | "english_name" | "estonian_name" | "lithuanian_name" | "slovak_name"
         | "serbian_name" | "norwegian_name" | "swedish_name" | "dutch_name" | "czech_name"
