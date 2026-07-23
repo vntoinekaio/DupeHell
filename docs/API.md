@@ -40,7 +40,7 @@ Generate a synthetic dataset for a given domain.
 | `pools_dir` | `str \| None` | `None` | Path to pool data files. If `None`, tries `./assets/pools` then the package-installed path. |
 | `schemas_dir` | `str \| None` | `None` | Path to domain schema files. If `None`, tries `./schemas` then the package-installed path. |
 | `output_format` | `str` | `"parquet"` | `"parquet"` (default, ZSTD compressed) or `"ipc"` (Arrow IPC). |
-| `hard_neg_ratio` | `float` | `0.3` | Internal scaling knob for the hard-negative count, **not** the literal fraction of records that become hard negatives. Actual count ≈ `size × hard_neg_ratio × 0.05` (default `0.3` → ~1.5% of `size`). Use `estimate()` to see the exact count for a given value before generating. |
+| `hard_neg_ratio` | `float` | `0.3` | Internal scaling knob for the hard-negative count, **not** the literal fraction of records that become hard negatives. Actual count ≈ `n_duplicates × hard_neg_ratio × 0.125`, where `n_duplicates` depends on `difficulty` (light ~0.28×`size`, medium ~0.40×`size`, hell ~0.57×`size`); at `difficulty="medium"` + default `0.3` this is ~1.5% of `size`. Use `estimate()` to see the exact count for a given value before generating. |
 | `singleton_master_fraction` | `float` | `0.10` | Fraction of masters with only one record. |
 | `generate_graph` | `bool` | `False` | Also emit a property graph (nodes + typed edges) alongside the tabular dataset, for graph-based entity resolution / community detection benchmarking. |
 | `graph_format` | `str` | `"parquet"` | `"parquet"` or `"ipc"` — output format for the graph files. Only used when `generate_graph=True`. |
@@ -94,7 +94,7 @@ generating data.
 | `seed` | `int` | `42` | PRNG seed |
 | `difficulty` | `str` | `"medium"` | `light`, `medium`, or `hell` |
 | `schemas_dir` | `str \| None` | `None` | Path to schema files. If `None`, tries `./schemas` then the package-installed path. |
-| `hard_neg_ratio` | `float` | `0.3` | Same internal scaling knob as in `generate()` (actual count ≈ `size × hard_neg_ratio × 0.05`) — must match the value used for actual generation for the estimate to be meaningful. |
+| `hard_neg_ratio` | `float` | `0.3` | Same internal scaling knob as in `generate()` (actual count ≈ `n_duplicates × hard_neg_ratio × 0.125`, see above) — must match the value used for actual generation for the estimate to be meaningful. |
 
 **Returns:** [`DifficultyReport`](#difficultyreport)
 

@@ -75,7 +75,7 @@ struct Cli {
     #[arg(
         long,
         default_value_t = 0.3,
-        help = "Hard-negative scaling knob, not a literal fraction: actual count ~= size * hard_neg_ratio * 0.05 (default 0.3 -> ~1.5% of size). Use --estimate to see the exact count first."
+        help = "Hard-negative scaling knob, not a literal fraction: actual count ~= n_duplicates * hard_neg_ratio * 0.125, where n_duplicates depends on --difficulty (light ~0.28*size, medium ~0.40*size, hell ~0.57*size); at medium + default 0.3 this is ~1.5% of size. Use --estimate to see the exact count first."
     )]
     hard_neg_ratio: f64,
 

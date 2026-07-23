@@ -478,6 +478,29 @@ mod tests {
     }
 
     #[test]
+    fn test_estimate_difficulty_tiers_ordered_aviation() {
+        // Aviation exposed a second, distinct root cause from the
+        // categories/passes one above: `n_hard_neg` used to be a flat
+        // `size * hard_neg_ratio * 0.05`, independent of tier, while
+        // `total_true_pairs` scales a lot with the tier's singleton/doublet
+        // split (light ~0.28*size, medium ~0.40*size, hell ~0.57*size).
+        // With guaranteed_fp roughly constant across tiers and true_pairs
+        // growing, `precision_max = tp/(tp+fp)` mechanically rose with
+        // duplication volume regardless of injected noise — enough to flip
+        // light (0.8280) below medium (0.8328) on this schema specifically.
+        // Fixed by scaling `n_hard_neg` off `n_duplicates` instead of raw
+        // `size` (`schema::build_pipeline_config`), which keeps the
+        // fp/tp ratio comparable across tiers.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas");
+        let schema = load_schema("aviation", &dir).expect("load aviation.json");
+        let light = estimate_difficulty("aviation", 5000, 42, "light", 0.1, &schema).unwrap();
+        let medium = estimate_difficulty("aviation", 5000, 42, "medium", 0.1, &schema).unwrap();
+        let hell = estimate_difficulty("aviation", 5000, 42, "hell", 0.1, &schema).unwrap();
+        assert!(medium.f1_max <= light.f1_max);
+        assert!(hell.f1_max <= medium.f1_max);
+    }
+
+    #[test]
     fn test_estimate_difficulty_deterministic() {
         let schema = kyc_schema();
         let a = estimate_difficulty("kyc", 1000, 42, "medium", 0.1, &schema).unwrap();
