@@ -278,7 +278,18 @@ pub fn apply_null_rate(arr: &dyn arrow::array::Array, rate: f64, rng: &mut Rng) 
 // ── Main dispatch ─────────────────────────────────────────────────────────
 
 /// Generate an Arrow array for a single column.
-pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+///
+/// `row_offset` is the position of this batch's first row within the
+/// entity's full row range across all batches — required so the `_id`
+/// fallback below stays globally unique instead of restarting at 0 for
+/// every batch (see `entity_gen::EntityBatchRequest::row_offset`).
+pub fn generate_column(
+    col: &ColumnDef,
+    n: usize,
+    rng: &mut Rng,
+    ctx: &Context,
+    row_offset: usize,
+) -> ArrayRef {
     // Pre-compute normalized name once (avoids alloc per template lookup)
     let norm_name = col.name.to_lowercase().replace(' ', "_");
 
@@ -318,12 +329,15 @@ pub fn generate_column(col: &ColumnDef, n: usize, rng: &mut Rng, ctx: &Context) 
                 pool_values(pn, n, rng, ctx)
             } else if col.name.ends_with("_id") || col.name == "id" {
                 // _id fallback (after pool lookup, before word fallback).
-                // `i` is a per-batch row index (< BATCH_SIZE = 500_000), so
-                // it always fits within the 7-digit zero-padded width below
-                // — `write_zpad` truncates rather than widens, unlike
-                // `format!("{:07}", i)`, but that only matters past 10M.
+                // `i` starts at `row_offset` (this batch's global row
+                // position), not 0 — otherwise every batch beyond the first
+                // would recycle the same CUST-0000000.. range as the batch
+                // before it, since generate_column is called once per
+                // BATCH_SIZE=500_000 chunk. `write_zpad` truncates rather
+                // than widens, unlike `format!("{:07}", i)`, so entities
+                // beyond 10M rows would still wrap — acceptable for now.
                 let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
-                let mut i: usize = 0;
+                let mut i: usize = row_offset;
                 build_string_array(n, 12, |buf| {
                     buf.extend_from_slice(prefix.as_bytes());
                     buf.push(b'-');
@@ -461,7 +475,7 @@ mod tests {
         let ctx = test_ctx();
         let mut rng = test_rng();
         let col = ColumnDef::new("phone", ColType::String);
-        let arr = generate_column(&col, 5, &mut rng, &ctx);
+        let arr = generate_column(&col, 5, &mut rng, &ctx, 0);
         let s = arr.as_string::<i32>();
         assert_eq!(s.len(), 5);
         for i in 0..5 {
@@ -474,10 +488,36 @@ mod tests {
         let ctx = test_ctx();
         let mut rng = test_rng();
         let col = ColumnDef::new("person_id", ColType::String);
-        let arr = generate_column(&col, 5, &mut rng, &ctx);
+        let arr = generate_column(&col, 5, &mut rng, &ctx, 0);
         let s = arr.as_string::<i32>();
         assert_eq!(s.len(), 5);
         assert!(s.value(0).starts_with("PERS"), "id[{0}] = {:?}", s.value(0));
+    }
+
+    #[test]
+    fn test_generate_column_id_row_offset_no_collision() {
+        // Simulates two successive BATCH_SIZE-sized batches for the same
+        // entity: the second batch's `_id` fallback values must not
+        // overlap with the first's, which requires `row_offset` to carry
+        // the global row position forward instead of restarting at 0.
+        let ctx = test_ctx();
+        let col = ColumnDef::new("customer_id", ColType::String);
+        let n = 50;
+
+        let mut rng_a = test_rng();
+        let arr_a = generate_column(&col, n, &mut rng_a, &ctx, 0);
+        let s_a = arr_a.as_string::<i32>();
+        let ids_a: std::collections::HashSet<&str> = (0..n).map(|i| s_a.value(i)).collect();
+
+        let mut rng_b = test_rng();
+        let arr_b = generate_column(&col, n, &mut rng_b, &ctx, n);
+        let s_b = arr_b.as_string::<i32>();
+        let ids_b: std::collections::HashSet<&str> = (0..n).map(|i| s_b.value(i)).collect();
+
+        assert!(
+            ids_a.is_disjoint(&ids_b),
+            "batch B (row_offset={n}) must not recycle batch A's ids: {ids_a:?} vs {ids_b:?}"
+        );
     }
 
     #[test]
@@ -485,7 +525,7 @@ mod tests {
         let ctx = test_ctx();
         let mut rng = test_rng();
         let col = ColumnDef::new("credit_score", ColType::Int);
-        let arr = generate_column(&col, 10, &mut rng, &ctx);
+        let arr = generate_column(&col, 10, &mut rng, &ctx, 0);
         let a = arr.as_any().downcast_ref::<Int64Array>().unwrap();
         assert_eq!(a.len(), 10);
         for i in 0..10 {
@@ -499,7 +539,7 @@ mod tests {
         let ctx = test_ctx();
         let mut rng = test_rng();
         let col = ColumnDef::new("first_name", ColType::String).with_pool("first_name");
-        let arr = generate_column(&col, 10, &mut rng, &ctx);
+        let arr = generate_column(&col, 10, &mut rng, &ctx, 0);
         let s = arr.as_string::<i32>();
         assert_eq!(s.len(), 10);
         for i in 0..10 {
@@ -513,7 +553,7 @@ mod tests {
         let mut rng = test_rng();
         // "city" should match guess_pool_name → "city" pool
         let col = ColumnDef::new("city", ColType::String);
-        let arr = generate_column(&col, 5, &mut rng, &ctx);
+        let arr = generate_column(&col, 5, &mut rng, &ctx, 0);
         let s = arr.as_string::<i32>();
         assert_eq!(s.len(), 5);
         for i in 0..5 {
@@ -541,8 +581,8 @@ mod tests {
     fn test_deterministic() {
         let ctx = test_ctx();
         let col = ColumnDef::new("phone", ColType::String);
-        let a = generate_column(&col, 100, &mut Rng::new(42), &ctx);
-        let b = generate_column(&col, 100, &mut Rng::new(42), &ctx);
+        let a = generate_column(&col, 100, &mut Rng::new(42), &ctx, 0);
+        let b = generate_column(&col, 100, &mut Rng::new(42), &ctx, 0);
         let sa = a.as_string::<i32>();
         let sb = b.as_string::<i32>();
         for i in 0..100 {
@@ -617,7 +657,7 @@ mod tests {
         let ctx = test_ctx();
         let mut rng = test_rng();
         let col = ColumnDef::new("department_id", ColType::String);
-        let arr = generate_column(&col, 100, &mut rng, &ctx);
+        let arr = generate_column(&col, 100, &mut rng, &ctx, 0);
         let s = arr.as_string::<i32>();
         assert_eq!(s.len(), 100);
         for i in 0..100 {
