@@ -109,7 +109,7 @@
     },
     {
       "name": "legal_entity",
-      "weight": 1,
+      "weight": 15,
       "columns": [
         {
           "name": "legal_entity_id",

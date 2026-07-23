@@ -3,7 +3,7 @@
   "entities": [
     {
       "name": "contact",
-      "weight": 3,
+      "weight": 16,
       "columns": [
         {
           "name": "contact_id",
@@ -152,7 +152,7 @@
     },
     {
       "name": "lead",
-      "weight": 50,
+      "weight": 15,
       "columns": [
         {
           "name": "lead_id",

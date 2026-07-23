@@ -40,7 +40,7 @@
     },
     {
       "name": "aircraft",
-      "weight": 5,
+      "weight": 20,
       "columns": [
         {
           "name": "aircraft_id",
@@ -86,7 +86,7 @@
     },
     {
       "name": "flight",
-      "weight": 50,
+      "weight": 300,
       "columns": [
         {
           "name": "flight_id",
@@ -145,7 +145,7 @@
     },
     {
       "name": "passenger",
-      "weight": 500,
+      "weight": 250,
       "columns": [
         {
           "name": "passenger_id",
