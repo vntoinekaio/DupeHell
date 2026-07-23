@@ -66,6 +66,12 @@ struct EntityBatchRequest {
     n: usize,
     seed: u64,
     columns: Vec<ColDefJson>,
+    /// Position of this batch's first row within the entity's full row
+    /// range across all batches. Needed so per-row counters (e.g. the `_id`
+    /// fallback in `column_gen::generate_column`) stay globally unique
+    /// instead of restarting at 0 for every batch.
+    #[serde(default)]
+    row_offset: usize,
 }
 
 // ── Type mapping ──────────────────────────────────────────────────────────
@@ -502,7 +508,7 @@ pub fn generate_entity_batch(ctx: &Context, request_json: &str) -> Result<Record
         .into_par_iter()
         .zip(sub_rngs.par_iter_mut())
         .map(|(col, col_rng)| {
-            let arr = column_gen::generate_column(&col, n, col_rng, ctx);
+            let arr = column_gen::generate_column(&col, n, col_rng, ctx, req.row_offset);
             (col.name.clone(), arr)
         })
         .collect();
@@ -565,6 +571,42 @@ mod tests {
         assert_eq!(schema.field(0).name(), "first_name");
         assert_eq!(schema.field(0).data_type(), &DataType::Utf8);
         assert_eq!(schema.field(3).data_type(), &DataType::Int64);
+    }
+
+    #[test]
+    fn test_generate_entity_row_offset_no_id_collision() {
+        // Two successive batches of the same entity, as pipeline.rs would
+        // emit them: the second batch's row_offset must make its `_id`
+        // fallback values continue where the first left off, not restart.
+        let ctx = test_ctx();
+        let json_a = r#"{
+            "entity_name": "customer",
+            "n": 20,
+            "seed": 42,
+            "columns": [{"name": "customer_id", "type": "string"}]
+        }"#;
+        let json_b = r#"{
+            "entity_name": "customer",
+            "n": 20,
+            "seed": 999,
+            "columns": [{"name": "customer_id", "type": "string"}],
+            "row_offset": 20
+        }"#;
+        let batch_a = generate_entity_batch(&ctx, json_a).unwrap();
+        let batch_b = generate_entity_batch(&ctx, json_b).unwrap();
+
+        use arrow::array::AsArray;
+        let ids_a: std::collections::HashSet<String> = (0..batch_a.num_rows())
+            .map(|i| batch_a.column(0).as_string::<i32>().value(i).to_string())
+            .collect();
+        let ids_b: std::collections::HashSet<String> = (0..batch_b.num_rows())
+            .map(|i| batch_b.column(0).as_string::<i32>().value(i).to_string())
+            .collect();
+
+        assert!(
+            ids_a.is_disjoint(&ids_b),
+            "batch B must not recycle batch A's customer_id values: {ids_a:?} vs {ids_b:?}"
+        );
     }
 
     #[test]

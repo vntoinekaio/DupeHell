@@ -978,8 +978,8 @@ pub fn run_pipeline_with_progress(
 
             // Generate batch
             let request_json = format!(
-                r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{}}}"#,
-                plan.name, batch_n, batch_seed, col_json_str,
+                r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{},"row_offset":{}}}"#,
+                plan.name, batch_n, batch_seed, col_json_str, offset,
             );
             let rb = crate::entity_gen::generate_entity_batch(ctx, &request_json)?;
 
