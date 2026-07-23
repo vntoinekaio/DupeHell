@@ -103,7 +103,18 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 3] = [
             singleton: 0.30,
             doublet: 0.40,
             noise_types: &["typo", "names", "dates", "identifiers"],
-            passes: 1,
+            // 3 passes: a column protected by exactly one of medium's 4
+            // equally-weighted categories (weight 1/4 -- e.g. a pure date
+            // column, only matched by "dates", not by "typo"'s broader
+            // predicate) is diluted well below light's worst case (2
+            // categories, weight 1/2). At passes=1 this let medium come out
+            // *easier* than light on 19/40 domains (found via
+            // scripts/validate_all_domains.py). 1 - (1 - 1/4)^3 ≈ 0.578 >
+            // light's single-pass 0.5, closing the gap for any category
+            // medium shares with light regardless of which column ends up
+            // being a given domain's escape hatch. Re-validated across all
+            // 40 domains with the same script after this change.
+            passes: 3,
         },
     ),
     (
@@ -127,15 +138,18 @@ const DIFFICULTY_MAP: [(&str, DifficultySettings); 3] = [
                 "companies",
                 "extra",
             ],
-            // 3 passes: with 9 equally-weighted categories (weight 1/9
-            // each), 1 - (1 - 1/9)^3 ≈ 0.30 > medium's per-category weight
-            // of 1/4 = 0.25 — so *any* category shared with medium ends up
-            // more likely to touch a given column in hell than in medium,
-            // regardless of which specific column turns out to be a given
-            // domain's most reliable one. Validated empirically across 6
-            // domain schemas (kyc, ecommerce, healthcare, gaming,
-            // publishing, fintech) via `difficulty::estimate_difficulty`.
-            passes: 3,
+            // 8 passes: medium was bumped from 1 to 3 passes to fix its own
+            // dilution against light (see the comment on medium's `passes`
+            // above), which raised medium's worst-case single-category
+            // touch probability to 1-(1-1/4)^3 ≈ 0.578. With 9
+            // equally-weighted categories (weight 1/9 each), hell needs
+            // 1-(1-1/9)^passes >= 0.578 to stay at least as hard as medium
+            // on any column protected by only one category -- solving gives
+            // passes >= 7.33, rounded up to 8 (1-(1-1/9)^8 ≈ 0.617).
+            // Re-validated across all 40 domains via
+            // scripts/validate_all_domains.py (0 crashes, 0 monotonicity
+            // violations) after this change.
+            passes: 8,
         },
     ),
 ];
