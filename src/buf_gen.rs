@@ -118,13 +118,14 @@ macro_rules! push_digit {
     };
 }
 
-/// `+1-XXX-XXX-XXXX` (16 bytes)
+/// `+1-XXX-555-01XX` (15 bytes) -- exchange 555, line 0100-0199, the NANP
+/// fictional-use block reserved by the numbering plan administrator so no
+/// generated number can ever be a real, dialable subscriber number,
+/// regardless of area code.
 pub fn buf_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x50484f4e);
-    build_string_array(n, 16, |buf| {
+    build_string_array(n, 15, |buf| {
         let a = rng.next_usize(800) + 200; // 200-999
-        let b = rng.next_usize(900) + 100; // 100-999
-        let c = rng.next_usize(9000) + 1000; // 1000-9999
         buf.push(b'+');
         buf.push(b'1');
         buf.push(b'-');
@@ -132,23 +133,20 @@ pub fn buf_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         push_digit!(buf, (a / 10) % 10);
         push_digit!(buf, a % 10);
         buf.push(b'-');
-        push_digit!(buf, b / 100);
-        push_digit!(buf, (b / 10) % 10);
-        push_digit!(buf, b % 10);
-        buf.push(b'-');
-        push_digit!(buf, c / 1000);
-        push_digit!(buf, (c / 100) % 10);
-        push_digit!(buf, (c / 10) % 10);
-        push_digit!(buf, c % 10);
-        watermark_buf(buf, 3, wm);
+        buf.extend_from_slice(b"555-01");
+        buf.push(b'0');
+        buf.push(b'0');
+        watermark_buf(buf, 2, wm / 10);
     })
 }
 
-/// `XXX-XX-XXXX` (11 bytes)
+/// `XXX-XX-XXXX` (11 bytes) -- area number confined to 900-999, a block the
+/// SSA has documented as never assigned (along with 000 and 666), so no
+/// generated value can ever collide with a real person's SSN.
 pub fn buf_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x53534e);
     build_string_array(n, 11, |buf| {
-        let a = rng.next_usize(900) + 100; // 100-999
+        let a = rng.next_usize(100) + 900; // 900-999 (never assigned by SSA)
         let b = rng.next_usize(90) + 10; // 10-99
         let c = rng.next_usize(9000) + 1000; // 1000-9999
         push_digit!(buf, a / 100);
@@ -166,17 +164,62 @@ pub fn buf_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     })
 }
 
-/// `userXXXXX@mail.com` (18 bytes)
-pub fn buf_email(n: usize, rng: &mut Rng) -> ArrayRef {
-    build_string_array(n, 18, |buf| {
-        let user_num = rng.next_usize(90000) + 10000;
-        buf.extend_from_slice(b"user");
-        push_digit!(buf, user_num / 10000);
-        push_digit!(buf, (user_num / 1000) % 10);
-        push_digit!(buf, (user_num / 100) % 10);
-        push_digit!(buf, (user_num / 10) % 10);
-        push_digit!(buf, user_num % 10);
-        buf.extend_from_slice(b"@mail.com");
+/// Keep only ASCII alphanumeric characters, lowercased -- used to turn a
+/// pool name (possibly accented, possibly multi-word) into a safe email/
+/// username local-part fragment without risking invalid UTF-8 slicing.
+fn ascii_local(s: &str) -> String {
+    s.chars()
+        .filter_map(|c| {
+            let lc = c.to_ascii_lowercase();
+            lc.is_ascii_alphanumeric().then_some(lc)
+        })
+        .collect()
+}
+
+/// `firstname.lastname@example.com` (variable length, `example.com`
+/// reserved by RFC 2606 -- see `ETHICS.md`) -- derived from the
+/// `first_name`/`last_name` pools already loaded for other fields, combined
+/// across 3 layout strategies and a numeric suffix. Replaces the previous
+/// fixed `user#####@mail.com` pattern, whose 90 000-value space caused
+/// accidental (unlabeled) collisions between unrelated entities once a
+/// dataset's population exceeded that range.
+pub fn buf_email(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
+    let first = ctx
+        .pool_store
+        .get("first_name")
+        .expect("pool 'first_name' not found");
+    let last = ctx
+        .pool_store
+        .get("last_name")
+        .expect("pool 'last_name' not found");
+    build_string_array(n, 32, |buf| {
+        let mut f = ascii_local(&first[rng.next_usize(first.len())]);
+        if f.is_empty() {
+            f = "user".to_string();
+        }
+        let mut l = ascii_local(&last[rng.next_usize(last.len())]);
+        if l.is_empty() {
+            l = "x".to_string();
+        }
+        match rng.next_usize(3) {
+            0 => {
+                buf.extend_from_slice(f.as_bytes());
+                buf.push(b'.');
+                buf.extend_from_slice(l.as_bytes());
+            }
+            1 => {
+                buf.push(f.as_bytes()[0]);
+                buf.extend_from_slice(l.as_bytes());
+            }
+            _ => {
+                buf.extend_from_slice(f.as_bytes());
+                let num = rng.next_usize(900) + 100; // 100-999
+                push_digit!(buf, num / 100);
+                push_digit!(buf, (num / 10) % 10);
+                push_digit!(buf, num % 10);
+            }
+        }
+        buf.extend_from_slice(b"@example.com");
     })
 }
 
@@ -227,13 +270,14 @@ pub fn buf_medicare(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     })
 }
 
-/// `+1-XXX-XXX-XXXX xXXXX` (21 bytes, office phone with extension)
+/// `+1-XXX-555-01XX xXXXX` (21 bytes, office phone with extension) --
+/// exchange 555, line 0100-0199, same NANP fictional-use block as
+/// `buf_phone`.
 pub fn buf_office_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x4f4643);
     build_string_array(n, 21, |buf| {
         let a = rng.next_usize(800) + 200; // 200-999
-        let b = rng.next_usize(900) + 100; // 100-999
-        let c = rng.next_usize(9000) + 1000; // 1000-9999
+        let line = rng.next_usize(100); // 00-99
         let x = rng.next_usize(9900) + 100; // 100-9999
         buf.push(b'+');
         buf.push(b'1');
@@ -242,14 +286,9 @@ pub fn buf_office_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         push_digit!(buf, (a / 10) % 10);
         push_digit!(buf, a % 10);
         buf.push(b'-');
-        push_digit!(buf, b / 100);
-        push_digit!(buf, (b / 10) % 10);
-        push_digit!(buf, b % 10);
-        buf.push(b'-');
-        push_digit!(buf, c / 1000);
-        push_digit!(buf, (c / 100) % 10);
-        push_digit!(buf, (c / 10) % 10);
-        push_digit!(buf, c % 10);
+        buf.extend_from_slice(b"555-01");
+        push_digit!(buf, line / 10);
+        push_digit!(buf, line % 10);
         buf.push(b' ');
         buf.push(b'x');
         push_digit!(buf, x / 1000);
@@ -290,13 +329,20 @@ pub fn buf_ssn_last4(n: usize, rng: &mut Rng) -> ArrayRef {
     })
 }
 
-/// `****XXX` (7 bytes, masked account number)
+/// `****XXXXXXX` (11 bytes, masked account number) -- 7 digits, only the
+/// last 2 watermarked, leaving 5 free digits (~900 000 combinations)
+/// instead of the previous 3-digit/2-watermarked layout, which left only 1
+/// free digit (9 possible values total across the whole dataset).
 pub fn buf_acct_num(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_2digits(0x414354);
-    build_string_array(n, 7, |buf| {
-        let nums = rng.next_usize(900) + 100;
+    build_string_array(n, 11, |buf| {
+        let nums = rng.next_usize(9_000_000) + 1_000_000;
         buf.extend_from_slice(b"****");
-        push_digit!(buf, nums / 100);
+        push_digit!(buf, nums / 1_000_000);
+        push_digit!(buf, (nums / 100_000) % 10);
+        push_digit!(buf, (nums / 10_000) % 10);
+        push_digit!(buf, (nums / 1_000) % 10);
+        push_digit!(buf, (nums / 100) % 10);
         push_digit!(buf, (nums / 10) % 10);
         push_digit!(buf, nums % 10);
         watermark_buf(buf, 2, wm);
@@ -325,6 +371,14 @@ mod tests {
         Rng::new(42)
     }
 
+    /// Unlike `Context::test()` (empty pool_store), this loads the real
+    /// `assets/pools` directory -- needed by `buf_email`, which now derives
+    /// the local-part from the `first_name`/`last_name` pools.
+    fn test_ctx_with_pools() -> Context {
+        let pools_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/pools");
+        Context::new("kyc", "en", pools_dir.to_str().unwrap()).unwrap()
+    }
+
     #[test]
     fn test_buf_phone() {
         let mut rng = test_rng();
@@ -336,6 +390,10 @@ mod tests {
             let v = s.value(i);
             assert_eq!(v.len(), 15, "phone[{i}] = {v:?}");
             assert!(v.starts_with("+1-"), "phone[{i}] = {v:?}");
+            assert!(
+                v.contains("-555-01"),
+                "phone[{i}] = {v:?} not in NANP fictional block"
+            );
         }
     }
 
@@ -346,21 +404,41 @@ mod tests {
         let arr = buf_ssn(5, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
         for i in 0..5 {
-            assert_eq!(s.value(i).len(), 11, "ssn[{i}] = {:?}", s.value(i));
+            let v = s.value(i);
+            assert_eq!(v.len(), 11, "ssn[{i}] = {v:?}");
+            let area: u32 = v[..3].parse().unwrap();
+            assert!(
+                (900..=999).contains(&area),
+                "ssn[{i}] = {v:?} area not in never-assigned SSA block"
+            );
         }
     }
 
     #[test]
     fn test_buf_email() {
         let mut rng = test_rng();
-        let arr = buf_email(5, &mut rng);
+        let ctx = test_ctx_with_pools();
+        let arr = buf_email(200, &mut rng, &ctx);
         let s = arr.as_string::<i32>();
-        for i in 0..5 {
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..200 {
             let v = s.value(i);
-            assert_eq!(v.len(), 18, "email[{i}] = {v:?}");
-            assert!(v.ends_with("@mail.com"));
-            assert!(v.starts_with("user"));
+            assert!(v.ends_with("@example.com"), "email[{i}] = {v:?}");
+            let local = &v[..v.len() - "@example.com".len()];
+            assert!(!local.is_empty(), "email[{i}] = {v:?} has empty local-part");
+            assert!(
+                local
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'.'),
+                "email[{i}] = {v:?} has non ascii-alnum local-part"
+            );
+            seen.insert(v.to_string());
         }
+        assert!(
+            seen.len() > 150,
+            "expected high cardinality over 200 rows, got {} distinct",
+            seen.len()
+        );
     }
 
     #[test]
@@ -395,6 +473,10 @@ mod tests {
             let v = s.value(i);
             assert_eq!(v.len(), 21, "office_phone[{i}] = {v:?}");
             assert!(v.contains(" x"), "office_phone[{i}] = {v:?}");
+            assert!(
+                v.contains("-555-01"),
+                "office_phone[{i}] = {v:?} not in NANP fictional block"
+            );
         }
     }
 
@@ -438,7 +520,7 @@ mod tests {
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             let v = s.value(i);
-            assert_eq!(v.len(), 7, "acct_num[{i}] = {v:?}");
+            assert_eq!(v.len(), 11, "acct_num[{i}] = {v:?}");
             assert!(v.starts_with("****"));
             assert!(v.as_bytes()[4].is_ascii_digit());
         }
