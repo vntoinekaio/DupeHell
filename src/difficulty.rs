@@ -501,6 +501,50 @@ mod tests {
     }
 
     #[test]
+    fn test_estimate_difficulty_tiers_ordered_all_domains() {
+        // The kyc/healthcare/aviation tests above each caught a real,
+        // distinct bug -- but each only covered one hand-picked domain.
+        // That gap is exactly what let 19/40 domains violate
+        // `medium <= light` (categories dilution: medium's 4 equally-
+        // weighted noise_types, at passes=1, diluted below light's 2)
+        // stay hidden until scripts/validate_all_domains.py swept all 40
+        // schemas. This test is the permanent, in-repo version of that
+        // sweep so a future schema/passes change can't reintroduce it
+        // without `cargo test` catching it immediately.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas");
+        let eps = 1e-6;
+        let mut violations = Vec::new();
+        for entry in std::fs::read_dir(&dir).expect("read schemas dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let domain = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let schema = load_schema(&domain, &dir).expect("load schema");
+            let light = estimate_difficulty(&domain, 5000, 42, "light", 0.1, &schema).unwrap();
+            let medium = estimate_difficulty(&domain, 5000, 42, "medium", 0.1, &schema).unwrap();
+            let hell = estimate_difficulty(&domain, 5000, 42, "hell", 0.1, &schema).unwrap();
+            if medium.f1_max > light.f1_max + eps {
+                violations.push(format!(
+                    "{domain}: medium ({:.4}) > light ({:.4})",
+                    medium.f1_max, light.f1_max
+                ));
+            }
+            if hell.f1_max > medium.f1_max + eps {
+                violations.push(format!(
+                    "{domain}: hell ({:.4}) > medium ({:.4})",
+                    hell.f1_max, medium.f1_max
+                ));
+            }
+        }
+        assert!(
+            violations.is_empty(),
+            "monotonicity violations:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    #[test]
     fn test_estimate_difficulty_deterministic() {
         let schema = kyc_schema();
         let a = estimate_difficulty("kyc", 1000, 42, "medium", 0.1, &schema).unwrap();
