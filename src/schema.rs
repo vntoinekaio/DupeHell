@@ -409,7 +409,19 @@ pub fn build_pipeline_config(
         }));
     }
 
-    let n_hard_neg = (size as f64 * hard_neg_ratio * 0.05) as usize;
+    // Scaled off `n_duplicates` (which itself scales with the tier's
+    // singleton/doublet fractions — light ~0.28*size, medium ~0.40*size,
+    // hell ~0.57*size) rather than off raw `size`. A flat `size`-based count
+    // makes `total_guaranteed_fp` roughly constant across tiers while
+    // `total_true_pairs` grows a lot with difficulty, which mechanically
+    // inflates `precision_max` for higher tiers regardless of how much
+    // noise they actually inject — enough to invert `light <= medium` on
+    // some schemas (e.g. aviation, where light/medium f1_max came out
+    // 0.828/0.833). The 0.125 constant keeps medium's hard-neg volume
+    // matching the old flat formula (0.40 * 0.125 = 0.05), so
+    // `hard_neg_ratio`'s documented "~1.5% of size at default 0.3" still
+    // holds at medium; light gets proportionally fewer, hell more.
+    let n_hard_neg = (n_duplicates as f64 * hard_neg_ratio * 0.125) as usize;
     let hn_per_type = n_hard_neg / schema.hn_types.len().max(1);
     let hard_neg_types: Vec<serde_json::Value> = schema
         .hn_types
