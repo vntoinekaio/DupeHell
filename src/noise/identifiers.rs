@@ -68,11 +68,8 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
             }
             _ => {
                 // Mask first 3 chars: "abcdef" → "abc***"
-                if local.len() > 3 {
-                    format!("{}***@{}", &local[..3], domain)
-                } else {
-                    format!("{}***@{}", local, domain)
-                }
+                let prefix: String = local.chars().take(3).collect();
+                format!("{}***@{}", prefix, domain)
             }
         };
         builder.append_value(&result);
