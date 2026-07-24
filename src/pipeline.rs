@@ -64,6 +64,15 @@ pub struct NoisePlanEntry {
 pub struct FkRemapEntry {
     pub source_col: String,
     pub target_entity: String,
+    /// Weight written to the `weight` column of `fk`-typed graph edges
+    /// produced from this relation (`--graph`). Defaults to 1.0 for schemas
+    /// that don't declare it, preserving prior behavior.
+    #[serde(default = "default_fk_weight")]
+    pub fk_weight: f64,
+}
+
+fn default_fk_weight() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Deserialize)]
@@ -984,7 +993,7 @@ pub fn run_pipeline_with_progress(
             let rb = crate::entity_gen::generate_entity_batch(ctx, &request_json)?;
 
             // FK remap (uses pools from previously processed entities)
-            let mut fk_edges_by_remap: Vec<(String, Vec<String>)> = Vec::new();
+            let mut fk_edges_by_remap: Vec<(String, Vec<String>, f64)> = Vec::new();
             let rb = if !plan.fk_remaps.is_empty() {
                 let mut r = rb;
                 for remap in &plan.fk_remaps {
@@ -1000,7 +1009,11 @@ pub fn run_pipeline_with_progress(
                         if config.graph_enabled
                             && let Some(rids) = target_rids
                         {
-                            fk_edges_by_remap.push((remap.source_col.clone(), rids));
+                            fk_edges_by_remap.push((
+                                remap.source_col.clone(),
+                                rids,
+                                remap.fk_weight,
+                            ));
                         }
                     }
                 }
@@ -1086,8 +1099,8 @@ pub fn run_pipeline_with_progress(
                 nw.write_batch(&base_rb)
                     .map_err(|e| format!("write node: {e}"))?;
                 for i in 0..batch_n {
-                    for (subtype, target_rids) in &fk_edges_by_remap {
-                        ew.push(&rid_slice[i], &target_rids[i], "fk", subtype, 1.0)
+                    for (subtype, target_rids, weight) in &fk_edges_by_remap {
+                        ew.push(&rid_slice[i], &target_rids[i], "fk", subtype, *weight)
                             .map_err(|e| format!("push fk edge: {e}"))?;
                     }
                 }
@@ -1906,6 +1919,87 @@ mod tests {
         let edges = output.edges.expect("edges path");
         assert!(std::path::Path::new(&nodes).exists());
         assert!(std::path::Path::new(&edges).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_fk_edge_weight_from_schema_and_default() {
+        // aviation's flight->aircraft fk_remap declares fk_weight=0.5
+        // (schemas/aviation.json); flight->airline leaves the field at
+        // its schema default of 1.0. Confirms `FkRemapEntry::fk_weight`
+        // is threaded through to the `weight` column of `fk`-typed graph
+        // edges instead of the old hardcoded 1.0 constant, and that
+        // domains/relations without the field still default correctly.
+        let dir = scratch_dir("fk_weight");
+        let schema =
+            load_schema("aviation", &manifest_dir().join("schemas")).expect("load aviation.json");
+        let mut ctx = Context::new(
+            "aviation",
+            "en",
+            &manifest_dir().join("assets/pools").to_string_lossy(),
+        )
+        .expect("load context");
+        let config = build_pipeline_config(
+            "aviation",
+            300,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            &schema,
+            "pipeline_test_fk_weight",
+            "ipc",
+            true,
+            "ipc",
+        )
+        .expect("build config");
+        ctx.enable_watermark(&config.domain, config.size, config.seed);
+        let output = run_pipeline(&ctx, &config, &dir.to_string_lossy()).expect("run_pipeline");
+
+        let edges_path = output.edges.expect("edges path");
+        let file = std::fs::File::open(&edges_path).expect("open edges file");
+        let reader = arrow::ipc::reader::FileReader::try_new(file, None).expect("edges reader");
+
+        let mut subtypes_seen: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
+        for batch in reader {
+            let batch = batch.expect("read edges batch");
+            let edge_type = batch
+                .column_by_name("edge_type")
+                .expect("edge_type col")
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .expect("edge_type as string");
+            let subtype = batch
+                .column_by_name("subtype")
+                .expect("subtype col")
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .expect("subtype as string");
+            let weight = batch
+                .column_by_name("weight")
+                .expect("weight col")
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .expect("weight as f64");
+            for i in 0..batch.num_rows() {
+                if edge_type.value(i) == "fk" {
+                    subtypes_seen.insert(subtype.value(i).to_string(), weight.value(i));
+                }
+            }
+        }
+
+        assert_eq!(
+            subtypes_seen.get("aircraft_id"),
+            Some(&0.5),
+            "flight->aircraft fk_weight from schema not propagated to edge weight"
+        );
+        assert_eq!(
+            subtypes_seen.get("airline_id"),
+            Some(&1.0),
+            "flight->airline fk_weight (schema default) not propagated to edge weight"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

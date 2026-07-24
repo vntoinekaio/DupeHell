@@ -119,7 +119,8 @@
       "fk_remaps": [
         {
           "source_col": "customer_id",
-          "target_entity": "customer"
+          "target_entity": "customer",
+          "fk_weight": 1.0
         }
       ]
     },
@@ -180,11 +181,13 @@
       "fk_remaps": [
         {
           "source_col": "account_id",
-          "target_entity": "account"
+          "target_entity": "account",
+          "fk_weight": 1.0
         },
         {
           "source_col": "merchant_id",
-          "target_entity": "merchant"
+          "target_entity": "merchant",
+          "fk_weight": 0.4
         }
       ]
     },
@@ -290,7 +293,8 @@
       "fk_remaps": [
         {
           "source_col": "transaction_id",
-          "target_entity": "payment_transaction"
+          "target_entity": "payment_transaction",
+          "fk_weight": 1.0
         }
       ]
     }
