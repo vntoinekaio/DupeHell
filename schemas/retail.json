@@ -170,11 +170,13 @@
       "fk_remaps": [
         {
           "source_col": "store_id",
-          "target_entity": "store"
+          "target_entity": "store",
+          "fk_weight": 1.0
         },
         {
           "source_col": "customer_id",
-          "target_entity": "customer"
+          "target_entity": "customer",
+          "fk_weight": 1.0
         }
       ]
     },
@@ -214,11 +216,13 @@
       "fk_remaps": [
         {
           "source_col": "sale_id",
-          "target_entity": "sale"
+          "target_entity": "sale",
+          "fk_weight": 1.0
         },
         {
           "source_col": "product_id",
-          "target_entity": "product"
+          "target_entity": "product",
+          "fk_weight": 0.6
         }
       ]
     }

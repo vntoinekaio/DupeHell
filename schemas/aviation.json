@@ -80,7 +80,8 @@
       "fk_remaps": [
         {
           "source_col": "airline_id",
-          "target_entity": "airline"
+          "target_entity": "airline",
+          "fk_weight": 1.0
         }
       ]
     },
@@ -135,11 +136,13 @@
       "fk_remaps": [
         {
           "source_col": "airline_id",
-          "target_entity": "airline"
+          "target_entity": "airline",
+          "fk_weight": 1.0
         },
         {
           "source_col": "aircraft_id",
-          "target_entity": "aircraft"
+          "target_entity": "aircraft",
+          "fk_weight": 0.5
         }
       ]
     },
@@ -189,7 +192,8 @@
       "fk_remaps": [
         {
           "source_col": "flight_id",
-          "target_entity": "flight"
+          "target_entity": "flight",
+          "fk_weight": 1.0
         }
       ]
     }
