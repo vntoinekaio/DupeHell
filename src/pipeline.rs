@@ -572,28 +572,43 @@ fn unchanged_row_mask(
 /// Apply `noise_type` to `orig`, retrying with fresh randomness (merging in
 /// only the still-unchanged rows via `zip`) up to `MAX_NOISE_ATTEMPTS` times,
 /// until every row's target columns differ from `orig` or attempts run out.
-/// Returns the resulting batch and the final per-row "unchanged" mask
-/// (`true` = still byte-identical to `orig` on this noise_type's target
-/// columns).
+/// Returns the resulting batch, the final per-row "unchanged" mask (`true` =
+/// still byte-identical to `orig` on this noise_type's target columns), and
+/// the `target_cols` this noise_type actually touched.
 ///
 /// When `target_cols` comes back empty (no column in this entity's schema
 /// matches `noise_type` at all), every row is returned unchanged (`true`)
 /// with no retries attempted — retrying can't manufacture a matching column
 /// that doesn't exist; this is a schema/config-level gap, not a per-row
 /// randomness one.
+///
+/// The retry merge only `zip()`s columns in `target_cols` (perf-hunt H1,
+/// hunt2407.md): `apply_noise_to_batch` already guarantees every other
+/// column of `retried`/`noisy` is the same `Arc` as `orig`'s (untouched),
+/// so `zip`-ing them is a provably-no-op pass over the full column just to
+/// reconstruct a value that's already sitting there — wasted work that
+/// scales with the entity's *total* column count instead of the handful
+/// this noise_type actually targets. Confirmed empirically: for a 23-column
+/// entity (kyc-sized) vs an 8-column one, this loop alone cost ~1.7x more
+/// wall time despite touching the same single target column either way.
 fn apply_noise_with_retry(
     orig: &RecordBatch,
     noise_type: &str,
     plan_cols: &[String],
     rng: &mut Rng,
     exclude_cols: &[String],
-) -> Result<(RecordBatch, Vec<bool>), String> {
+) -> Result<(RecordBatch, Vec<bool>, Vec<String>), String> {
     const MAX_NOISE_ATTEMPTS: usize = 4;
     let (mut noisy, target_cols) =
         apply_noise_to_batch(orig, noise_type, plan_cols, rng, exclude_cols)?;
     if target_cols.is_empty() {
-        return Ok((noisy, vec![true; orig.num_rows()]));
+        return Ok((noisy, vec![true; orig.num_rows()], target_cols));
     }
+    let schema = noisy.schema();
+    let target_idxs: Vec<usize> = target_cols
+        .iter()
+        .filter_map(|c| schema.index_of(c).ok())
+        .collect();
     let mut unchanged = unchanged_row_mask(orig, &noisy, &target_cols)?;
     let mut attempt = 1;
     while unchanged.iter().any(|&u| u) && attempt < MAX_NOISE_ATTEMPTS {
@@ -601,19 +616,18 @@ fn apply_noise_with_retry(
         let (retried, _) =
             apply_noise_to_batch(orig, noise_type, plan_cols, &mut retry_rng, exclude_cols)?;
         let mask = arrow::array::BooleanArray::from(unchanged.clone());
-        let mut merged_cols = Vec::with_capacity(noisy.num_columns());
-        for i in 0..noisy.num_columns() {
-            merged_cols.push(
+        let mut merged_cols: Vec<ArrayRef> = noisy.columns().to_vec();
+        for &i in &target_idxs {
+            merged_cols[i] =
                 arrow::compute::kernels::zip::zip(&mask, retried.column(i), noisy.column(i))
-                    .map_err(|e| format!("zip noise retry col {i}: {e}"))?,
-            );
+                    .map_err(|e| format!("zip noise retry col {i}: {e}"))?;
         }
         noisy = RecordBatch::try_new(noisy.schema(), merged_cols)
             .map_err(|e| format!("rebuild retried dup batch: {e}"))?;
         unchanged = unchanged_row_mask(orig, &noisy, &target_cols)?;
         attempt += 1;
     }
-    Ok((noisy, unchanged))
+    Ok((noisy, unchanged, target_cols))
 }
 
 /// Applies one additional noise pass, drawing an independent noise_type per
@@ -662,19 +676,25 @@ fn apply_extra_pass_per_row(
         if !mask.iter().any(|&m| m) {
             continue;
         }
-        let (candidate, cand_unchanged) =
+        let (candidate, cand_unchanged, cand_target_cols) =
             apply_noise_with_retry(&current, ttype, &[], rng, exclude_cols)?;
         let bool_mask = arrow::array::BooleanArray::from(mask.clone());
-        let mut merged_cols = Vec::with_capacity(current.num_columns());
-        for i in 0..current.num_columns() {
-            merged_cols.push(
-                arrow::compute::kernels::zip::zip(
-                    &bool_mask,
-                    candidate.column(i),
-                    current.column(i),
-                )
-                .map_err(|e| format!("zip extra-pass col {i}: {e}"))?,
-            );
+        let schema = current.schema();
+        let cand_target_idxs: Vec<usize> = cand_target_cols
+            .iter()
+            .filter_map(|c| schema.index_of(c).ok())
+            .collect();
+        // Only zip the columns this ttype actually touched (same H1 fix as
+        // `apply_noise_with_retry` above) — every other column of
+        // `candidate` is guaranteed identical to `current`'s.
+        let mut merged_cols: Vec<ArrayRef> = current.columns().to_vec();
+        for &i in &cand_target_idxs {
+            merged_cols[i] = arrow::compute::kernels::zip::zip(
+                &bool_mask,
+                candidate.column(i),
+                current.column(i),
+            )
+            .map_err(|e| format!("zip extra-pass col {i}: {e}"))?;
         }
         current = RecordBatch::try_new(current.schema(), merged_cols)
             .map_err(|e| format!("rebuild extra-pass batch: {e}"))?;
@@ -1202,7 +1222,7 @@ pub fn run_pipeline_with_progress(
                             // (see `apply_noise_with_retry`) so a "noised"
                             // duplicate can't silently stay a byte-for-byte
                             // copy of its master.
-                            let (mut noisy, mut unchanged) = apply_noise_with_retry(
+                            let (mut noisy, mut unchanged, _) = apply_noise_with_retry(
                                 &dup,
                                 ntype,
                                 cols,
@@ -2177,5 +2197,83 @@ mod tests {
         assert_eq!(strs.len(), 3);
         assert_eq!(strs[0], record_id_string(0));
         assert_eq!(strs[2], record_id_string(2));
+    }
+
+    // ── perf-hunt H1 isolated measurement (hunt2407.md) ─────────────────
+    //
+    // Not a correctness test -- #[ignore]'d so it never runs in normal
+    // `cargo test`. Measures whether `apply_noise_with_retry`'s retry-zip
+    // loop and `apply_extra_pass_per_row`'s pass-zip loop (both iterate
+    // `0..num_columns()`, not just the noise_type's actual target_cols) cost
+    // scales with TOTAL column count C, holding the number of noised
+    // columns T=1 constant -- H1's hypothesis. Run with:
+    //   cargo test --release pipeline::tests::hunt_h1_zip_cost_vs_column_count -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn hunt_h1_zip_cost_vs_column_count() {
+        use arrow::array::StringArray;
+        use arrow::datatypes::{DataType, Field, Schema};
+
+        fn make_batch(n_rows: usize, n_cols: usize) -> RecordBatch {
+            let fields: Vec<Field> = (0..n_cols)
+                .map(|i| Field::new(format!("col{i}"), DataType::Utf8, false))
+                .collect();
+            let cols: Vec<ArrayRef> = (0..n_cols)
+                .map(|_| {
+                    Arc::new(StringArray::from(
+                        (0..n_rows)
+                            .map(|_| "abcdefghijklmnop".to_string())
+                            .collect::<Vec<_>>(),
+                    )) as ArrayRef
+                })
+                .collect();
+            RecordBatch::try_new(Arc::new(Schema::new(fields)), cols).unwrap()
+        }
+
+        const N_ROWS: usize = 100_000;
+        const N_REPS: usize = 5;
+        // 3 noise_passes total (hell tier): 1 first pass + 2 extra passes,
+        // matching `apply_noise_with_retry` + `apply_extra_pass_per_row`
+        // call pattern in `run_pipeline`'s dup-generation closure.
+        const EXTRA_PASSES: usize = 2;
+
+        eprintln!("\n[hunt_h1] N_ROWS={N_ROWS} N_REPS={N_REPS} EXTRA_PASSES={EXTRA_PASSES}");
+        eprintln!("[hunt_h1] C=total columns, T=1 noised column (fixed) -- H1 predicts cost ∝ C");
+
+        for &n_cols in &[8usize, 15, 23] {
+            let plan_cols = vec!["col0".to_string()];
+            let all_types: Vec<&str> = vec!["typo"];
+            let mut total = std::time::Duration::ZERO;
+
+            for rep in 0..N_REPS {
+                let batch = make_batch(N_ROWS, n_cols);
+                let mut rng = Rng::new(42 + rep as u64);
+                let t0 = std::time::Instant::now();
+
+                let (noisy, mut unchanged, _) =
+                    apply_noise_with_retry(&batch, "typo", &plan_cols, &mut rng, &[]).unwrap();
+                let mut current = noisy;
+                for _ in 0..EXTRA_PASSES {
+                    current = apply_extra_pass_per_row(
+                        &current,
+                        &mut unchanged,
+                        &all_types,
+                        &mut rng,
+                        &[],
+                    )
+                    .unwrap();
+                }
+                std::hint::black_box(&current);
+                total += t0.elapsed();
+            }
+
+            let avg = total / N_REPS as u32;
+            eprintln!(
+                "[hunt_h1] C={n_cols:2}  avg={:>8.3}ms  per_column={:>7.4}ms  per_row_per_column={:>10.6}us",
+                avg.as_secs_f64() * 1000.0,
+                avg.as_secs_f64() * 1000.0 / n_cols as f64,
+                avg.as_secs_f64() * 1_000_000.0 / (N_ROWS * n_cols) as f64,
+            );
+        }
     }
 }
