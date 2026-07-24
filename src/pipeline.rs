@@ -2276,4 +2276,155 @@ mod tests {
             );
         }
     }
+
+    // ── perf-hunt kyc residual factor (hunt2407.md, corrected) ──────────
+    //
+    // The first `hunt_h1_*` measurement above got two things wrong when
+    // trying to explain kyc/hell's real-world ~4-5x slowdown vs nonprofit:
+    // (1) it assumed `noise_passes = 3` at `hell` -- the real value is
+    // `DifficultySettings::passes = 8` (schema.rs); (2) it used generic
+    // `col0..colN` column names with `plan_cols=[]` for the "extra pass"
+    // calls, but `noise_type_targets_column` is name-based -- generic names
+    // match none of hell's 9 categories, so those extra passes were
+    // silently no-ops regardless of `EXTRA_PASSES`. This measurement uses
+    // the REAL kyc.natural_person (23 cols) and nonprofit.donation (7 cols,
+    // the weight-dominant nonprofit entity, weight=200) column NAMES loaded
+    // from `schemas/*.json`, hell's real 9-category `noise_types` list, and
+    // the real pass count (8) -- reproducing genuine per-category column
+    // matching via `noise_type_targets_column`. Run with:
+    //   cargo test --release pipeline::tests::hunt_h1_residual_kyc_vs_nonprofit -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn hunt_h1_residual_kyc_vs_nonprofit() {
+        use arrow::array::StringArray;
+        use arrow::datatypes::{DataType, Field, Schema};
+
+        fn make_batch(n_rows: usize, col_names: &[&str]) -> RecordBatch {
+            let fields: Vec<Field> = col_names
+                .iter()
+                .map(|n| Field::new(*n, DataType::Utf8, true))
+                .collect();
+            let cols: Vec<ArrayRef> = col_names
+                .iter()
+                .map(|_| {
+                    Arc::new(StringArray::from(
+                        (0..n_rows)
+                            .map(|_| "abcdefghijklmnop testword".to_string())
+                            .collect::<Vec<_>>(),
+                    )) as ArrayRef
+                })
+                .collect();
+            RecordBatch::try_new(Arc::new(Schema::new(fields)), cols).unwrap()
+        }
+
+        const N_ROWS: usize = 100_000;
+        const N_REPS: usize = 5;
+        const HELL_TYPES: &[&str] = &[
+            "typo_aggressive",
+            "visual",
+            "unicode_pollution",
+            "names",
+            "dates",
+            "identifiers",
+            "addresses",
+            "companies",
+            "extra",
+        ];
+        const HELL_PASSES: usize = 8; // schema.rs DifficultySettings::passes for "hell"
+
+        let kyc_cols: &[&str] = &[
+            "party_id",
+            "given_name",
+            "family_name",
+            "middle_name",
+            "birth_date",
+            "birth_place",
+            "nationality",
+            "email_address",
+            "mobile_phone",
+            "personal_administrative_number",
+            "tax_id",
+            "residential_address_line1",
+            "residential_city",
+            "residential_postal_code",
+            "residential_state",
+            "residential_country",
+            "occupation",
+            "risk_score",
+            "document_type",
+            "document_number",
+            "source_system",
+        ];
+        let nonprofit_cols: &[&str] = &[
+            "donation_id",
+            "donor_id",
+            "campaign_id",
+            "donation_date",
+            "payment_method",
+            "source_system",
+        ];
+
+        eprintln!("\n[hunt_h1_residual] N_ROWS={N_ROWS} N_REPS={N_REPS} HELL_PASSES={HELL_PASSES}");
+
+        // Per-category breakdown for kyc only (the slow one) -- one rep,
+        // timing each of the 9 categories' apply_noise_with_retry call
+        // individually (fresh copy of the batch each time, not chained) to
+        // find which category(ies) dominate the 18s total.
+        {
+            let batch = make_batch(N_ROWS, kyc_cols);
+            eprintln!("[hunt_h1_residual] per-category breakdown on kyc.natural_person:");
+            for &ttype in HELL_TYPES {
+                let mut rng = Rng::new(42);
+                let t0 = std::time::Instant::now();
+                let (_, _, tcols) =
+                    apply_noise_with_retry(&batch, ttype, &[], &mut rng, &[]).unwrap();
+                eprintln!(
+                    "[hunt_h1_residual]   {ttype:20} {:>8.3}ms  target_cols={:?}",
+                    t0.elapsed().as_secs_f64() * 1000.0,
+                    tcols,
+                );
+            }
+        }
+
+        for (label, col_names) in [
+            ("kyc.natural_person", kyc_cols),
+            ("nonprofit.donation", nonprofit_cols),
+        ] {
+            let mut total = std::time::Duration::ZERO;
+            let mut total_target_hits = 0usize;
+
+            for rep in 0..N_REPS {
+                let batch = make_batch(N_ROWS, col_names);
+                let mut rng = Rng::new(42 + rep as u64);
+                let t0 = std::time::Instant::now();
+
+                // First pass: same as real generation, one explicit
+                // noise_type (heuristic-matched via plan_cols=[]).
+                let (noisy, mut unchanged, t0cols) =
+                    apply_noise_with_retry(&batch, "identifiers", &[], &mut rng, &[]).unwrap();
+                total_target_hits += t0cols.len();
+                let mut current = noisy;
+                for _ in 1..HELL_PASSES {
+                    current = apply_extra_pass_per_row(
+                        &current,
+                        &mut unchanged,
+                        HELL_TYPES,
+                        &mut rng,
+                        &[],
+                    )
+                    .unwrap();
+                }
+                std::hint::black_box(&current);
+                total += t0.elapsed();
+            }
+
+            let avg = total / N_REPS as u32;
+            eprintln!(
+                "[hunt_h1_residual] {label:20} C={:2}  avg={:>8.3}ms  avg_first_pass_target_cols={:.1}",
+                col_names.len(),
+                avg.as_secs_f64() * 1000.0,
+                total_target_hits as f64 / N_REPS as f64,
+            );
+        }
+    }
 }
