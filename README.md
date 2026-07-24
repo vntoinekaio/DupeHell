@@ -109,10 +109,17 @@ Throughput averaged across all 40 domains.
 
 | Size | Ø rec/s | Fastest domain | Slowest domain | Range |
 |------|---------|----------------|----------------|-------|
-| 1M | 280,175 | academia 3.2s | supplychain 4.5s | 1.3s |
+| 1M | 149,448¹ | sports 3.1s | kyc 35.2s | 32.0s |
 | 5M | 632,487 | aviation 6.8s | crm 10.5s | 3.7s |
 | 10M | 677,579 | academia 11.8s | manufacturing 23.6s | 11.8s |
 | 20M | 746,520 | academia 21.6s | kyc 34.6s | 13.0s |
+
+¹ Refreshed 2026-07-24 against the current pipeline (post multi-pass `hell`
+tier, see [docs/BENCHMARK.md](docs/BENCHMARK.md)); 5M/10M/20M rows are from
+the prior sweep, not yet rerun. **kyc** is a persistent outlier — its
+`natural_person` entity has 23 columns (2-3x most domains), which
+disproportionately multiplies the cost of `hell`'s 3 noise passes. Excluding
+kyc, the 1M average is 152,535 rec/s.
 
 ### IPC vs Parquet
 
@@ -125,8 +132,12 @@ Difficulty **hell**, domain-average throughput.
 | 10M | 677.6K rec/s | 456.1K rec/s |
 | 20M | 746.5K rec/s | — |
 
-See [docs/BENCHMARK.md](docs/BENCHMARK.md) for KYC medium-difficulty
-single-domain metrics and full per-domain breakdowns at all sizes.
+Not yet refreshed against the current pipeline (see footnote above) — kept
+as the last measured baseline.
+
+See [docs/BENCHMARK.md](docs/BENCHMARK.md) for the full per-domain matrix
+(all 3 difficulties, `--graph` overhead, FK edge weighting) and single-domain
+metrics at scale.
 
 ---
 
