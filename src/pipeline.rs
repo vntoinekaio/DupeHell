@@ -225,6 +225,7 @@ const PERSON_NAME_WORDS: &[&str] = &[
     "last_name",
     "given",
     "family",
+    "middle",
     "operator",
     "technician",
     "inspector",
@@ -261,6 +262,33 @@ const COMPANY_NAME_WORDS: &[&str] = &[
     "airline",
 ];
 
+/// Does `lower` match one of `PERSON_NAME_WORDS`' fragments *other than* the
+/// bare `"name"` catch-all — i.e. is it identifiable as a person-name column
+/// via a specific signal (`given`, `family`, `first_name`, `inspector`...),
+/// not just because its name happens to end in "name"?
+///
+/// Used to keep the `"name"` fragment both lists share (needed to catch
+/// columns like `judge_name`/`director_name` with no more specific word)
+/// from making `given_name`/`company_name` cross-match each other's noise
+/// category — see `is_specifically_company_name` and the `hunt2407.md`
+/// perf-hunt entry this fixes (kyc's `given_name`/`family_name`/
+/// `middle_name` were getting `companies` noise — `drop_legal_form` etc —
+/// applied to them, purely because `COMPANY_NAME_WORDS` also contains
+/// `"name"`).
+fn is_specifically_person_name(lower: &str) -> bool {
+    PERSON_NAME_WORDS
+        .iter()
+        .any(|&w| w != "name" && lower.contains(w))
+}
+
+/// Company-side mirror of `is_specifically_person_name`: matches a
+/// `COMPANY_NAME_WORDS` fragment other than the bare `"name"` catch-all.
+fn is_specifically_company_name(lower: &str) -> bool {
+    COMPANY_NAME_WORDS
+        .iter()
+        .any(|&w| w != "name" && lower.contains(w))
+}
+
 /// Does this noise category ever target a column with this (lowercased) name?
 ///
 /// Pure name-pattern predicate shared with `estimate_difficulty` (see
@@ -288,7 +316,12 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
                 || contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "names" | "nickname" | "initials" | "partial" | "name_compound" | "swap" | "full_swap" => {
-            contains_any(&lower, PERSON_NAME_WORDS)
+            // Exclude columns that are specifically identifiable as a
+            // company/organization name (e.g. `company_name`, `legal_name`)
+            // — the only reason they'd match PERSON_NAME_WORDS at all is the
+            // bare "name" fragment both lists share, not a real person-name
+            // signal. See `is_specifically_company_name`.
+            contains_any(&lower, PERSON_NAME_WORDS) && !is_specifically_company_name(&lower)
         }
         "dates" | "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
             contains_any(&lower, &["date", "birth", "incorporation", "founding"])
@@ -346,13 +379,22 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
                 || contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "companies" | "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
-            contains_any(&lower, COMPANY_NAME_WORDS)
+            // Mirror exclusion: don't apply company-name noise (legal-form
+            // dropping, acronym-ing...) to a column that's specifically
+            // identifiable as a person's name (e.g. `given_name`,
+            // `family_name`) just because it also contains "name". See
+            // `is_specifically_person_name`.
+            contains_any(&lower, COMPANY_NAME_WORDS) && !is_specifically_person_name(&lower)
         }
         "addresses" | "address_scramble" | "postal_corrupt" => {
             // `ip_address` matches "address" by name collision but isn't a
             // postal address — scrambling/postal-corrupting it doesn't make
             // sense (see the same exclusion on the typo/visual arm above,
-            // BUGS.md C20).
+            // BUGS.md C20). `email_address` is the same collision: it
+            // contains "address" but is an email, not a postal address —
+            // `identifiers`/`corrupt_email` already handles it (perf-hunt
+            // hunt2407.md, confirmed empirically: kyc's `email_address` was
+            // getting postal `address_scramble`/`postal_corrupt` noise).
             //
             // "state"/"country" added: `difficulty::base_noise_damage`
             // already models a 0.5 damage weight for them (same bucket as
@@ -361,6 +403,7 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             // `residential_country` / `registered_country` had zero real
             // noise coverage regardless of `passes`.
             !lower.contains("ip_address")
+                && !lower.contains("email")
                 && contains_any(
                     &lower,
                     &["address", "street", "postal", "city", "state", "country"],
@@ -1850,6 +1893,54 @@ fn pick_rows(rb: &RecordBatch, indices: &UInt64Array) -> Result<RecordBatch, Str
 mod tests {
     use super::*;
     use crate::schema::{build_pipeline_config, load_schema};
+
+    /// Regression for the perf-hunt cross-contamination bug (hunt2407.md):
+    /// `COMPANY_NAME_WORDS` and `PERSON_NAME_WORDS` both contain the bare
+    /// `"name"` fragment, which used to let `given_name`/`family_name`/
+    /// `middle_name` match the `companies` noise category (and would
+    /// symmetrically let `company_name`/`legal_name` match `names`), and let
+    /// `email_address` match the `addresses` category via `"address"`.
+    #[test]
+    fn test_no_person_company_name_cross_contamination() {
+        for col in [
+            "given_name",
+            "family_name",
+            "middle_name",
+            "first_name",
+            "last_name",
+        ] {
+            assert!(
+                noise_type_targets_column("names", col),
+                "{col} should still match 'names'"
+            );
+            assert!(
+                !noise_type_targets_column("companies", col),
+                "{col} should NOT match 'companies' (person name, not a company name)"
+            );
+        }
+        for col in ["company_name", "legal_name", "trading_name"] {
+            assert!(
+                noise_type_targets_column("companies", col),
+                "{col} should still match 'companies'"
+            );
+            assert!(
+                !noise_type_targets_column("names", col),
+                "{col} should NOT match 'names' (company name, not a person name)"
+            );
+        }
+        assert!(
+            !noise_type_targets_column("addresses", "email_address"),
+            "email_address should NOT match 'addresses' (it's an email, not a postal address)"
+        );
+        assert!(
+            noise_type_targets_column("identifiers", "email_address"),
+            "email_address should still match 'identifiers' (corrupt_email)"
+        );
+        assert!(
+            noise_type_targets_column("addresses", "residential_address_line1"),
+            "a real postal address column should still match 'addresses'"
+        );
+    }
 
     fn manifest_dir() -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
