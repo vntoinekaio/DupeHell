@@ -712,41 +712,70 @@ fn apply_extra_pass_per_row(
     }
     let per_row_type: Vec<usize> = (0..n).map(|_| rng.next_usize(all_types.len())).collect();
 
-    let mut current = noisy.clone();
+    // Partition rows by assigned type FIRST (perf-hunt H4, hunt2407.md),
+    // same technique as `noise::apply_random_subtype` — each row needs
+    // noise from exactly one type, but the previous implementation called
+    // `apply_noise_with_retry` on the FULL n-row batch once per active
+    // type and threw away the n - |group| rows that mask didn't select:
+    // O(len(all_types) * n) noise computation instead of O(n). On a schema
+    // where every category has real target columns (e.g. kyc, all 9 hell
+    // categories active — hunt2407.md), that's up to 9x redundant work per
+    // extra pass. Grouping first means each row's noise is computed once,
+    // on a batch sized to just its own group.
+    let mut groups: Vec<Vec<u32>> = vec![Vec::new(); all_types.len()];
+    for (i, &t) in per_row_type.iter().enumerate() {
+        groups[t].push(i as u32);
+    }
+
+    let schema = noisy.schema();
     let mut pass_unchanged = vec![true; n];
-    for (type_idx, &ttype) in all_types.iter().enumerate() {
-        let mask: Vec<bool> = per_row_type.iter().map(|&t| t == type_idx).collect();
-        if !mask.iter().any(|&m| m) {
+    // column name -> full-length scatter buffer, lazily seeded from
+    // `noisy`'s own values and overwritten in place per group that
+    // touches it. Only columns some active type actually targets get an
+    // entry — untouched columns are left as direct clones of `noisy`'s
+    // arrays at the end, same "don't rebuild what didn't change" principle
+    // as the H1 fix above.
+    let mut touched: HashMap<String, Vec<Option<String>>> = HashMap::new();
+
+    for (type_idx, idxs) in groups.into_iter().enumerate() {
+        if idxs.is_empty() {
             continue;
         }
-        let (candidate, cand_unchanged, cand_target_cols) =
-            apply_noise_with_retry(&current, ttype, &[], rng, exclude_cols)?;
-        let bool_mask = arrow::array::BooleanArray::from(mask.clone());
-        let schema = current.schema();
-        let cand_target_idxs: Vec<usize> = cand_target_cols
-            .iter()
-            .filter_map(|c| schema.index_of(c).ok())
-            .collect();
-        // Only zip the columns this ttype actually touched (same H1 fix as
-        // `apply_noise_with_retry` above) — every other column of
-        // `candidate` is guaranteed identical to `current`'s.
-        let mut merged_cols: Vec<ArrayRef> = current.columns().to_vec();
-        for &i in &cand_target_idxs {
-            merged_cols[i] = arrow::compute::kernels::zip::zip(
-                &bool_mask,
-                candidate.column(i),
-                current.column(i),
-            )
-            .map_err(|e| format!("zip extra-pass col {i}: {e}"))?;
-        }
-        current = RecordBatch::try_new(current.schema(), merged_cols)
-            .map_err(|e| format!("rebuild extra-pass batch: {e}"))?;
-        for (row, &m) in mask.iter().enumerate() {
-            if m {
-                pass_unchanged[row] = cand_unchanged[row];
+        let ttype = all_types[type_idx];
+        let idx_arr = UInt64Array::from_iter_values(idxs.iter().map(|&i| i as u64));
+        let subset = pick_rows(noisy, &idx_arr)?;
+        let (noised_subset, subset_unchanged, target_cols) =
+            apply_noise_with_retry(&subset, ttype, &[], rng, exclude_cols)?;
+        for col_name in &target_cols {
+            let Ok(col_idx) = schema.index_of(col_name) else {
+                continue;
+            };
+            let noised_col = noised_subset.column(col_idx).as_string::<i32>();
+            let buf = touched.entry(col_name.clone()).or_insert_with(|| {
+                let orig = noisy.column(col_idx).as_string::<i32>();
+                (0..n)
+                    .map(|i| (!orig.is_null(i)).then(|| orig.value(i).to_string()))
+                    .collect()
+            });
+            for (local_pos, &orig_i) in idxs.iter().enumerate() {
+                buf[orig_i as usize] = (!noised_col.is_null(local_pos))
+                    .then(|| noised_col.value(local_pos).to_string());
             }
         }
+        for (local_pos, &orig_i) in idxs.iter().enumerate() {
+            pass_unchanged[orig_i as usize] = subset_unchanged[local_pos];
+        }
     }
+
+    let mut merged_cols: Vec<ArrayRef> = noisy.columns().to_vec();
+    for (col_name, buf) in touched {
+        if let Ok(col_idx) = schema.index_of(&col_name) {
+            merged_cols[col_idx] = Arc::new(StringArray::from(buf));
+        }
+    }
+    let current = RecordBatch::try_new(noisy.schema(), merged_cols)
+        .map_err(|e| format!("rebuild extra-pass batch: {e}"))?;
+
     for (u, pu) in unchanged.iter_mut().zip(pass_unchanged.iter()) {
         *u = *u && *pu;
     }
