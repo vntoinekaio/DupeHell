@@ -9,8 +9,9 @@ use std::sync::Arc;
 use arrow::array::{ArrayRef, StringBuilder};
 
 use crate::buf_gen::{
-    buf_acct_num, buf_branch, buf_digits, buf_email, buf_medicare, buf_office_phone, buf_pan,
-    buf_passport, buf_phone, buf_ssn, buf_ssn_last4, build_string_array, bytes_strings,
+    buf_acct_num, buf_booking_reference, buf_branch, buf_digits, buf_email, buf_frequent_flyer,
+    buf_medicare, buf_office_phone, buf_pan, buf_passport, buf_phone, buf_seat_number, buf_ssn,
+    buf_ssn_last4, build_string_array, bytes_strings,
 };
 use crate::context::Context;
 use crate::rng::Rng;
@@ -101,6 +102,18 @@ fn gen_acct_num(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 
 fn gen_branch(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     buf_branch(n, rng)
+}
+
+fn gen_seat_number(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    buf_seat_number(n, rng)
+}
+
+fn gen_booking_reference(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    buf_booking_reference(n, rng)
+}
+
+fn gen_frequent_flyer(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    buf_frequent_flyer(n, rng)
 }
 
 fn gen_street(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
@@ -870,6 +883,9 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     m.insert("account_number", gen_acct_num);
     // Branch code
     m.insert("branch_code", gen_branch);
+    m.insert("seat_number", gen_seat_number);
+    m.insert("booking_reference", gen_booking_reference);
+    m.insert("frequent_flyer", gen_frequent_flyer);
     // Street address
     for k in &[
         "street_address",

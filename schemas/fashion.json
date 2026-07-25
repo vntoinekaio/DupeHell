@@ -114,12 +114,12 @@
         {
           "name": "material",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "material_name"
         },
         {
           "name": "color",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "color"
         },
         {
           "name": "size",

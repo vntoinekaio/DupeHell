@@ -160,7 +160,7 @@
         {
           "name": "payment_method",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "payment_method"
         },
         {
           "name": "source_system",

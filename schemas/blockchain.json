@@ -205,7 +205,7 @@
         {
           "name": "token_standard",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "token_standard"
         },
         {
           "name": "launch_date",
