@@ -125,7 +125,7 @@
         {
           "name": "shift",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "shift"
         },
         {
           "name": "source_system",
@@ -154,7 +154,7 @@
         {
           "name": "report_type",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "mining_report_type"
         },
         {
           "name": "report_date",
@@ -168,7 +168,7 @@
         {
           "name": "compliance",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "compliance_status"
         },
         {
           "name": "source_system",

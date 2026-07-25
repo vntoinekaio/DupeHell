@@ -148,7 +148,7 @@
         {
           "name": "outcome",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "match_outcome"
         },
         {
           "name": "source_system",
@@ -195,7 +195,7 @@
         {
           "name": "payment_method",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "payment_method"
         },
         {
           "name": "source_system",

@@ -70,7 +70,7 @@
         {
           "name": "category",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "product_category"
         },
         {
           "name": "price",
@@ -79,7 +79,7 @@
         {
           "name": "is_special",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "yes_no"
         },
         {
           "name": "source_system",
@@ -121,7 +121,7 @@
         {
           "name": "grade",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "food_quality_grade"
         },
         {
           "name": "violations",

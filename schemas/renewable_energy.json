@@ -102,7 +102,7 @@
         {
           "name": "maintenance_type",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "maintenance_type"
         },
         {
           "name": "scheduled_date",
@@ -153,7 +153,7 @@
         {
           "name": "cert_type",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "rec_cert_type"
         },
         {
           "name": "issuance_date",

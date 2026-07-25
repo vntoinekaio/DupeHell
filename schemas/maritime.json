@@ -121,7 +121,7 @@
         {
           "name": "cargo_type",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "cargo_type"
         },
         {
           "name": "source_system",

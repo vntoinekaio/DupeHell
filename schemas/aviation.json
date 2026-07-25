@@ -29,7 +29,7 @@
         {
           "name": "alliance",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "airline_alliance"
         },
         {
           "name": "source_system",
@@ -182,7 +182,7 @@
         {
           "name": "fare_class",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "fare_class"
         },
         {
           "name": "source_system",

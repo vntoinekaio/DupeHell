@@ -396,6 +396,48 @@ pub fn buf_branch(n: usize, rng: &mut Rng) -> ArrayRef {
     })
 }
 
+/// `NNL` (2-3 bytes, aircraft seat: row 1-60 + seat letter A-F, no I).
+pub fn buf_seat_number(n: usize, rng: &mut Rng) -> ArrayRef {
+    const SEAT_LETTERS: &[u8] = b"ABCDEF";
+    build_string_array(n, 3, |buf| {
+        let row = rng.next_usize(60) + 1;
+        if row >= 10 {
+            push_digit!(buf, row / 10);
+        }
+        push_digit!(buf, row % 10);
+        buf.push(rand_char(SEAT_LETTERS, rng));
+    })
+}
+
+/// `XXXXXX` (6 bytes, PNR-style booking reference: 6 alnum chars, no I/O/0/1
+/// to match real-world airline PNR conventions and avoid visual ambiguity).
+pub fn buf_booking_reference(n: usize, rng: &mut Rng) -> ArrayRef {
+    const PNR_CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    build_string_array(n, 6, |buf| {
+        for _ in 0..6 {
+            buf.push(rand_char(PNR_CHARS, rng));
+        }
+    })
+}
+
+/// `LLXXXXXXXXX` (11 bytes, frequent-flyer number: 2 letters + 9 digits).
+pub fn buf_frequent_flyer(n: usize, rng: &mut Rng) -> ArrayRef {
+    build_string_array(n, 11, |buf| {
+        buf.push(rand_char(ALPHA_UPPER_NO_IOQ, rng));
+        buf.push(rand_char(ALPHA_UPPER_NO_IOQ, rng));
+        let nums = rng.next_usize(900_000_000) + 100_000_000;
+        push_digit!(buf, nums / 100_000_000);
+        push_digit!(buf, (nums / 10_000_000) % 10);
+        push_digit!(buf, (nums / 1_000_000) % 10);
+        push_digit!(buf, (nums / 100_000) % 10);
+        push_digit!(buf, (nums / 10_000) % 10);
+        push_digit!(buf, (nums / 1_000) % 10);
+        push_digit!(buf, (nums / 100) % 10);
+        push_digit!(buf, (nums / 10) % 10);
+        push_digit!(buf, nums % 10);
+    })
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

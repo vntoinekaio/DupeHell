@@ -75,7 +75,7 @@
         {
           "name": "service_level",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "service_level"
         },
         {
           "name": "status",
@@ -171,7 +171,7 @@
         {
           "name": "signature_required",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "yes_no"
         },
         {
           "name": "delivery_status",

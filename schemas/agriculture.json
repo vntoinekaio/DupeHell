@@ -141,7 +141,7 @@
         {
           "name": "breed",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "animal_breed"
         },
         {
           "name": "birth_date",
@@ -196,7 +196,7 @@
         {
           "name": "quality_grade",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "food_quality_grade"
         },
         {
           "name": "notes",

@@ -114,7 +114,7 @@
         {
           "name": "room_type",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "room_type"
         },
         {
           "name": "nightly_rate",
@@ -172,7 +172,7 @@
         {
           "name": "fare_class",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "fare_class"
         },
         {
           "name": "source_system",

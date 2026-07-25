@@ -177,7 +177,7 @@
         {
           "name": "result",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "qc_result"
         },
         {
           "name": "instrument_used",

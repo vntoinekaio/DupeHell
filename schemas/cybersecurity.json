@@ -20,12 +20,12 @@
         {
           "name": "asset_type",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "cyber_asset_type"
         },
         {
           "name": "os_name",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "os_name"
         },
         {
           "name": "department",
@@ -73,7 +73,7 @@
         {
           "name": "patch_available",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "yes_no"
         },
         {
           "name": "source_system",
@@ -176,7 +176,7 @@
         {
           "name": "motivation",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "threat_motivation"
         },
         {
           "name": "first_seen",

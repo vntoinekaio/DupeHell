@@ -138,7 +138,7 @@
         {
           "name": "billing_cycle",
           "type": "string",
-          "pool_name": "word"
+          "pool_name": "billing_cycle"
         },
         {
           "name": "start_date",
