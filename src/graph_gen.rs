@@ -203,40 +203,39 @@ fn pair_edge_type(a_identical: bool, b_identical: bool) -> &'static str {
 /// edge's `edge_type` reflects whether both endpoints are genuinely
 /// byte-identical (`exact_dup`) or at least one was noised (`fuzzy_dup`) —
 /// see `pair_edge_type`.
-///
-/// Wired into `run_pipeline` in a later phase (post-GT `cluster_map`).
-#[allow(dead_code)]
 pub fn push_dup_clusters(
     ew: &mut EdgeWriter,
-    clusters: &HashMap<String, Vec<(String, bool)>>,
+    clusters: &crate::gt::ClusterCsr,
     max_edges: usize,
 ) -> Result<(), String> {
-    let mut master_ids: Vec<&String> = clusters.keys().collect();
-    master_ids.sort();
-
-    for master_id in master_ids {
-        let members = &clusters[master_id];
-        let k = members.len();
+    for (records, idents) in clusters.groups() {
+        let k = records.len();
         if k < 2 {
             continue;
         }
+        // `records` is already ascending within its cluster (guaranteed by
+        // `ClusterCsr::build`'s sort), matching the previous
+        // `sorted.sort_by(|a, b| a.0.cmp(&b.0))` on the record_id string --
+        // no re-sort needed here.
         let n_edges = k * (k - 1) / 2;
-        let mut sorted: Vec<&(String, bool)> = members.iter().collect();
-        sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
         if n_edges > max_edges {
             log::warn!(
                 "dup cluster has {n_edges} edges > {max_edges}, using spanning tree fallback"
             );
-            for w in sorted.windows(2) {
-                let etype = pair_edge_type(w[0].1, w[1].1);
-                ew.push(&w[0].0, &w[1].0, etype, "spanning_tree", 1.0)?;
+            for (w, wi) in records.windows(2).zip(idents.windows(2)) {
+                let etype = pair_edge_type(wi[0], wi[1]);
+                let src = crate::pipeline::record_id_string(w[0] as usize);
+                let tgt = crate::pipeline::record_id_string(w[1] as usize);
+                ew.push(&src, &tgt, etype, "spanning_tree", 1.0)?;
             }
         } else {
             for i in 0..k {
                 for j in (i + 1)..k {
-                    let etype = pair_edge_type(sorted[i].1, sorted[j].1);
-                    ew.push(&sorted[i].0, &sorted[j].0, etype, "complete", 1.0)?;
+                    let etype = pair_edge_type(idents[i], idents[j]);
+                    let src = crate::pipeline::record_id_string(records[i] as usize);
+                    let tgt = crate::pipeline::record_id_string(records[j] as usize);
+                    ew.push(&src, &tgt, etype, "complete", 1.0)?;
                 }
             }
         }
@@ -280,21 +279,34 @@ mod tests {
         p.to_string_lossy().to_string()
     }
 
+    /// Alias for `pipeline::record_id_string`, for brevity in fixtures.
+    fn rid(i: usize) -> String {
+        crate::pipeline::record_id_string(i)
+    }
+
+    /// Builds a single-cluster `ClusterCsr` for a test, from a master's
+    /// local index (entity index fixed at 0 -- these tests only cover one
+    /// entity type) and its `(record_idx, is_identical)` members.
+    fn one_cluster(master_local_idx: usize, members: Vec<(usize, bool)>) -> crate::gt::ClusterCsr {
+        let master_key = crate::pipeline::pack_master_key(&format!(
+            "{}-{}",
+            crate::pipeline::entity_prefix(0),
+            crate::pipeline::pad_string(master_local_idx)
+        ))
+        .unwrap();
+        let pairs = members
+            .into_iter()
+            .map(|(ridx, ident)| (master_key, ridx as u64, ident))
+            .collect();
+        crate::gt::ClusterCsr::build(pairs)
+    }
+
     #[test]
     fn push_dup_clusters_complete() {
         let path = temp_path("edges_complete.ipc");
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
-        let mut clusters = HashMap::new();
-        clusters.insert(
-            "M1".to_string(),
-            vec![
-                ("R1".to_string(), true),
-                ("R2".to_string(), true),
-                ("R3".to_string(), true),
-                ("R4".to_string(), true),
-            ],
-        );
+        let clusters = one_cluster(1, vec![(1, true), (2, true), (3, true), (4, true)]);
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
         ew.finish().unwrap();
 
@@ -314,16 +326,8 @@ mod tests {
         let path = temp_path("edges_fuzzy.ipc");
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
-        let mut clusters = HashMap::new();
-        // R1 (master) and R2 stayed identical; R3 was genuinely noised.
-        clusters.insert(
-            "M1".to_string(),
-            vec![
-                ("R1".to_string(), true),
-                ("R2".to_string(), true),
-                ("R3".to_string(), false),
-            ],
-        );
+        // rid(1) (master) and rid(2) stayed identical; rid(3) was genuinely noised.
+        let clusters = one_cluster(1, vec![(1, true), (2, true), (3, false)]);
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
         ew.finish().unwrap();
 
@@ -333,9 +337,9 @@ mod tests {
             .iter()
             .map(|e| ((e.0.clone(), e.1.clone()), e.2.clone()))
             .collect();
-        assert_eq!(by_pair[&("R1".to_string(), "R2".to_string())], "exact_dup");
-        assert_eq!(by_pair[&("R1".to_string(), "R3".to_string())], "fuzzy_dup");
-        assert_eq!(by_pair[&("R2".to_string(), "R3".to_string())], "fuzzy_dup");
+        assert_eq!(by_pair[&(rid(1), rid(2))], "exact_dup");
+        assert_eq!(by_pair[&(rid(1), rid(3))], "fuzzy_dup");
+        assert_eq!(by_pair[&(rid(2), rid(3))], "fuzzy_dup");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -344,9 +348,8 @@ mod tests {
         let path = temp_path("edges_spanning.ipc");
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
-        let mut clusters = HashMap::new();
-        let ids: Vec<(String, bool)> = (0..200).map(|i| (format!("R{i:04}"), true)).collect();
-        clusters.insert("M-BIG".to_string(), ids);
+        let members: Vec<(usize, bool)> = (0..200).map(|i| (i, true)).collect();
+        let clusters = one_cluster(1, members.clone());
         // 200*199/2 = 19900 edges > 10000 -> spanning tree fallback (199 edges)
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
         ew.finish().unwrap();
@@ -362,13 +365,11 @@ mod tests {
                 .iter()
                 .all(|e| e.2 == "exact_dup" && e.3 == "spanning_tree")
         );
-        // Adjacent sorted pairs only.
+        // Adjacent ascending pairs only (members are already 0..200 ascending).
         let got: HashSet<(String, String)> =
             edges.iter().map(|e| (e.0.clone(), e.1.clone())).collect();
-        let mut sorted = clusters["M-BIG"].clone();
-        sorted.sort();
-        for w in sorted.windows(2) {
-            assert!(got.contains(&(w[0].0.clone(), w[1].0.clone())));
+        for w in members.windows(2) {
+            assert!(got.contains(&(rid(w[0].0), rid(w[1].0))));
         }
         let _ = std::fs::remove_file(&path);
     }
@@ -378,8 +379,7 @@ mod tests {
         let path = temp_path("edges_singleton.ipc");
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
-        let mut clusters = HashMap::new();
-        clusters.insert("M-ONLY".to_string(), vec![("R1".to_string(), true)]);
+        let clusters = one_cluster(1, vec![(1, true)]);
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
         ew.finish().unwrap();
         assert!(read_edges(&path).is_empty());

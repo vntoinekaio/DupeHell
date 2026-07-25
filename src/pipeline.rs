@@ -120,7 +120,7 @@ const RID_LEN: usize = 15; // "R-" + 13 digits
 const PAD_LEN: usize = 13; // 13 digits
 
 #[inline]
-fn record_id_string(i: usize) -> String {
+pub(crate) fn record_id_string(i: usize) -> String {
     let mut buf = [0u8; RID_LEN];
     buf[0] = b'R';
     buf[1] = b'-';
@@ -133,7 +133,7 @@ fn record_id_string(i: usize) -> String {
 }
 
 #[inline]
-fn pad_string(i: usize) -> String {
+pub(crate) fn pad_string(i: usize) -> String {
     let mut buf = [0u8; PAD_LEN];
     let mut n = i;
     for j in (0..PAD_LEN).rev() {
@@ -145,6 +145,41 @@ fn pad_string(i: usize) -> String {
 
 pub(crate) fn record_id_strs(range: std::ops::Range<usize>) -> Vec<String> {
     range.map(record_id_string).collect()
+}
+
+/// Inverse of `record_id_string`: parses `"R-0000000000007"` back to `7`.
+/// Returns `None` if `rid` isn't exactly `RID_LEN` bytes starting with
+/// `"R-"` followed by `PAD_LEN` ASCII digits (never expected in practice —
+/// every `record_id` in a duplicated cluster is produced by
+/// `record_id_string`/`record_id_strs`, never hand-built).
+pub(crate) fn parse_record_idx(rid: &str) -> Option<u64> {
+    if rid.len() != RID_LEN || !rid.starts_with("R-") {
+        return None;
+    }
+    rid[2..].parse().ok()
+}
+
+/// Packs a `master_id` of the fixed shape `"{entity_prefix}-{pad_string}"`
+/// (e.g. `"E00042-0000000001234"`) into a single `u64`: `entity_idx` in the
+/// high bits, `local_idx` in the low 44 bits. `entity_idx` is at most 5
+/// digits (`entity_prefix`'s format), so it fits comfortably above bit 44;
+/// `local_idx` is at most `PAD_LEN` (13) digits, which fits in 44 bits
+/// (2^44 ≈ 1.76e13). Preserves the same ordering as a lexicographic
+/// comparison of the original fixed-width string, since both segments are
+/// zero-padded to a constant width — callers that need the old
+/// `master_ids.sort()` determinism can just sort/compare the packed `u64`.
+/// Returns `None` if `mid` isn't `"E" + 5 digits + "-" + PAD_LEN digits`
+/// (never expected for a genuine duplicated master_id — see
+/// `gt::GtAccumulator::push_dup_batch`, the only source of `cluster_map`
+/// keys, which always writes this exact shape).
+pub(crate) fn pack_master_key(mid: &str) -> Option<u64> {
+    let bytes = mid.as_bytes();
+    if bytes.len() != 1 + 5 + 1 + PAD_LEN || bytes[0] != b'E' || bytes[6] != b'-' {
+        return None;
+    }
+    let entity_idx: u64 = mid[1..6].parse().ok()?;
+    let local_idx: u64 = mid[7..7 + PAD_LEN].parse().ok()?;
+    Some((entity_idx << 44) | local_idx)
 }
 
 /// Splits `total` proportionally across `weights` (largest-remainder
@@ -190,7 +225,7 @@ fn distribute_by_weight(total: usize, weights: &[usize]) -> Vec<usize> {
 /// colliding on the same prefix, which would make `gt.rs`'s master_id
 /// counting conflate masters from different entity types. An index is
 /// unique by construction — zero collision risk regardless of domain size.
-fn entity_prefix(entity_idx: usize) -> String {
+pub(crate) fn entity_prefix(entity_idx: usize) -> String {
     format!("E{:05}", entity_idx)
 }
 
@@ -2143,6 +2178,110 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// End-to-end regression for the `ClusterCsr` rewrite of `cluster_map`
+    /// (`project_csr_cluster_map_backlog`): drives the real pipeline
+    /// (`gt::GtAccumulator::finish` -> `ClusterCsr::build` ->
+    /// `graph_gen::push_dup_clusters`) instead of testing either module in
+    /// isolation, and checks the emitted `exact_dup`/`fuzzy_dup` edges are
+    /// well-formed and consistent with the run's own GT stats.
+    #[test]
+    fn test_run_pipeline_dup_cluster_edges_well_formed() {
+        let dir = scratch_dir("dup_cluster_edges");
+        // `run_kyc` always requests parquet-format graph output regardless
+        // of its `output_format` arg, so build the config directly here to
+        // get IPC edges (matches `test_fk_edge_weight_from_schema_and_default`'s
+        // approach for the same reason).
+        let schema = load_schema("kyc", &manifest_dir().join("schemas")).expect("load kyc.json");
+        let mut ctx = Context::new(
+            "kyc",
+            "en",
+            &manifest_dir().join("assets/pools").to_string_lossy(),
+        )
+        .expect("load context");
+        let config = build_pipeline_config(
+            "kyc",
+            200,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            &schema,
+            "pipeline_test_dup_cluster_edges",
+            "ipc",
+            true,
+            "ipc",
+        )
+        .expect("build config");
+        ctx.enable_watermark(&config.domain, config.size, config.seed);
+        let output = run_pipeline(&ctx, &config, &dir.to_string_lossy()).expect("run_pipeline");
+
+        let edges_path = output.edges.expect("edges path");
+        let file = std::fs::File::open(&edges_path).expect("open edges file");
+        let reader = arrow::ipc::reader::FileReader::try_new(file, None).expect("edges reader");
+
+        let mut n_exact = 0usize;
+        let mut n_fuzzy = 0usize;
+        for batch in reader {
+            let batch = batch.expect("read edges batch");
+            let src = batch
+                .column_by_name("source_node_id")
+                .expect("source_node_id col")
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .expect("source_node_id as string");
+            let tgt = batch
+                .column_by_name("target_node_id")
+                .expect("target_node_id col")
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .expect("target_node_id as string");
+            let edge_type = batch
+                .column_by_name("edge_type")
+                .expect("edge_type col")
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .expect("edge_type as string");
+            let weight = batch
+                .column_by_name("weight")
+                .expect("weight col")
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .expect("weight as f64");
+
+            for i in 0..batch.num_rows() {
+                match edge_type.value(i) {
+                    "exact_dup" => n_exact += 1,
+                    "fuzzy_dup" => n_fuzzy += 1,
+                    _ => continue,
+                }
+                // Every endpoint must round-trip through `parse_record_idx`
+                // -- i.e. `ClusterCsr`'s packed indices were correctly
+                // unpacked back into real record_ids by `push_dup_clusters`,
+                // not garbage or truncated.
+                assert!(
+                    parse_record_idx(src.value(i)).is_some(),
+                    "malformed source_node_id {:?} on a dup-cluster edge",
+                    src.value(i)
+                );
+                assert!(
+                    parse_record_idx(tgt.value(i)).is_some(),
+                    "malformed target_node_id {:?} on a dup-cluster edge",
+                    tgt.value(i)
+                );
+                assert!((weight.value(i) - 1.0).abs() < 1e-9);
+            }
+        }
+
+        // kyc/medium/seed 42/size 200 always produces some duplicates (see
+        // `output.stats.exact_dups`/`fuzzy_dups`), so the cluster-edge pass
+        // must actually have emitted something -- an empty result here would
+        // mean `ClusterCsr` silently dropped every cluster.
+        assert!(n_exact + n_fuzzy > 0, "no dup-cluster edges emitted");
+        assert!(output.stats.exact_dups + output.stats.fuzzy_dups > 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn test_run_pipeline_deterministic_stats() {
         let dir_a = scratch_dir("det_a");
@@ -2317,6 +2456,33 @@ mod tests {
         assert_eq!(strs.len(), 3);
         assert_eq!(strs[0], record_id_string(0));
         assert_eq!(strs[2], record_id_string(2));
+    }
+
+    #[test]
+    fn test_parse_record_idx_roundtrip() {
+        for i in [0usize, 7, 1_234_567, 300_000_000] {
+            assert_eq!(parse_record_idx(&record_id_string(i)), Some(i as u64));
+        }
+        assert_eq!(parse_record_idx("garbage"), None);
+        assert_eq!(parse_record_idx("R-1"), None);
+        assert_eq!(parse_record_idx("X-0000000000007"), None);
+    }
+
+    #[test]
+    fn test_pack_master_key_roundtrip_and_ordering() {
+        let mid = |e: usize, i: usize| format!("{}-{}", entity_prefix(e), pad_string(i));
+        assert!(pack_master_key(&mid(0, 0)).is_some());
+        // Same entity, ascending local index -> ascending packed key.
+        assert!(pack_master_key(&mid(0, 1)).unwrap() > pack_master_key(&mid(0, 0)).unwrap());
+        // Different entity always outranks any local index within a lower
+        // entity, exactly like comparing the original fixed-width strings.
+        assert!(
+            pack_master_key(&mid(1, 0)).unwrap()
+                > pack_master_key(&mid(0, 9_999_999_999_999)).unwrap()
+        );
+        assert_eq!(pack_master_key("garbage"), None);
+        assert_eq!(pack_master_key("HN-0000000000007"), None);
+        assert_eq!(pack_master_key("CANARY-000-0-abc"), None);
     }
 
     // ── perf-hunt H1 isolated measurement (hunt2407.md) ─────────────────
