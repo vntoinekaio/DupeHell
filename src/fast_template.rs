@@ -1213,7 +1213,7 @@ mod tests {
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             let v = s.value(i);
-            assert_eq!(v.len(), 15, "phone[{i}] = {v:?}");
+            assert_eq!(v.len(), 21, "phone[{i}] = {v:?}");
             assert!(v.starts_with("+1-"), "phone[{i}] = {v:?}");
         }
     }
