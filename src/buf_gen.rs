@@ -118,14 +118,23 @@ macro_rules! push_digit {
     };
 }
 
-/// `+1-XXX-555-01XX` (15 bytes) -- exchange 555, line 0100-0199, the NANP
-/// fictional-use block reserved by the numbering plan administrator so no
-/// generated number can ever be a real, dialable subscriber number,
-/// regardless of area code.
+/// `+1-XXX-555-01XX xXXXX` (21 bytes) -- exchange 555, line 0100-0199, the
+/// NANP fictional-use block reserved by the numbering plan administrator so
+/// no generated number can ever be a real, dialable subscriber number,
+/// regardless of area code. The `xXXXX` suffix is not part of the reserved
+/// block -- it exists purely to give the watermark a place to live that
+/// isn't the line number, so the 100-value line range stays fully free
+/// instead of being collapsed to a single dataset-wide constant (audit
+/// finding: `distinct(phone)` was capped at ~800 regardless of dataset
+/// size, since the watermark previously overwrote both free digits of the
+/// line number). Mirrors `buf_office_phone`'s layout, which never had this
+/// problem because its watermark already lands on the extension.
 pub fn buf_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x50484f4e);
-    build_string_array(n, 15, |buf| {
+    build_string_array(n, 21, |buf| {
         let a = rng.next_usize(800) + 200; // 200-999
+        let line = rng.next_usize(100); // 00-99
+        let x = rng.next_usize(9900) + 100; // 100-9999
         buf.push(b'+');
         buf.push(b'1');
         buf.push(b'-');
@@ -134,15 +143,27 @@ pub fn buf_phone(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         push_digit!(buf, a % 10);
         buf.push(b'-');
         buf.extend_from_slice(b"555-01");
-        buf.push(b'0');
-        buf.push(b'0');
+        push_digit!(buf, line / 10);
+        push_digit!(buf, line % 10);
+        buf.push(b' ');
+        buf.push(b'x');
+        push_digit!(buf, x / 1000);
+        push_digit!(buf, (x / 100) % 10);
+        push_digit!(buf, (x / 10) % 10);
+        push_digit!(buf, x % 10);
         watermark_buf(buf, 2, wm / 10);
     })
 }
 
 /// `XXX-XX-XXXX` (11 bytes) -- area number confined to 900-999, a block the
 /// SSA has documented as never assigned (along with 000 and 666), so no
-/// generated value can ever collide with a real person's SSN.
+/// generated value can ever collide with a real person's SSN. Unlike
+/// `buf_phone`, the format is a fixed 9-digit standard shape -- no room to
+/// add an extension-style suffix -- so the fix here narrows the
+/// watermark's footprint on `c` from 3 digits to 1 (audit finding:
+/// `distinct(ssn)` was capped at ~81 000 regardless of dataset size, since
+/// only `c`'s leading digit survived the watermark). Still watermarked and
+/// still detectable, just over a smaller digit span.
 pub fn buf_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let wm = ctx.watermark_3digits(0x53534e);
     build_string_array(n, 11, |buf| {
@@ -160,7 +181,7 @@ pub fn buf_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         push_digit!(buf, (c / 100) % 10);
         push_digit!(buf, (c / 10) % 10);
         push_digit!(buf, c % 10);
-        watermark_buf(buf, 3, wm);
+        watermark_buf(buf, 1, wm % 10);
     })
 }
 
@@ -388,7 +409,7 @@ mod tests {
         let s = arr.as_string::<i32>();
         for i in 0..5 {
             let v = s.value(i);
-            assert_eq!(v.len(), 15, "phone[{i}] = {v:?}");
+            assert_eq!(v.len(), 21, "phone[{i}] = {v:?}");
             assert!(v.starts_with("+1-"), "phone[{i}] = {v:?}");
             assert!(
                 v.contains("-555-01"),
