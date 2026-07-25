@@ -197,13 +197,24 @@ fn ascii_local(s: &str) -> String {
         .collect()
 }
 
-/// `firstname.lastname@example.com` (variable length, `example.com`
+/// `firstname.lastname######@example.com` (variable length, `example.com`
 /// reserved by RFC 2606 -- see `ETHICS.md`) -- derived from the
 /// `first_name`/`last_name` pools already loaded for other fields, combined
-/// across 3 layout strategies and a numeric suffix. Replaces the previous
-/// fixed `user#####@mail.com` pattern, whose 90 000-value space caused
-/// accidental (unlabeled) collisions between unrelated entities once a
-/// dataset's population exceeded that range.
+/// across 3 layout strategies plus a 6-digit numeric suffix. Replaces the
+/// previous fixed `user#####@mail.com` pattern, whose 90 000-value space
+/// caused accidental (unlabeled) collisions between unrelated entities once
+/// a dataset's population exceeded that range.
+///
+/// Audit finding (backlog item #7): only the 3rd layout strategy carried a
+/// numeric suffix, and a narrow one (100-999, 900 values). The other two
+/// strategies' cardinality was bounded solely by the name pools (~520
+/// first names x ~515 last names per locale, or ~26 x ~515 for the
+/// initial+lastname layout) -- collisions grew from 8.5% at 1M rows to
+/// 28.9% at 25M, a name-pool-driven birthday-paradox effect rather than a
+/// hard cap. Every strategy now appends the same wide 6-digit suffix
+/// (100000-999999, 900 000 values), independent of which name pair was
+/// drawn, so collisions stay governed by that much larger, size-independent
+/// space instead of the name pools.
 pub fn buf_email(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
     let first = ctx
         .pool_store
@@ -213,7 +224,7 @@ pub fn buf_email(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         .pool_store
         .get("last_name")
         .expect("pool 'last_name' not found");
-    build_string_array(n, 32, |buf| {
+    build_string_array(n, 38, |buf| {
         let mut f = ascii_local(&first[rng.next_usize(first.len())]);
         if f.is_empty() {
             f = "user".to_string();
@@ -234,12 +245,15 @@ pub fn buf_email(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
             }
             _ => {
                 buf.extend_from_slice(f.as_bytes());
-                let num = rng.next_usize(900) + 100; // 100-999
-                push_digit!(buf, num / 100);
-                push_digit!(buf, (num / 10) % 10);
-                push_digit!(buf, num % 10);
             }
         }
+        let num = rng.next_usize(900_000) + 100_000; // 100000-999999
+        push_digit!(buf, num / 100_000);
+        push_digit!(buf, (num / 10_000) % 10);
+        push_digit!(buf, (num / 1_000) % 10);
+        push_digit!(buf, (num / 100) % 10);
+        push_digit!(buf, (num / 10) % 10);
+        push_digit!(buf, num % 10);
         buf.extend_from_slice(b"@example.com");
     })
 }
