@@ -10,6 +10,89 @@ use arrow::record_batch::RecordBatch;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Compressed-sparse-row representation of the duplicate-cluster
+/// membership previously held as `HashMap<String, Vec<(String, bool)>>`.
+/// Built once, in `GtAccumulator::finish`, from every `(master_id,
+/// record_id, is_identical)` triple belonging to a duplicated master.
+///
+/// Avoids one `String` allocation per `record_id` and one per distinct
+/// `master_id` (the dominant RAM cost of `cluster_map` at 200M+ records,
+/// see `project_csr_cluster_map_backlog`): `master_id`/`record_id` are
+/// packed into `u64`s (`pipeline::pack_master_key`/`parse_record_idx` —
+/// both are pure functions of the fixed-width ID shapes `pipeline.rs`
+/// already generates, so the packing/unpacking is lossless and exact) and
+/// stored in two flat, contiguous buffers instead of a hash map of
+/// per-cluster `Vec`s.
+///
+/// `master_id` itself is never needed downstream as a string — the only
+/// consumer (`graph_gen::push_dup_clusters`) only ever used it to get a
+/// deterministic cluster iteration order (`master_ids.sort()`), and
+/// numeric comparison of the packed key preserves that exact order (both
+/// segments of the original string are zero-padded to a fixed width, so
+/// lexicographic and numeric order agree).
+pub struct ClusterCsr {
+    /// `offsets.len() == n_clusters + 1`; cluster `k`'s members are
+    /// `records[offsets[k]..offsets[k+1]]` (and the parallel slice of
+    /// `is_identical`). Sorted ascending by packed master key.
+    offsets: Vec<u32>,
+    /// Flat, cluster-grouped buffer of global record indices (see
+    /// `pipeline::record_id_string`/`parse_record_idx`), ascending within
+    /// each cluster.
+    records: Vec<u64>,
+    /// Parallel to `records`: whether that record is byte-identical to its
+    /// cluster's master.
+    is_identical: Vec<bool>,
+}
+
+impl ClusterCsr {
+    /// Builds the CSR from an unordered flat list of `(packed_master_key,
+    /// record_idx, is_identical)` triples. Sorting once by `(master_key,
+    /// record_idx)` both groups every triple by cluster and orders each
+    /// cluster's members ascending, in one pass — no need to pre-count
+    /// group sizes or build the structure incrementally.
+    pub(crate) fn build(mut pairs: Vec<(u64, u64, bool)>) -> Self {
+        pairs.sort_unstable_by_key(|&(mk, ridx, _)| (mk, ridx));
+
+        let mut offsets = Vec::new();
+        let mut records = Vec::with_capacity(pairs.len());
+        let mut is_identical = Vec::with_capacity(pairs.len());
+        let mut last_key: Option<u64> = None;
+
+        for (mk, ridx, ident) in pairs {
+            if last_key != Some(mk) {
+                offsets.push(records.len() as u32);
+                last_key = Some(mk);
+            }
+            records.push(ridx);
+            is_identical.push(ident);
+        }
+        offsets.push(records.len() as u32);
+
+        Self {
+            offsets,
+            records,
+            is_identical,
+        }
+    }
+
+    /// Iterates clusters in ascending packed-master-key order (matches the
+    /// previous `master_ids.sort()` determinism exactly), yielding each
+    /// cluster's `(record_indices, is_identical)` slice pair. A cluster's
+    /// `record_indices` are already ascending, so callers that used to sort
+    /// members themselves (`push_dup_clusters`) no longer need to.
+    pub fn groups(&self) -> impl Iterator<Item = (&[u64], &[bool])> {
+        self.offsets.windows(2).map(move |w| {
+            let (start, end) = (w[0] as usize, w[1] as usize);
+            (&self.records[start..end], &self.is_identical[start..end])
+        })
+    }
+
+    #[cfg(test)]
+    fn n_clusters(&self) -> usize {
+        self.offsets.len().saturating_sub(1)
+    }
+}
+
 /// Result of [`GtAccumulator::finish`].
 pub struct GtResult {
     /// Cluster members that are genuinely byte-for-byte identical to their
@@ -31,7 +114,7 @@ pub struct GtResult {
     /// `graph_gen::push_dup_clusters` to decide, per edge, whether the pair
     /// it connects is `exact_dup` (both ends byte-identical to the master,
     /// hence to each other) or `fuzzy_dup` (at least one end was noised).
-    pub cluster_map: HashMap<String, Vec<(String, bool)>>,
+    pub cluster_map: ClusterCsr,
 }
 
 fn draft_schema() -> Arc<Schema> {
@@ -282,8 +365,11 @@ impl GtAccumulator {
         let mut n_unique = 0usize;
         // Cluster membership for duplicated masters (base + duplicate copies,
         // exact and fuzzy alike), for emitting duplicate-cluster edges after
-        // this pass.
-        let mut cluster_map: HashMap<String, Vec<(String, bool)>> = HashMap::new();
+        // this pass. Accumulated as a flat `Vec` of packed triples (see
+        // `ClusterCsr`) instead of a `HashMap<String, Vec<...>>` -- avoids a
+        // `String` allocation per record_id/master_id, the dominant RAM cost
+        // of this bookkeeping at 200M+ records.
+        let mut cluster_pairs: Vec<(u64, u64, bool)> = Vec::new();
 
         for batch_result in reader {
             let batch = batch_result.map_err(|e| format!("read gt draft batch: {e}"))?;
@@ -335,10 +421,25 @@ impl GtAccumulator {
                 // Every row of a duplicated master belongs to its cluster,
                 // tagged with its own identical/fuzzy status.
                 if dup_masters.contains(mid) {
-                    cluster_map
-                        .entry(mid.to_string())
-                        .or_default()
-                        .push((rid_col.value(i).to_string(), is_identical));
+                    let master_key = crate::pipeline::pack_master_key(mid).unwrap_or_else(|| {
+                        panic!(
+                            "cluster_map: master_id {mid:?} isn't the fixed \
+                             \"{{entity_prefix}}-{{pad_string}}\" shape -- \
+                             every entry in `dup_masters` is written by \
+                             `push_dup_batch`, which never receives an \
+                             HN-/CANARY- master_id"
+                        )
+                    });
+                    let record_idx = crate::pipeline::parse_record_idx(rid_col.value(i))
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "cluster_map: record_id {:?} isn't the fixed \
+                                 \"R-\" + 13-digit shape produced by \
+                                 `record_id_string`",
+                                rid_col.value(i)
+                            )
+                        });
+                    cluster_pairs.push((master_key, record_idx, is_identical));
                 }
             }
             let mt_arr: ArrayRef = Arc::new(mt_builder.finish());
@@ -370,7 +471,7 @@ impl GtAccumulator {
             n_hard_neg,
             n_unique,
             n_masters: n_base_masters,
-            cluster_map,
+            cluster_map: ClusterCsr::build(cluster_pairs),
         })
     }
 }
@@ -450,6 +551,15 @@ mod tests {
         Arc::new(StringArray::from(values))
     }
 
+    /// Same as `arr`, but for computed (owned) strings -- used to build
+    /// `record_id`/`master_id` fixtures matching the exact fixed-width shape
+    /// `ClusterCsr`'s packing relies on (`pipeline::record_id_string`/
+    /// `entity_prefix`/`pad_string`), which a bare string literal like
+    /// `"R2"` doesn't.
+    fn arr_owned(values: Vec<String>) -> ArrayRef {
+        Arc::new(StringArray::from(values))
+    }
+
     fn barr(values: Vec<bool>) -> ArrayRef {
         Arc::new(BooleanArray::from(values))
     }
@@ -479,31 +589,47 @@ mod tests {
         out
     }
 
+    /// Builds the fixed-width `"{entity_prefix}-{pad_string}"` master_id
+    /// shape `ClusterCsr`'s packing relies on -- all these fixture-building
+    /// tests use a single entity index (0).
+    fn mid(n: usize) -> String {
+        format!(
+            "{}-{}",
+            crate::pipeline::entity_prefix(0),
+            crate::pipeline::pad_string(n)
+        )
+    }
+
+    /// Alias for `pipeline::record_id_string`, for brevity in fixtures.
+    fn rid(i: usize) -> String {
+        crate::pipeline::record_id_string(i)
+    }
+
     #[test]
     fn test_gt_accumulator_basic() {
         let draft = tmp_path("basic_draft");
         let final_path = tmp_path("basic_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
-        // Base rows: R1 (master M-0000001, later duplicated), R3 (singleton
-        // M-0000002), R6 (singleton M-0000005).
+        // Base rows: rid(1) (master mid(1), later duplicated), rid(3)
+        // (singleton mid(2)), rid(6) (singleton mid(5)).
         acc.push_base_batch(
-            &arr(vec!["R1", "R3", "R6"]),
+            &arr_owned(vec![rid(1), rid(3), rid(6)]),
             &arr(vec!["person", "person", "person"]),
-            &arr(vec!["M-0000001", "M-0000002", "M-0000005"]),
+            &arr_owned(vec![mid(1), mid(2), mid(5)]),
         )
         .unwrap();
-        // Dup row: R2 duplicates M-0000001, unchanged by its noise pass.
+        // Dup row: rid(2) duplicates mid(1), unchanged by its noise pass.
         acc.push_dup_batch(
-            &arr(vec!["R2"]),
+            &arr_owned(vec![rid(2)]),
             &arr(vec!["person"]),
-            &arr(vec!["M-0000001"]),
+            &arr_owned(vec![mid(1)]),
             &barr(vec![true]),
         )
         .unwrap();
-        // Hard negatives: R4, R5.
+        // Hard negatives: rid(4), rid(5).
         acc.push_other_batch(
-            &arr(vec!["R4", "R5"]),
+            &arr_owned(vec![rid(4), rid(5)]),
             &arr(vec!["person", "person"]),
             &arr(vec!["HN-0000003", "HN-0000004"]),
         )
@@ -521,15 +647,15 @@ mod tests {
         assert_eq!(ed, 2);
         assert_eq!(hn, 2);
         assert_eq!(un, 2);
-        assert_eq!(masters, 3); // M-0000001, M-0000002, M-0000005
+        assert_eq!(masters, 3); // mid(1), mid(2), mid(5)
 
         let match_types = read_match_types(&final_path);
-        assert_eq!(match_types["R1"], "exact_dup");
-        assert_eq!(match_types["R2"], "exact_dup");
-        assert_eq!(match_types["R3"], "unique");
-        assert_eq!(match_types["R4"], "hard_neg");
-        assert_eq!(match_types["R5"], "hard_neg");
-        assert_eq!(match_types["R6"], "unique");
+        assert_eq!(match_types[&rid(1)], "exact_dup");
+        assert_eq!(match_types[&rid(2)], "exact_dup");
+        assert_eq!(match_types[&rid(3)], "unique");
+        assert_eq!(match_types[&rid(4)], "hard_neg");
+        assert_eq!(match_types[&rid(5)], "hard_neg");
+        assert_eq!(match_types[&rid(6)], "unique");
 
         std::fs::remove_file(&final_path).ok();
     }
@@ -544,18 +670,18 @@ mod tests {
         let final_path = tmp_path("fuzzy_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
-        // Triplet: R1 is the master, R2 was left unchanged by its noise
-        // pass, R3 was genuinely altered.
+        // Triplet: rid(1) is the master, rid(2) was left unchanged by its
+        // noise pass, rid(3) was genuinely altered.
         acc.push_base_batch(
-            &arr(vec!["R1"]),
+            &arr_owned(vec![rid(1)]),
             &arr(vec!["person"]),
-            &arr(vec!["M-0000001"]),
+            &arr_owned(vec![mid(1)]),
         )
         .unwrap();
         acc.push_dup_batch(
-            &arr(vec!["R2", "R3"]),
+            &arr_owned(vec![rid(2), rid(3)]),
             &arr(vec!["person", "person"]),
-            &arr(vec!["M-0000001", "M-0000001"]),
+            &arr_owned(vec![mid(1), mid(1)]),
             &barr(vec![true, false]),
         )
         .unwrap();
@@ -569,15 +695,15 @@ mod tests {
         } = acc
             .finish("medium", "ipc", &final_path, &HashMap::new())
             .unwrap();
-        assert_eq!(ed, 2); // R1 (master) + R2 (unchanged copy)
-        assert_eq!(fd, 1); // R3 (genuinely noised copy)
+        assert_eq!(ed, 2); // rid(1) (master) + rid(2) (unchanged copy)
+        assert_eq!(fd, 1); // rid(3) (genuinely noised copy)
         assert_eq!(un, 0);
         assert_eq!(masters, 1);
 
         let match_types = read_match_types(&final_path);
-        assert_eq!(match_types["R1"], "exact_dup");
-        assert_eq!(match_types["R2"], "exact_dup");
-        assert_eq!(match_types["R3"], "fuzzy_dup");
+        assert_eq!(match_types[&rid(1)], "exact_dup");
+        assert_eq!(match_types[&rid(2)], "exact_dup");
+        assert_eq!(match_types[&rid(3)], "fuzzy_dup");
 
         std::fs::remove_file(&final_path).ok();
     }
@@ -588,19 +714,19 @@ mod tests {
         let final_path = tmp_path("multi_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
-        // Base batch: two masters, one of which (M-0000001) is duplicated
-        // in a later, separate dup batch — simulating a master's duplicate
+        // Base batch: two masters, one of which (mid(1)) is duplicated in a
+        // later, separate dup batch — simulating a master's duplicate
         // landing in a different batch than its base row.
         acc.push_base_batch(
-            &arr(vec!["R1", "R3"]),
+            &arr_owned(vec![rid(1), rid(3)]),
             &arr(vec!["person", "person"]),
-            &arr(vec!["M-0000001", "M-0000002"]),
+            &arr_owned(vec![mid(1), mid(2)]),
         )
         .unwrap();
         acc.push_dup_batch(
-            &arr(vec!["R2"]),
+            &arr_owned(vec![rid(2)]),
             &arr(vec!["person"]),
-            &arr(vec!["M-0000001"]),
+            &arr_owned(vec![mid(1)]),
             &barr(vec![true]),
         )
         .unwrap();
@@ -664,21 +790,21 @@ mod tests {
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
         acc.push_base_batch(
-            &arr(vec!["R1", "R3", "R6"]),
+            &arr_owned(vec![rid(1), rid(3), rid(6)]),
             &arr(vec!["person", "person", "person"]),
-            &arr(vec!["M-0000001", "M-0000002", "M-0000005"]),
+            &arr_owned(vec![mid(1), mid(2), mid(5)]),
         )
         .unwrap();
-        // R2 (M-0000001) stayed identical; R7 (M-0000005) was genuinely noised.
+        // rid(2) (mid(1)) stayed identical; rid(7) (mid(5)) was genuinely noised.
         acc.push_dup_batch(
-            &arr(vec!["R2", "R7"]),
+            &arr_owned(vec![rid(2), rid(7)]),
             &arr(vec!["person", "person"]),
-            &arr(vec!["M-0000001", "M-0000005"]),
+            &arr_owned(vec![mid(1), mid(5)]),
             &barr(vec![true, false]),
         )
         .unwrap();
         acc.push_other_batch(
-            &arr(vec!["R4", "R5"]),
+            &arr_owned(vec![rid(4), rid(5)]),
             &arr(vec!["person", "person"]),
             &arr(vec!["HN-0000003", "HN-0000004"]),
         )
@@ -690,22 +816,22 @@ mod tests {
             .finish("medium", "ipc", &final_path, &HashMap::new())
             .unwrap();
 
-        // Only duplicated masters appear; singletons (M-0000002) do not.
-        assert_eq!(cm.len(), 2);
-        let mut m1 = cm.get("M-0000001").unwrap().clone();
-        m1.sort();
-        assert_eq!(m1, vec![("R1".to_string(), true), ("R2".to_string(), true)]);
-        let mut m5 = cm.get("M-0000005").unwrap().clone();
-        m5.sort();
-        // R6 is the base of M-0000005; its only copy (R7) was genuinely
-        // noised, so the cluster has no byte-identical pair at all — R6
+        // Only duplicated masters appear; singletons (mid(2)) do not. Groups
+        // come out in ascending packed-master-key order, i.e. mid(1) (local
+        // index 1) before mid(5) (local index 5).
+        assert_eq!(cm.n_clusters(), 2);
+        let mut groups = cm.groups();
+        let (records1, idents1) = groups.next().unwrap();
+        assert_eq!(records1, &[1, 2]);
+        assert_eq!(idents1, &[true, true]);
+        // rid(6) is the base of mid(5); its only copy (rid(7)) was genuinely
+        // noised, so the cluster has no byte-identical pair at all — rid(6)
         // must NOT read as identical just because it's the base (that was
         // the bug: base rows used to hardcode `is_identical = true`).
-        assert_eq!(
-            m5,
-            vec![("R6".to_string(), false), ("R7".to_string(), false)]
-        );
-        assert!(!cm.contains_key("M-0000002"));
+        let (records5, idents5) = groups.next().unwrap();
+        assert_eq!(records5, &[6, 7]);
+        assert_eq!(idents5, &[false, false]);
+        assert!(groups.next().is_none());
 
         std::fs::remove_file(&final_path).ok();
     }
