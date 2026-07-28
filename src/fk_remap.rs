@@ -4,7 +4,7 @@
 // EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
-use arrow::array::{ArrayRef, AsArray, UInt64Array};
+use arrow::array::{ArrayRef, UInt64Array};
 use arrow::compute::take;
 use arrow::record_batch::RecordBatch;
 
@@ -18,15 +18,16 @@ use crate::rng::Rng;
 ///   when built for graph output, the corresponding `record_id` (column 1)
 /// * `src_col` - Name of the column to remap in the batch
 /// * `rng` - RNG for random index generation into the pool
-/// * `track_src` - When true, also return the target `record_id`s so callers
-///   can emit FK edges. The RNG consumption is identical either way.
+/// * `track_src` - When true, also return the target `record_id`s (as the
+///   raw Arrow array, no `Vec<String>` conversion) so callers can emit FK
+///   edges. The RNG consumption is identical either way.
 pub fn fk_remap_batch(
     batch: &RecordBatch,
     pool_rb: &RecordBatch,
     src_col: &str,
     rng: &mut Rng,
     track_src: bool,
-) -> Result<(RecordBatch, Option<Vec<String>>), String> {
+) -> Result<(RecordBatch, Option<ArrayRef>), String> {
     let n = batch.num_rows();
     let pool_col = pool_rb.column(0);
     let pool_n = pool_col.len();
@@ -68,14 +69,9 @@ pub fn fk_remap_batch(
     // only when graph output is enabled) using the same indices. RNG
     // consumption above is unchanged.
     let target_rids = if track_src && pool_rb.num_columns() >= 2 {
-        let taken = take(pool_rb.column(1), &idx_arr, None)
-            .map_err(|e| format!("take error on target rids: {e}"))?;
         Some(
-            taken
-                .as_string::<i32>()
-                .iter()
-                .map(|v| v.map(|s| s.to_string()).unwrap_or_default())
-                .collect(),
+            take(pool_rb.column(1), &idx_arr, None)
+                .map_err(|e| format!("take error on target rids: {e}"))?,
         )
     } else {
         None

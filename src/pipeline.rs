@@ -1120,7 +1120,7 @@ pub fn run_pipeline_with_progress(
             let rb = crate::entity_gen::generate_entity_batch(ctx, &request_json)?;
 
             // FK remap (uses pools from previously processed entities)
-            let mut fk_edges_by_remap: Vec<(String, Vec<String>, f64)> = Vec::new();
+            let mut fk_edges_by_remap: Vec<(String, ArrayRef, f64)> = Vec::new();
             let rb = if !plan.fk_remaps.is_empty() {
                 let mut r = rb;
                 for remap in &plan.fk_remaps {
@@ -1225,9 +1225,15 @@ pub fn run_pipeline_with_progress(
             {
                 nw.write_batch(&base_rb)
                     .map_err(|e| format!("write node: {e}"))?;
-                for i in 0..batch_n {
+                let fk_edges_by_remap: Vec<_> = fk_edges_by_remap
+                    .iter()
+                    .map(|(subtype, target_rids, weight)| {
+                        (subtype, target_rids.as_string::<i32>(), *weight)
+                    })
+                    .collect();
+                for (i, rid) in rid_slice.iter().enumerate().take(batch_n) {
                     for (subtype, target_rids, weight) in &fk_edges_by_remap {
-                        ew.push(&rid_slice[i], &target_rids[i], "fk", subtype, *weight)
+                        ew.push(rid, target_rids.value(i), "fk", subtype, *weight)
                             .map_err(|e| format!("push fk edge: {e}"))?;
                     }
                 }
