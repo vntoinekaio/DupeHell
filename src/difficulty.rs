@@ -34,7 +34,14 @@ fn match_utility(col_name: &str, col_type: &str) -> f64 {
             } else if contains_any(&lower, &["company", "legal", "trading", "registration"]) {
                 0.8
             } else {
-                0.5
+                // Unclassified generic/categorical columns (occupation,
+                // risk_score, document_type, source_system, ...) are
+                // descriptive, not identifying -- most duplicates of
+                // different people share the same value. Kept low
+                // (below the weak `_id`-suffix bucket) so a handful of
+                // them can't noisy-OR their way to near-certain recall
+                // when combined with genuinely informative columns.
+                0.1
             }
         }
     }
@@ -267,6 +274,14 @@ pub fn estimate_difficulty(
     let mut total_hard_neg_pairs = 0usize;
     let mut total_guaranteed_fp = 0usize;
     let mut total_guaranteed_fn = 0usize;
+    // Float accumulators for the precision/recall/F1 calculation itself:
+    // summing per-entity `usize` counts first would floor sub-1 expected
+    // failures (e.g. 1416 pairs * 3e-4 fail chance = 0.42) to exactly 0,
+    // silently rounding f1_max up to a false 1.0 once enough columns are
+    // combined via noisy-OR. `guaranteed_fp`/`guaranteed_fn` stay `usize`
+    // in the report (display only); the ratios below use these instead.
+    let mut total_guaranteed_fp_f = 0.0f64;
+    let mut total_guaranteed_fn_f = 0.0f64;
 
     for plan in &config.entity_plans {
         let poisoned: std::collections::HashSet<String> = hn_id_fields
@@ -312,8 +327,19 @@ pub fn estimate_difficulty(
         let n_dup_f = n_dup.max(1) as f64;
         let passes = config.noise_passes.max(1) as i32;
         let mut col_reliability = Vec::new();
-        let mut best_fn_reliability = 0.0f64;
-        let mut best_fp_reliability = 0.0f64; // higher = more FP-safe
+        // A real ER pipeline combines evidence across columns instead of
+        // relying on a single "best" one: blocking is typically OR'd
+        // across a few strong candidate keys, and matching then combines
+        // ALL informative surviving columns. We model both stages as
+        // noisy-OR combinations (complement of the product of individual
+        // failure probabilities) rather than a single max, and chain them:
+        // recall = recall_blocking * recall_matching. See the plan in
+        // `nifty-spinning-rocket.md` for the full rationale.
+        const BLOCKING_UTILITY_THRESHOLD: f64 = 0.7;
+        let mut blocking_fn_fail = 1.0f64;
+        let mut matching_fn_fail = 1.0f64;
+        let mut blocking_fp_fail = 1.0f64; // higher = more chance NO strong column catches the HN
+        let mut matching_fp_fail = 1.0f64;
 
         for col in &cols {
             let base_damage = base_noise_damage(&col.name, &col.col_type);
@@ -336,11 +362,13 @@ pub fn estimate_difficulty(
             // Reliability for AVOIDING false positives: utility × freedom from HN poisoning
             let rel_fp = util * (1.0 - hn_risk) * (1.0 - damage);
 
-            if rel_fn > best_fn_reliability {
-                best_fn_reliability = rel_fn;
-            }
-            if rel_fp > best_fp_reliability {
-                best_fp_reliability = rel_fp;
+            if util > 0.0 {
+                matching_fn_fail *= 1.0 - rel_fn;
+                matching_fp_fail *= 1.0 - rel_fp;
+                if util >= BLOCKING_UTILITY_THRESHOLD {
+                    blocking_fn_fail *= 1.0 - rel_fn;
+                    blocking_fp_fail *= 1.0 - rel_fp;
+                }
             }
 
             col_reliability.push(ColReliability {
@@ -352,19 +380,38 @@ pub fn estimate_difficulty(
             });
         }
 
-        let guaranteed_fp = if hn_pairs > 0 {
-            // FP guaranteed when even the best non-HN-safe column is unreliable
-            (hn_pairs as f64 * (1.0 - best_fp_reliability)) as usize
+        // No column reaches the blocking threshold on this entity: fall
+        // back to the matching-stage combination alone (no separate
+        // blocking gate to model).
+        let recall_blocking = if blocking_fn_fail < 1.0 {
+            1.0 - blocking_fn_fail
         } else {
-            0
+            1.0
         };
+        let precision_blocking = if blocking_fp_fail < 1.0 {
+            1.0 - blocking_fp_fail
+        } else {
+            1.0
+        };
+        let recall_combined = recall_blocking * (1.0 - matching_fn_fail);
+        let precision_combined = precision_blocking * (1.0 - matching_fp_fail);
 
-        let guaranteed_fn = (true_pairs as f64 * (1.0 - best_fn_reliability)) as usize;
+        let guaranteed_fp_f = if hn_pairs > 0 {
+            // FP guaranteed when NO combination of reliable columns catches the poison
+            hn_pairs as f64 * (1.0 - precision_combined)
+        } else {
+            0.0
+        };
+        let guaranteed_fn_f = true_pairs as f64 * (1.0 - recall_combined);
+        let guaranteed_fp = guaranteed_fp_f as usize;
+        let guaranteed_fn = guaranteed_fn_f as usize;
 
         total_true_pairs += true_pairs;
         total_hard_neg_pairs += hn_pairs;
         total_guaranteed_fp += guaranteed_fp;
         total_guaranteed_fn += guaranteed_fn;
+        total_guaranteed_fp_f += guaranteed_fp_f;
+        total_guaranteed_fn_f += guaranteed_fn_f;
 
         entities.push(EntityDifficulty {
             name: plan.name.clone(),
@@ -379,8 +426,8 @@ pub fn estimate_difficulty(
     }
 
     let tp = total_true_pairs.max(1) as f64;
-    let fp = total_guaranteed_fp as f64;
-    let fn_ = total_guaranteed_fn as f64;
+    let fp = total_guaranteed_fp_f;
+    let fn_ = total_guaranteed_fn_f;
 
     let precision_max = tp / (tp + fp);
     let recall_max = tp / (tp + fn_);
