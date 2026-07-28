@@ -58,6 +58,12 @@ struct Cli {
 
     #[arg(
         long,
+        help = "Pin the process to performance (P) cores only, on hybrid P-core/E-core CPUs (Windows only; no-op elsewhere or on non-hybrid CPUs)"
+    )]
+    pcore_only: bool,
+
+    #[arg(
+        long,
         help = "Output file format: parquet (default, ZSTD compressed) or ipc (Arrow IPC)"
     )]
     output_format: Option<String>,
@@ -156,6 +162,14 @@ fn warn_if_memory_tight(size: usize) {
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
+
+    if cli.pcore_only {
+        if dupehell_core::cpu_affinity::pin_to_p_cores() {
+            eprintln!("pcore-only: process pinned to P-cores");
+        } else {
+            eprintln!("pcore-only: no hybrid P-core/E-core topology detected, ignoring");
+        }
+    }
 
     let schema = match load_schema(&cli.domain, &cli.schemas_dir) {
         Ok(s) => s,
