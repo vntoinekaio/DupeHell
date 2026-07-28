@@ -13,6 +13,7 @@ mod buf_gen;
 mod canary;
 mod column_gen;
 pub mod context;
+pub mod cpu_affinity;
 pub mod difficulty;
 mod entity_gen;
 mod fast_template;
