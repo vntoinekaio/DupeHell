@@ -18,7 +18,14 @@ Quick start::
 
 import json as _json
 import warnings as _warnings
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path as _Path
+
+try:
+    __version__ = _pkg_version("dupehell")
+except _PackageNotFoundError:
+    __version__ = "unknown"
 
 import dupehell._core as _core
 import dupehell.models as models
@@ -33,7 +40,7 @@ from dupehell.schema import load_and_validate
 __all__ = [
     "generate", "estimate_difficulty", "GenerateResult",
     "DomainSchema", "DifficultyReport", "load_and_validate",
-    "DOMAINS", "list_domains",
+    "DOMAINS", "list_domains", "__version__",
 ]
 
 GenerateResult = _GenerateResult
