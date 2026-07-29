@@ -1669,6 +1669,7 @@ pub fn run_pipeline_with_progress(
         &config.output_format,
         &gt_path,
         &metadata,
+        config.graph_enabled,
     )?;
     let _t_gt_compute = 0.0f64;
     let _t_gt_write = t_gt0.elapsed().as_secs_f64();

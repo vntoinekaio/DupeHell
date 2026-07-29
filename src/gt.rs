@@ -327,6 +327,7 @@ impl GtAccumulator {
         output_format: &str,
         final_path: &str,
         metadata: &HashMap<String, String>,
+        track_clusters: bool,
     ) -> Result<GtResult, String> {
         let GtAccumulator {
             draft_path,
@@ -419,8 +420,15 @@ impl GtAccumulator {
                 };
                 mt_builder.append_value(mt);
                 // Every row of a duplicated master belongs to its cluster,
-                // tagged with its own identical/fuzzy status.
-                if dup_masters.contains(mid) {
+                // tagged with its own identical/fuzzy status. Only tracked
+                // when `--graph` is enabled: `cluster_pairs` is exclusively
+                // consumed by `graph_gen::push_dup_clusters` to emit
+                // exact_dup/fuzzy_dup edges, so building it when there's no
+                // graph output to write is pure wasted RAM -- one entry per
+                // duplicate-cluster row (base + every copy), which at
+                // 100M+ records with a low singleton fraction (hell tier)
+                // can be the majority of the dataset.
+                if track_clusters && dup_masters.contains(mid) {
                     let master_key = crate::pipeline::pack_master_key(mid).unwrap_or_else(|| {
                         panic!(
                             "cluster_map: master_id {mid:?} isn't the fixed \
@@ -642,7 +650,7 @@ mod tests {
             n_masters: masters,
             ..
         } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new())
+            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
             .unwrap();
         assert_eq!(ed, 2);
         assert_eq!(hn, 2);
@@ -693,7 +701,7 @@ mod tests {
             n_masters: masters,
             ..
         } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new())
+            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
             .unwrap();
         assert_eq!(ed, 2); // rid(1) (master) + rid(2) (unchanged copy)
         assert_eq!(fd, 1); // rid(3) (genuinely noised copy)
@@ -738,7 +746,7 @@ mod tests {
             n_masters: masters,
             ..
         } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new())
+            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
             .unwrap();
         assert_eq!(ed, 2); // both rows of M-0000001
         assert_eq!(hn, 0);
@@ -770,7 +778,7 @@ mod tests {
             n_masters: masters,
             ..
         } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new())
+            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
             .unwrap();
         assert_eq!(ed, 0);
         assert_eq!(un, 2);
@@ -813,7 +821,7 @@ mod tests {
         let GtResult {
             cluster_map: cm, ..
         } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new())
+            .finish("medium", "ipc", &final_path, &HashMap::new(), true)
             .unwrap();
 
         // Only duplicated masters appear; singletons (mid(2)) do not. Groups
