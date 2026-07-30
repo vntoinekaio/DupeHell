@@ -56,5 +56,14 @@ strip = "symbols"
 inherits = "release"
 panic = "abort"
 
+# Profiling profile: same codegen as release (lto=fat, codegen-units=1,
+# opt-level=3) so hot-path measurements stay representative of production
+# behavior, but keeps debug symbols (no strip) so VTune/perf can resolve
+# frames to function names instead of raw addresses.
+[profile.profiling]
+inherits = "release-cli"
+strip = false
+debug = true
+
 [target."cfg(windows)".dependencies]
 windows = { version = "0.62.2", features = ["Win32_System_Threading", "Win32_System_SystemInformation", "Win32_Foundation"] }
