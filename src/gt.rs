@@ -172,23 +172,31 @@ fn draft_schema() -> Arc<Schema> {
 ///    batch-by-batch pattern already used elsewhere in this codebase for
 ///    the IPC→Parquet dataset conversion (see `pipeline::run_pipeline`).
 ///
-/// Duplicate detection is keyed on the **full** master_id string (entity
-/// prefix included), not just a numeric suffix: master_ids are assigned
-/// per-entity-plan starting from index 0, so two unrelated entities of
-/// different types can share the same numeric suffix. Keying on the full
-/// string avoids counting those as duplicates of each other.
+/// Duplicate detection is keyed on the **full** master_id (entity prefix
+/// included, via `pipeline::pack_master_key` into a `u64`), not just a
+/// numeric suffix: master_ids are assigned per-entity-plan starting from
+/// index 0, so two unrelated entities of different types can share the
+/// same numeric suffix. Keying on the full identity avoids counting those
+/// as duplicates of each other.
 pub struct GtAccumulator {
     draft_path: String,
     writer: arrow::ipc::writer::FileWriter<std::fs::File>,
     schema: Arc<Schema>,
-    dup_masters: rustc_hash::FxHashSet<String>,
+    /// Keyed on `pipeline::pack_master_key(mid)` rather than the raw
+    /// `String` — avoids a per-row string hash/allocation on a set queried
+    /// 2-3x per duplicated row (`push_dup_batch` + classification in
+    /// `finish`), which VTune hotspots (hunt3007) showed costing ~5% of
+    /// total CPU on its own. `push_dup_batch` never receives an
+    /// HN-/CANARY- master_id, so every key here is guaranteed
+    /// pack_master_key-compatible.
+    dup_masters: rustc_hash::FxHashSet<u64>,
     /// Masters that have at least one duplicate copy whose assigned noise
     /// ended up a genuine no-op (byte-identical to the base) — as opposed to
     /// `dup_masters`, which just means "has any duplicate copy at all,
     /// exact or fuzzy". Used at `finish` so a base row can tell whether it
     /// actually has an identical twin instead of unconditionally claiming
     /// one.
-    masters_with_exact_copy: rustc_hash::FxHashSet<String>,
+    masters_with_exact_copy: rustc_hash::FxHashSet<u64>,
     n_base_masters: usize,
 }
 
@@ -280,14 +288,16 @@ impl GtAccumulator {
         for i in 0..mids.len() {
             if !mids.is_null(i) {
                 let mid = mids.value(i);
-                if !self.dup_masters.contains(mid) {
-                    self.dup_masters.insert(mid.to_string());
-                }
-                if !idents.is_null(i)
-                    && idents.value(i)
-                    && !self.masters_with_exact_copy.contains(mid)
-                {
-                    self.masters_with_exact_copy.insert(mid.to_string());
+                let key = crate::pipeline::pack_master_key(mid).unwrap_or_else(|| {
+                    panic!(
+                        "push_dup_batch: master_id {mid:?} isn't the fixed \
+                         \"{{entity_prefix}}-{{pad_string}}\" shape -- \
+                         push_dup_batch never receives an HN-/CANARY- master_id"
+                    )
+                });
+                self.dup_masters.insert(key);
+                if !idents.is_null(i) && idents.value(i) {
+                    self.masters_with_exact_copy.insert(key);
                 }
             }
         }
@@ -388,6 +398,17 @@ impl GtAccumulator {
                     mid_col.value(i)
                 };
                 let is_base = !base_col.is_null(i) && base_col.value(i);
+                let is_hn = mid.starts_with("HN-");
+                let is_canary = !is_hn && mid.starts_with("CANARY-");
+                // `dup_masters`/`masters_with_exact_copy` are keyed on
+                // `pack_master_key`, not the raw string (hunt3007/H3) --
+                // never `Some` for HN-/CANARY- ids, consistent with
+                // `push_dup_batch` never inserting those.
+                let master_key = if is_hn || is_canary {
+                    None
+                } else {
+                    crate::pipeline::pack_master_key(mid)
+                };
                 // Per-row, not per-cluster: a cluster can mix a base row, a
                 // copy the noise happened not to change, and a copy that's
                 // genuinely different. A base row has no noise of its own —
@@ -397,16 +418,17 @@ impl GtAccumulator {
                 // master's base row `exact_dup` even when all of its copies
                 // were fuzzy).
                 let is_identical = if is_base {
-                    masters_with_exact_copy.contains(mid)
+                    master_key.is_some_and(|k| masters_with_exact_copy.contains(&k))
                 } else {
                     !ident_col.is_null(i) && ident_col.value(i)
                 };
-                let mt = if mid.starts_with("HN-") {
+                let is_dup_master = master_key.is_some_and(|k| dup_masters.contains(&k));
+                let mt = if is_hn {
                     n_hard_neg += 1;
                     "hard_neg"
-                } else if mid.starts_with("CANARY-") {
+                } else if is_canary {
                     "canary"
-                } else if dup_masters.contains(mid) {
+                } else if is_dup_master {
                     if is_identical {
                         n_exact_dup += 1;
                         "exact_dup"
@@ -428,16 +450,8 @@ impl GtAccumulator {
                 // duplicate-cluster row (base + every copy), which at
                 // 100M+ records with a low singleton fraction (hell tier)
                 // can be the majority of the dataset.
-                if track_clusters && dup_masters.contains(mid) {
-                    let master_key = crate::pipeline::pack_master_key(mid).unwrap_or_else(|| {
-                        panic!(
-                            "cluster_map: master_id {mid:?} isn't the fixed \
-                             \"{{entity_prefix}}-{{pad_string}}\" shape -- \
-                             every entry in `dup_masters` is written by \
-                             `push_dup_batch`, which never receives an \
-                             HN-/CANARY- master_id"
-                        )
-                    });
+                if track_clusters && is_dup_master {
+                    let master_key = master_key.expect("is_dup_master implies master_key is Some");
                     let record_idx = crate::pipeline::parse_record_idx(rid_col.value(i))
                         .unwrap_or_else(|| {
                             panic!(

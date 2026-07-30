@@ -124,6 +124,7 @@ pub fn apply_typos_str(arr: &dyn arrow::array::Array, rng: &mut Rng, max_dist: u
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
     let mut chars: Vec<char> = Vec::new();
+    let mut str_buf = String::new();
     for (i, &n_op) in n_ops.iter().enumerate() {
         if get_chars_into(src, i, MIN_LEN_TYPO, &mut chars) {
             let base = i * max_dist;
@@ -137,7 +138,9 @@ pub fn apply_typos_str(arr: &dyn arrow::array::Array, rng: &mut Rng, max_dist: u
                     _ => {}
                 }
             }
-            builder.append_value(chars.iter().collect::<String>());
+            str_buf.clear();
+            str_buf.extend(chars.iter());
+            builder.append_value(&str_buf);
         } else if src.is_null(i) {
             builder.append_null();
         } else {
@@ -166,6 +169,7 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
     let mut chars: Vec<char> = Vec::new();
+    let mut str_buf = String::new();
     for i in 0..n {
         if get_chars_into(src, i, MIN_LEN_AGGR, &mut chars) {
             apply_swaps(&mut chars, n_swap[i], &swap_pos[i * 2..i * 2 + 2]);
@@ -176,7 +180,9 @@ pub fn apply_typos_aggressive(arr: &dyn arrow::array::Array, rng: &mut Rng) -> A
                 &typo_pos[i * 5..i * 5 + 5],
                 &typo_chars[i * 5..i * 5 + 5],
             );
-            builder.append_value(chars.iter().collect::<String>());
+            str_buf.clear();
+            str_buf.extend(chars.iter());
+            builder.append_value(&str_buf);
         } else if src.is_null(i) {
             builder.append_null();
         } else {
@@ -203,6 +209,7 @@ pub fn apply_typos_extreme(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
     let mut chars: Vec<char> = Vec::new();
+    let mut str_buf = String::new();
     for (i, &n_op) in n_ops.iter().enumerate() {
         if get_chars_into(src, i, MIN_LEN_EXTREME, &mut chars) {
             let base = i * 8;
@@ -220,7 +227,9 @@ pub fn apply_typos_extreme(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
                     _ => {}
                 }
             }
-            builder.append_value(chars.iter().collect::<String>());
+            str_buf.clear();
+            str_buf.extend(chars.iter());
+            builder.append_value(&str_buf);
         } else if src.is_null(i) {
             builder.append_null();
         } else {
@@ -243,6 +252,7 @@ pub fn apply_qwerty_azerty(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
     let mut chars: Vec<char> = Vec::new();
+    let mut str_buf = String::new();
     for i in 0..n {
         if get_chars_into(src, i, MIN_LEN_TYPO, &mut chars) {
             for &p in positions[i * 2..i * 2 + 2].iter().take(n_ops[i].min(2)) {
@@ -251,7 +261,9 @@ pub fn apply_qwerty_azerty(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
                     chars[pos] = replacement;
                 }
             }
-            builder.append_value(chars.iter().collect::<String>());
+            str_buf.clear();
+            str_buf.extend(chars.iter());
+            builder.append_value(&str_buf);
         } else if src.is_null(i) {
             builder.append_null();
         } else {

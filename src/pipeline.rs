@@ -12,6 +12,7 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
+use rayon::prelude::*;
 use serde::Deserialize;
 
 use crate::context::Context;
@@ -1312,74 +1313,68 @@ pub fn run_pipeline_with_progress(
                 let noise_passes = config.noise_passes.max(1);
 
                 type DupNoiseResult = Result<(RecordBatch, Vec<String>, Vec<bool>), String>;
-                let mut results: Vec<DupNoiseResult> = Vec::with_capacity(ndata.len());
                 let fk_exclude_ref = &fk_exclude_cols;
                 let rb_ref = &rb;
-                std::thread::scope(|s| {
-                    let mut handles = Vec::with_capacity(ndata.len());
-                    for (indices, seed, ntype, cols, cnt) in &ndata {
-                        // `thread::scope` lets each spawned closure borrow
-                        // `rb`/`indices`/`cols`/`fk_exclude_cols` directly —
-                        // the scope guarantees every thread joins before these
-                        // borrows end, so the per-thread `.clone()` of the
-                        // batch, index array, column list and exclude list
-                        // (all cheap Arc/Vec clones, but still real allocations
-                        // times the noise-type count) was unnecessary.
-                        let prefix_ref: &str = &prefix;
-                        handles.push(s.spawn(move || {
-                            let dup = pick_rows(rb_ref, indices)?;
-                            let mut rng = Rng::new(*seed);
+                let prefix_ref: &str = &prefix;
+                // `rayon::scope`'s `par_iter().map(...).collect()` runs each
+                // noise-type bucket on Rayon's already-warm global pool
+                // instead of spawning a fresh OS thread per bucket per batch
+                // (the previous `std::thread::scope` pattern) — an isolated
+                // micro-benchmark (hunt3007/H5, `examples/profile_thread_spawn.rs`)
+                // measured raw OS thread spawn/join at 12-19x the cost of the
+                // pooled equivalent at this spawn count/workload shape.
+                // `par_iter` preserves input order in its output (unlike a
+                // channel), so `results` ends up in the same `ndata` order as
+                // before — required downstream since `dup_mids_buf`/
+                // `global_rid_offset` assignment depends on that order, not on
+                // which bucket happens to finish first.
+                let results: Vec<DupNoiseResult> = ndata
+                    .par_iter()
+                    .map(|(indices, seed, ntype, cols, cnt)| {
+                        let dup = pick_rows(rb_ref, indices)?;
+                        let mut rng = Rng::new(*seed);
 
-                            // First pass: the noise_type this bucket was
-                            // assigned, with the retry-until-changed guarantee
-                            // (see `apply_noise_with_retry`) so a "noised"
-                            // duplicate can't silently stay a byte-for-byte
-                            // copy of its master.
-                            let (mut noisy, mut unchanged, _) = apply_noise_with_retry(
-                                &dup,
-                                ntype,
-                                cols,
+                        // First pass: the noise_type this bucket was
+                        // assigned, with the retry-until-changed guarantee
+                        // (see `apply_noise_with_retry`) so a "noised"
+                        // duplicate can't silently stay a byte-for-byte
+                        // copy of its master.
+                        let (mut noisy, mut unchanged, _) =
+                            apply_noise_with_retry(&dup, ntype, cols, &mut rng, fk_exclude_ref)?;
+
+                        // Additional independent passes (difficulty-
+                        // controlled, see `schema::DifficultySettings::
+                        // passes`): each draws its own noise_type from this
+                        // entity's active list and applies it on top of the
+                        // previous pass's result, compounding corruption.
+                        // This — not adding more categories to
+                        // `noise_types` — is what makes a tier reliably
+                        // harder without diluting any single category's
+                        // weight (see the doc comment on `passes`). A row
+                        // is only "still identical" overall once every
+                        // pass left it unchanged.
+                        for _ in 1..noise_passes {
+                            noisy = apply_extra_pass_per_row(
+                                &noisy,
+                                &mut unchanged,
+                                all_types_ref,
                                 &mut rng,
                                 fk_exclude_ref,
                             )?;
+                        }
 
-                            // Additional independent passes (difficulty-
-                            // controlled, see `schema::DifficultySettings::
-                            // passes`): each draws its own noise_type from this
-                            // entity's active list and applies it on top of the
-                            // previous pass's result, compounding corruption.
-                            // This — not adding more categories to
-                            // `noise_types` — is what makes a tier reliably
-                            // harder without diluting any single category's
-                            // weight (see the doc comment on `passes`). A row
-                            // is only "still identical" overall once every
-                            // pass left it unchanged.
-                            for _ in 1..noise_passes {
-                                noisy = apply_extra_pass_per_row(
-                                    &noisy,
-                                    &mut unchanged,
-                                    all_types_ref,
-                                    &mut rng,
-                                    fk_exclude_ref,
-                                )?;
-                            }
-
-                            let mut mb = Vec::with_capacity(*cnt);
-                            for j in 0..*cnt {
-                                // `indices` are local to `rb` (0..batch_n); the master_id
-                                // is a pure function of (prefix, global index) — same
-                                // formula as `batch_mids` above — so it's recomputed here
-                                // instead of being cloned out of a retained master_id_pool.
-                                let global_idx = offset + indices.value(j) as usize;
-                                mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
-                            }
-                            Ok((noisy, mb, unchanged))
-                        }));
-                    }
-                    for h in handles {
-                        results.push(h.join().unwrap());
-                    }
-                });
+                        let mut mb = Vec::with_capacity(*cnt);
+                        for j in 0..*cnt {
+                            // `indices` are local to `rb` (0..batch_n); the master_id
+                            // is a pure function of (prefix, global index) — same
+                            // formula as `batch_mids` above — so it's recomputed here
+                            // instead of being cloned out of a retained master_id_pool.
+                            let global_idx = offset + indices.value(j) as usize;
+                            mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
+                        }
+                        Ok((noisy, mb, unchanged))
+                    })
+                    .collect();
                 let mut dup_is_identical_buf: Vec<bool> = Vec::new();
                 for res in results {
                     let (rb, mb, unchanged) = res?;
