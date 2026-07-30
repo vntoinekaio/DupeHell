@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use rustc_hash::FxHashMap;
 use sha2::{Digest, Sha256};
 
 use arrow::array::{ArrayRef, StringArray};
@@ -42,8 +43,8 @@ pub fn generate_all(
     ctx: &Context,
     config: &PipelineConfig,
     full_arc: &Arc<Schema>,
-    null_cache: &mut HashMap<(DataType, usize), ArrayRef>,
-    const_arr_cache: &mut HashMap<(String, usize), ArrayRef>,
+    null_cache: &mut FxHashMap<(DataType, usize), ArrayRef>,
+    const_arr_cache: &mut FxHashMap<(String, usize), ArrayRef>,
     global_rid_offset: &mut usize,
     fk_pools: &HashMap<String, RecordBatch>,
     writer: &mut pipeline::DatasetWriter,

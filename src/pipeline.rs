@@ -13,6 +13,7 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
 
 use crate::context::Context;
@@ -1102,8 +1103,8 @@ pub fn run_pipeline_with_progress(
         // Build col_lookup from first batch (it has the entity's schema)
         let mut col_lookup: Option<Vec<Option<usize>>> = None;
         // Phase 12.3: null cache per entity plan
-        let mut null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
-        let mut const_arr_cache: HashMap<(String, usize), ArrayRef> = HashMap::new();
+        let mut null_cache: FxHashMap<(DataType, usize), ArrayRef> = FxHashMap::default();
+        let mut const_arr_cache: FxHashMap<(String, usize), ArrayRef> = FxHashMap::default();
 
         // Stream: generate → FK remap → FK extract → HN sample → IPC write → GT collect
         for (batch_idx, offset) in (0..plan.n_base)
@@ -1522,8 +1523,8 @@ pub fn run_pipeline_with_progress(
     // ── Phase 2: Hard negatives ────────────────────────────────────────────
     let t2 = std::time::Instant::now();
     // Phase 12.3: separate null cache for HN section (different entity types)
-    let mut hn_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
-    let mut hn_const_arr_cache: HashMap<(String, usize), ArrayRef> = HashMap::new();
+    let mut hn_null_cache: FxHashMap<(DataType, usize), ArrayRef> = FxHashMap::default();
+    let mut hn_const_arr_cache: FxHashMap<(String, usize), ArrayRef> = FxHashMap::default();
     // Global counter for HN master_ids (shared across every hard_neg_types
     // entry in this run) instead of a random draw from a fixed 10M space:
     // at tens/hundreds of thousands of HN rows, `next_usize(10_000_000)`
@@ -1627,8 +1628,8 @@ pub fn run_pipeline_with_progress(
 
     // ── Canary records ────────────────────────────────────────────────────
     {
-        let mut canary_null_cache: HashMap<(DataType, usize), ArrayRef> = HashMap::new();
-        let mut canary_const_arr_cache: HashMap<(String, usize), ArrayRef> = HashMap::new();
+        let mut canary_null_cache: FxHashMap<(DataType, usize), ArrayRef> = FxHashMap::default();
+        let mut canary_const_arr_cache: FxHashMap<(String, usize), ArrayRef> = FxHashMap::default();
         crate::canary::generate_all(
             ctx,
             config,
@@ -1886,8 +1887,8 @@ pub(crate) fn add_metadata_and_align(
     master_ids: &[String],
     full_arc: &Arc<Schema>,
     col_lookup: &[Option<usize>],
-    null_cache: &mut HashMap<(DataType, usize), ArrayRef>,
-    const_arr_cache: &mut HashMap<(String, usize), ArrayRef>,
+    null_cache: &mut FxHashMap<(DataType, usize), ArrayRef>,
+    const_arr_cache: &mut FxHashMap<(String, usize), ArrayRef>,
 ) -> Result<RecordBatch, String> {
     let n = rb.num_rows();
     // `domain` is constant for the whole run and `entity_type` repeats

@@ -223,16 +223,16 @@ pub fn push_dup_clusters(
             log::warn!(
                 "dup cluster has {n_edges} edges > {max_edges}, using spanning tree fallback"
             );
-            for (w, wi) in records.windows(2).zip(idents.windows(2)) {
-                let etype = pair_edge_type(wi[0], wi[1]);
-                let src = crate::pipeline::record_id_string(w[0] as usize);
-                let tgt = crate::pipeline::record_id_string(w[1] as usize);
+            for i in 0..k - 1 {
+                let etype = pair_edge_type(idents.get(i), idents.get(i + 1));
+                let src = crate::pipeline::record_id_string(records[i] as usize);
+                let tgt = crate::pipeline::record_id_string(records[i + 1] as usize);
                 ew.push(&src, &tgt, etype, "spanning_tree", 1.0)?;
             }
         } else {
             for i in 0..k {
                 for j in (i + 1)..k {
-                    let etype = pair_edge_type(idents[i], idents[j]);
+                    let etype = pair_edge_type(idents.get(i), idents.get(j));
                     let src = crate::pipeline::record_id_string(records[i] as usize);
                     let tgt = crate::pipeline::record_id_string(records[j] as usize);
                     ew.push(&src, &tgt, etype, "complete", 1.0)?;

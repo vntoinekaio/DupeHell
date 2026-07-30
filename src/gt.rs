@@ -30,9 +30,73 @@ use std::sync::Arc;
 /// numeric comparison of the packed key preserves that exact order (both
 /// segments of the original string are zero-padded to a fixed width, so
 /// lexicographic and numeric order agree).
+/// Bit-packed boolean buffer — 1 bit per entry instead of `Vec<bool>`'s 1
+/// byte, an 8x reduction on `ClusterCsr::is_identical`, which parallels
+/// `records` (potentially tens of millions of entries at 100M+ hell scale
+/// with `--graph`, a low singleton fraction). Found via a triage of
+/// reusable Rust perf patterns (hunt3007/H7, Linkars trick #22).
+struct Bitset {
+    words: Vec<u64>,
+    len: usize,
+}
+
+impl Bitset {
+    fn with_capacity(n: usize) -> Self {
+        Self {
+            words: vec![0u64; n.div_ceil(64).max(1)],
+            len: 0,
+        }
+    }
+
+    fn push(&mut self, val: bool) {
+        let word_idx = self.len / 64;
+        if word_idx >= self.words.len() {
+            self.words.push(0);
+        }
+        if val {
+            self.words[word_idx] |= 1u64 << (self.len % 64);
+        }
+        self.len += 1;
+    }
+
+    fn get(&self, i: usize) -> bool {
+        (self.words[i / 64] >> (i % 64)) & 1 != 0
+    }
+}
+
+/// View into a contiguous range of a [`Bitset`], returned per-cluster by
+/// [`ClusterCsr::groups`] — parallel to the `&[u64]` record-index slice for
+/// the same cluster.
+pub struct BitspanRef<'a> {
+    bits: &'a Bitset,
+    start: usize,
+    end: usize,
+}
+
+impl BitspanRef<'_> {
+    /// `i` is local to this span (`0..self.len()`), matching how callers
+    /// already index the parallel `&[u64]` records slice.
+    pub fn get(&self, i: usize) -> bool {
+        self.bits.get(self.start + i)
+    }
+
+    pub fn len(&self) -> usize {
+        self.end - self.start
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+
+    #[cfg(test)]
+    fn to_vec(&self) -> Vec<bool> {
+        (0..self.len()).map(|i| self.get(i)).collect()
+    }
+}
+
 pub struct ClusterCsr {
     /// `offsets.len() == n_clusters + 1`; cluster `k`'s members are
-    /// `records[offsets[k]..offsets[k+1]]` (and the parallel slice of
+    /// `records[offsets[k]..offsets[k+1]]` (and the parallel span of
     /// `is_identical`). Sorted ascending by packed master key.
     offsets: Vec<u32>,
     /// Flat, cluster-grouped buffer of global record indices (see
@@ -41,7 +105,7 @@ pub struct ClusterCsr {
     records: Vec<u64>,
     /// Parallel to `records`: whether that record is byte-identical to its
     /// cluster's master.
-    is_identical: Vec<bool>,
+    is_identical: Bitset,
 }
 
 impl ClusterCsr {
@@ -55,7 +119,7 @@ impl ClusterCsr {
 
         let mut offsets = Vec::new();
         let mut records = Vec::with_capacity(pairs.len());
-        let mut is_identical = Vec::with_capacity(pairs.len());
+        let mut is_identical = Bitset::with_capacity(pairs.len());
         let mut last_key: Option<u64> = None;
 
         for (mk, ridx, ident) in pairs {
@@ -77,13 +141,20 @@ impl ClusterCsr {
 
     /// Iterates clusters in ascending packed-master-key order (matches the
     /// previous `master_ids.sort()` determinism exactly), yielding each
-    /// cluster's `(record_indices, is_identical)` slice pair. A cluster's
+    /// cluster's `(record_indices, is_identical)` pair. A cluster's
     /// `record_indices` are already ascending, so callers that used to sort
     /// members themselves (`push_dup_clusters`) no longer need to.
-    pub fn groups(&self) -> impl Iterator<Item = (&[u64], &[bool])> {
+    pub fn groups(&self) -> impl Iterator<Item = (&[u64], BitspanRef<'_>)> {
         self.offsets.windows(2).map(move |w| {
             let (start, end) = (w[0] as usize, w[1] as usize);
-            (&self.records[start..end], &self.is_identical[start..end])
+            (
+                &self.records[start..end],
+                BitspanRef {
+                    bits: &self.is_identical,
+                    start,
+                    end,
+                },
+            )
         })
     }
 
@@ -845,14 +916,14 @@ mod tests {
         let mut groups = cm.groups();
         let (records1, idents1) = groups.next().unwrap();
         assert_eq!(records1, &[1, 2]);
-        assert_eq!(idents1, &[true, true]);
+        assert_eq!(idents1.to_vec(), vec![true, true]);
         // rid(6) is the base of mid(5); its only copy (rid(7)) was genuinely
         // noised, so the cluster has no byte-identical pair at all — rid(6)
         // must NOT read as identical just because it's the base (that was
         // the bug: base rows used to hardcode `is_identical = true`).
         let (records5, idents5) = groups.next().unwrap();
         assert_eq!(records5, &[6, 7]);
-        assert_eq!(idents5, &[false, false]);
+        assert_eq!(idents5.to_vec(), vec![false, false]);
         assert!(groups.next().is_none());
 
         std::fs::remove_file(&final_path).ok();
