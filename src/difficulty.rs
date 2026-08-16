@@ -243,6 +243,7 @@ pub fn estimate_difficulty(
         hard_neg_ratio,
         singleton_master_fraction,
         "en",
+        None,
     );
     let config = build_pipeline_config(
         domain,
@@ -256,6 +257,7 @@ pub fn estimate_difficulty(
         "ipc",
         false,
         "ipc",
+        None,
     )?;
 
     // Build a map: entity_name -> HN id_fields

@@ -38,6 +38,7 @@ def generate(
     singleton_master_fraction: float,
     generate_graph: bool = ...,
     graph_format: str = ...,
+    only_entity: Optional[str] = ...,
 ) -> GenerateResult:
     """Generate a synthetic record-linkage dataset (optionally + a property graph).
 

@@ -125,6 +125,11 @@ fn estimate_difficulty(
 
 #[cfg(feature = "python")]
 #[pyfunction]
+#[pyo3(signature = (
+    domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir,
+    output_format, hard_neg_ratio, singleton_master_fraction, generate_graph,
+    graph_format, only_entity=None,
+))]
 #[allow(clippy::too_many_arguments)]
 fn generate(
     domain: &str,
@@ -140,6 +145,7 @@ fn generate(
     singleton_master_fraction: f64,
     generate_graph: bool,
     graph_format: &str,
+    only_entity: Option<&str>,
 ) -> PyResult<GenerateResult> {
     let schema =
         load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
@@ -160,6 +166,7 @@ fn generate(
         hard_neg_ratio,
         singleton_master_fraction,
         locale,
+        only_entity,
     );
     let config = build_pipeline_config(
         domain,
@@ -173,6 +180,7 @@ fn generate(
         output_format,
         generate_graph,
         graph_format,
+        only_entity,
     )
     .map_err(PyValueError::new_err)?;
 

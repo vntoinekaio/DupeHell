@@ -19,6 +19,27 @@ fn default_entity_weight() -> f64 {
     1.0
 }
 
+/// Infer an entity's identifier column: prefer `{entity_name}_id`, then
+/// `id`, then the first column ending in `_id`.
+fn infer_identifier_col(entity: &EntitySchema) -> Option<String> {
+    let entity_id_name = format!("{}_id", entity.name);
+    let col_names: Vec<&str> = entity
+        .columns
+        .iter()
+        .filter_map(|c| c.get("name").and_then(|v| v.as_str()))
+        .collect();
+    if col_names.contains(&entity_id_name.as_str()) {
+        Some(entity_id_name)
+    } else if col_names.contains(&"id") {
+        Some("id".to_string())
+    } else {
+        col_names
+            .iter()
+            .find(|n| n.ends_with("_id"))
+            .map(|n| (*n).to_string())
+    }
+}
+
 #[derive(serde::Deserialize)]
 pub struct EntitySchema {
     pub name: String,
@@ -193,6 +214,7 @@ pub fn deterministic_run_id(
     hard_neg_ratio: f64,
     singleton_master_fraction: f64,
     locale: &str,
+    only_entity: Option<&str>,
 ) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -203,6 +225,10 @@ pub fn deterministic_run_id(
     hard_neg_ratio.to_bits().hash(&mut hasher);
     singleton_master_fraction.to_bits().hash(&mut hasher);
     locale.hash(&mut hasher);
+    // BUGS.md C14/C15: every parameter that changes the output must be
+    // hashed in, or two runs differing only in this one collide on the same
+    // filename and silently overwrite each other.
+    only_entity.unwrap_or("").hash(&mut hasher);
     format!("{}_{:x}", domain, hasher.finish())
 }
 
@@ -272,6 +298,7 @@ pub fn build_pipeline_config(
     output_format: &str,
     graph_enabled: bool,
     graph_format: &str,
+    only_entity: Option<&str>,
 ) -> Result<PipelineConfig, String> {
     if size < 10 {
         return Err(format!("size must be >= 10, got {size}"));
@@ -282,6 +309,15 @@ pub fn build_pipeline_config(
     if !(0.0..=1.0).contains(&singleton_master_fraction) {
         return Err(format!(
             "singleton_master_fraction must be in [0.0, 1.0], got {singleton_master_fraction}"
+        ));
+    }
+    if let Some(target) = only_entity
+        && !schema.entities.iter().any(|e| e.name == target)
+    {
+        let available: Vec<&str> = schema.entities.iter().map(|e| e.name.as_str()).collect();
+        return Err(format!(
+            "only_entity '{target}' not found in domain '{domain}'; available entities: {}",
+            available.join(", ")
         ));
     }
     let ds = difficulty_settings(difficulty);
@@ -308,9 +344,23 @@ pub fn build_pipeline_config(
     let total_unique = n_singleton + n_doublet / 2 + n_triplet / 3;
     let n_duplicates = total.max(total_unique) - total_unique;
 
-    let total_ratio: f64 = schema.entities.iter().map(|e| e.weight).sum::<f64>();
-    let raw_floats: Vec<(&str, f64)> = schema
-        .entities
+    // `--only-entity`: the weight-based split below runs over this entity
+    // alone, so `total_unique`/`n_duplicates` land on it entirely instead of
+    // being shared out — no separate "recompute the ratio" step needed.
+    // Entities it FK-references get a small identifier-only pool appended
+    // after the main loop (see `pool_only` below); every other entity in
+    // the domain is simply absent from `entity_plans`.
+    let active_entities: Vec<&EntitySchema> = match only_entity {
+        Some(target) => schema
+            .entities
+            .iter()
+            .filter(|e| e.name == target)
+            .collect(),
+        None => schema.entities.iter().collect(),
+    };
+
+    let total_ratio: f64 = active_entities.iter().map(|e| e.weight).sum::<f64>();
+    let raw_floats: Vec<(&str, f64)> = active_entities
         .iter()
         .map(|e| {
             (
@@ -337,8 +387,7 @@ pub fn build_pipeline_config(
         }
     }
 
-    let dup_ratios: Vec<(&str, f64)> = schema
-        .entities
+    let dup_ratios: Vec<(&str, f64)> = active_entities
         .iter()
         .map(|e| {
             (
@@ -368,7 +417,7 @@ pub fn build_pipeline_config(
     let noise_weights: Vec<f64> = vec![1.0 / noise_count as f64; noise_count];
 
     let mut entity_plans = Vec::new();
-    for entity in &schema.entities {
+    for entity in &active_entities {
         let n_base = *floor_map.get(entity.name.as_str()).unwrap_or(&2);
         let n_dup = *dup_floor.get(entity.name.as_str()).unwrap_or(&0);
 
@@ -394,25 +443,7 @@ pub fn build_pipeline_config(
             }
         }
 
-        // Infer identifier column: prefer {entity_name}_id, then id, then first _id column
-        let identifier_col: Option<String> = {
-            let entity_id_name = format!("{}_id", entity.name);
-            let col_names: Vec<&str> = entity
-                .columns
-                .iter()
-                .filter_map(|c| c.get("name").and_then(|v| v.as_str()))
-                .collect();
-            if col_names.contains(&entity_id_name.as_str()) {
-                Some(entity_id_name)
-            } else if col_names.contains(&"id") {
-                Some("id".to_string())
-            } else {
-                col_names
-                    .iter()
-                    .find(|n| n.ends_with("_id"))
-                    .map(|n| (*n).to_string())
-            }
-        };
+        let identifier_col = infer_identifier_col(entity);
 
         let columns_json = serde_json::to_string(&entity.columns)
             .map_err(|e| format!("serialize columns: {e}"))?;
@@ -428,6 +459,57 @@ pub fn build_pipeline_config(
         }));
     }
 
+    // `--only-entity`: entities the target directly references via
+    // `fk_remaps` still need to exist enough to give it something plausible
+    // to point at, without paying for a full-size, fully-noised generation
+    // of an entity the run never writes. Generate just an identifier pool,
+    // capped at `FK_POOL_CAP` (same cap the FK-remap sampler itself already
+    // enforces, so a larger pool would never be consulted anyway).
+    if let Some(target) = only_entity {
+        let target_schema = schema
+            .entities
+            .iter()
+            .find(|e| e.name == target)
+            .expect("only_entity validated to exist above");
+        let mut pool_target_names: Vec<&str> = target_schema
+            .fk_remaps
+            .iter()
+            .filter_map(|r| r.get("target_entity").and_then(|v| v.as_str()))
+            .filter(|&t| t != target)
+            .collect();
+        pool_target_names.sort_unstable();
+        pool_target_names.dedup();
+
+        let pool_n = crate::pipeline::FK_POOL_CAP.min(total_unique.max(2));
+        for name in pool_target_names {
+            let Some(entity) = schema.entities.iter().find(|e| e.name == name) else {
+                continue;
+            };
+            let identifier_col = infer_identifier_col(entity);
+            let columns_json = serde_json::to_string(&entity.columns)
+                .map_err(|e| format!("serialize columns: {e}"))?;
+            entity_plans.push(serde_json::json!({
+                "name": entity.name,
+                "n_base": pool_n,
+                "n_dup": 0,
+                "identifier_col": identifier_col,
+                "columns_json": columns_json,
+                "noise_types": [],
+                "fk_remaps": entity.fk_remaps,
+                "pool_only": true,
+            }));
+        }
+    }
+
+    // Hard negatives are per-entity (`HnSchema::entity_type`) — under
+    // `--only-entity` only the target's own hard-negative types apply; the
+    // rest belong to entities this run no longer writes.
+    let active_hn_types: Vec<&HnSchema> = schema
+        .hn_types
+        .iter()
+        .filter(|hn| only_entity.is_none_or(|t| hn.entity_type == t))
+        .collect();
+
     // Scaled off `n_duplicates` (which itself scales with the tier's
     // singleton/doublet fractions — light ~0.28*size, medium ~0.40*size,
     // hell ~0.57*size) rather than off raw `size`. A flat `size`-based count
@@ -441,9 +523,8 @@ pub fn build_pipeline_config(
     // `hard_neg_ratio`'s documented "~1.5% of size at default 0.3" still
     // holds at medium; light gets proportionally fewer, hell more.
     let n_hard_neg = (n_duplicates as f64 * hard_neg_ratio * 0.125) as usize;
-    let hn_per_type = n_hard_neg / schema.hn_types.len().max(1);
-    let hard_neg_types: Vec<serde_json::Value> = schema
-        .hn_types
+    let hn_per_type = n_hard_neg / active_hn_types.len().max(1);
+    let hard_neg_types: Vec<serde_json::Value> = active_hn_types
         .iter()
         .map(|hn| {
             serde_json::json!({
@@ -484,6 +565,10 @@ mod tests {
         load_schema("kyc", &schemas_dir()).expect("load kyc.json")
     }
 
+    fn aviation_schema() -> DomainSchema {
+        load_schema("aviation", &schemas_dir()).expect("load aviation.json")
+    }
+
     #[test]
     fn test_load_schema_known_domain() {
         let schema = kyc_schema();
@@ -514,6 +599,7 @@ mod tests {
         let schema = kyc_schema();
         let config = build_pipeline_config(
             "kyc", 1000, 42, "medium", 0.1, 0.3, &schema, "kyc_test", "parquet", false, "parquet",
+            None,
         )
         .expect("build config");
         assert_eq!(config.domain, "kyc");
@@ -529,6 +615,7 @@ mod tests {
         let schema = kyc_schema();
         let err = build_pipeline_config(
             "kyc", 5, 42, "medium", 0.1, 0.3, &schema, "kyc_test", "parquet", false, "parquet",
+            None,
         )
         .unwrap_err();
         assert!(err.contains("size must be >= 10"));
@@ -539,6 +626,7 @@ mod tests {
         let schema = kyc_schema();
         let err = build_pipeline_config(
             "kyc", 1000, 42, "medium", 0.1, 1.5, &schema, "kyc_test", "parquet", false, "parquet",
+            None,
         )
         .unwrap_err();
         assert!(err.contains("singleton_master_fraction"));
@@ -549,7 +637,8 @@ mod tests {
         let schema = kyc_schema();
         let build = || {
             build_pipeline_config(
-                "kyc", 1000, 42, "hell", 0.1, 0.2, &schema, "kyc_test", "parquet", false, "parquet",
+                "kyc", 1000, 42, "hell", 0.1, 0.2, &schema, "kyc_test", "parquet", false,
+                "parquet", None,
             )
             .expect("build config")
         };
@@ -562,12 +651,115 @@ mod tests {
         }
     }
 
+    /// No-FK case (BUGS.md-style regression target, kyc's two entities
+    /// aren't FK-linked): `only_entity` should produce exactly one entity
+    /// plan, sized to the full `size`, with no pool-only entities appended.
+    #[test]
+    fn test_build_pipeline_config_only_entity_no_fk() {
+        let schema = kyc_schema();
+        let config = build_pipeline_config(
+            "kyc",
+            1000,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            &schema,
+            "kyc_test",
+            "parquet",
+            false,
+            "parquet",
+            Some("natural_person"),
+        )
+        .expect("build config");
+        assert_eq!(config.entity_plans.len(), 1);
+        let plan = &config.entity_plans[0];
+        assert_eq!(plan.name, "natural_person");
+        assert!(!plan.pool_only);
+        // With only one active entity, all of `total_unique` (there's no
+        // weight split to share it with `legal_entity`) lands on it —
+        // comfortably more than the usual weight-shared slice would be.
+        assert!(plan.n_base > 100);
+        assert!(
+            config
+                .hard_neg_types
+                .iter()
+                .all(|hn| hn.entity_type == "natural_person")
+        );
+    }
+
+    /// FK case: aviation's `passenger` entity has no direct `fk_remaps` of
+    /// its own (verified against `schemas/aviation.json`), so `only_entity`
+    /// on it should still produce a single plan and no pool-only entities.
+    /// `flight`, which DOES reference `airline`/`aircraft`, is the case
+    /// that appends pool-only plans — covered by asserting the mechanism
+    /// generically below via `aircraft` (references `airline`).
+    #[test]
+    fn test_build_pipeline_config_only_entity_with_fk_pool() {
+        let schema = aviation_schema();
+        let config = build_pipeline_config(
+            "aviation",
+            10_000,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            &schema,
+            "aviation_test",
+            "parquet",
+            false,
+            "parquet",
+            Some("aircraft"),
+        )
+        .expect("build config");
+        // aircraft (target, written) + airline (pool-only, FK target).
+        assert_eq!(config.entity_plans.len(), 2);
+        let target = config
+            .entity_plans
+            .iter()
+            .find(|p| p.name == "aircraft")
+            .expect("aircraft plan present");
+        assert!(!target.pool_only);
+        assert!(target.n_base > 1_000);
+        let pool = config
+            .entity_plans
+            .iter()
+            .find(|p| p.name == "airline")
+            .expect("airline pool-only plan present");
+        assert!(pool.pool_only);
+        assert!(pool.noise_types.is_empty());
+        // Pool-only entity is capped, not sized to the full run.
+        assert!(pool.n_base <= crate::pipeline::FK_POOL_CAP);
+    }
+
+    #[test]
+    fn test_build_pipeline_config_only_entity_unknown_name() {
+        let schema = kyc_schema();
+        let err = build_pipeline_config(
+            "kyc",
+            1000,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            &schema,
+            "kyc_test",
+            "parquet",
+            false,
+            "parquet",
+            Some("not_a_real_entity"),
+        )
+        .unwrap_err();
+        assert!(err.contains("not_a_real_entity"));
+        assert!(err.contains("natural_person"));
+    }
+
     #[test]
     fn test_deterministic_run_id_stable_and_sensitive() {
-        let a = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en");
-        let b = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en");
+        let a = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
+        let b = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
         assert_eq!(a, b);
-        let c = deterministic_run_id("kyc", 1000, 43, "medium", 0.1, 0.3, "en");
+        let c = deterministic_run_id("kyc", 1000, 43, "medium", 0.1, 0.3, "en", None);
         assert_ne!(a, c);
     }
 
@@ -577,12 +769,43 @@ mod tests {
     /// got the exact same output filename, silently overwriting each other.
     #[test]
     fn test_deterministic_run_id_sensitive_to_singleton_fraction_and_locale() {
-        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en");
-        let diff_fraction = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.5, "en");
-        let diff_locale = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "fr");
+        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
+        let diff_fraction = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.5, "en", None);
+        let diff_locale = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "fr", None);
         assert_ne!(base, diff_fraction);
         assert_ne!(base, diff_locale);
         assert_ne!(diff_fraction, diff_locale);
+    }
+
+    /// Regression guard for the `only_entity` hash input added alongside
+    /// `--only-entity`: two runs differing only in which entity is targeted
+    /// must not collide on the same run id (same class of bug as C14/C15).
+    #[test]
+    fn test_deterministic_run_id_sensitive_to_only_entity() {
+        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
+        let only_a = deterministic_run_id(
+            "kyc",
+            1000,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            "en",
+            Some("natural_person"),
+        );
+        let only_b = deterministic_run_id(
+            "kyc",
+            1000,
+            42,
+            "medium",
+            0.1,
+            0.3,
+            "en",
+            Some("legal_entity"),
+        );
+        assert_ne!(base, only_a);
+        assert_ne!(base, only_b);
+        assert_ne!(only_a, only_b);
     }
 
     #[test]

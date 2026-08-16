@@ -53,7 +53,23 @@ pub struct EntityPlan {
     pub columns_json: String,
     pub noise_types: Vec<NoisePlanEntry>,
     pub fk_remaps: Vec<FkRemapEntry>,
+    /// Set by `schema::build_pipeline_config` for the FK-target entities
+    /// added when `--only-entity` is active (see `FK_POOL_CAP`): this
+    /// entity's rows are generated only far enough to build its identifier
+    /// pool for other entities' FK remaps, never noised, written to the
+    /// dataset/graph output, or fed to ground truth. Always `false` on the
+    /// normal (no `--only-entity`) path.
+    #[serde(default)]
+    pub pool_only: bool,
 }
+
+/// Cap on how many identifiers of an entity are retained as a pool for other
+/// entities' FK remaps to sample from (`fk_remap.rs` samples uniformly via
+/// `take`, so it never needs to see every identifier the entity produced).
+/// Also used by `schema::build_pipeline_config` to size the pool-only
+/// entities it synthesizes for `--only-entity` (no need to generate more
+/// rows of an FK target than this pool will ever draw from).
+pub(crate) const FK_POOL_CAP: usize = 200_000;
 
 #[derive(Debug, Deserialize)]
 pub struct NoisePlanEntry {
@@ -1042,13 +1058,24 @@ pub fn run_pipeline_with_progress(
     // `take` — it has no need to see every identifier the entity ever
     // produced, only a large-enough sample for the target diversity. Capping
     // it (same idea as `hn_max_pool` above) keeps its RAM bounded instead of
-    // O(n_base) per entity with an identifier column.
-    const FK_POOL_CAP: usize = 200_000;
+    // O(n_base) per entity with an identifier column. (`FK_POOL_CAP` is now
+    // module-level, see its doc comment.)
 
     // Entities whose FK pool is ever read (`fk_pools.get(&remap.target_entity)`
     // below, and the identical lookup in `canary::generate_all`, which reuses
     // the same `fk_remaps`). Extracting identifiers for an entity outside
     // this set is pure waste — the pool built for it is never consulted.
+    // Entities present only as an FK identifier pool (`--only-entity`),
+    // never written as graph nodes. A `fk`-typed edge pointing at one of
+    // these would dangle (target node absent from the nodes output), so
+    // graph edges are suppressed for remaps into this set below.
+    let pool_only_names: std::collections::HashSet<&str> = config
+        .entity_plans
+        .iter()
+        .filter(|p| p.pool_only)
+        .map(|p| p.name.as_str())
+        .collect();
+
     let fk_targets: std::collections::HashSet<&str> = config
         .entity_plans
         .iter()
@@ -1127,17 +1154,20 @@ pub fn run_pipeline_with_progress(
                 let mut r = rb;
                 for remap in &plan.fk_remaps {
                     if let Some(pool) = fk_pools.get(&remap.target_entity) {
+                        // Suppress edge emission into a pool-only target —
+                        // its rows were never written as graph nodes, so an
+                        // edge to them would dangle (see `pool_only_names`).
+                        let want_edge = config.graph_enabled
+                            && !pool_only_names.contains(remap.target_entity.as_str());
                         let (remapped, target_rids) = crate::fk_remap::fk_remap_batch(
                             &r,
                             pool,
                             &remap.source_col,
                             &mut fk_rng,
-                            config.graph_enabled,
+                            want_edge,
                         )?;
                         r = remapped;
-                        if config.graph_enabled
-                            && let Some(rids) = target_rids
-                        {
+                        if want_edge && let Some(rids) = target_rids {
                             fk_edges_by_remap.push((
                                 remap.source_col.clone(),
                                 rids,
@@ -1171,6 +1201,15 @@ pub fn run_pipeline_with_progress(
                         fk_count += 1;
                     }
                 }
+            }
+
+            // Pool-only entity (`--only-entity`): its rows exist solely to
+            // seed `fk_pools` (extracted just above) — no noise, no writing,
+            // no GT, no graph nodes, and `global_rid_offset` does not
+            // advance for it (record_ids stay contiguous across the rows
+            // that ARE written).
+            if plan.pool_only {
+                continue;
             }
 
             // HN pool: accumulate slices up to max pool size
@@ -1847,6 +1886,13 @@ fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>
         field_map.push((mf.to_string(), DataType::Utf8, false));
     }
     for plan in &config.entity_plans {
+        // Pool-only entities (`--only-entity`) are never written to output —
+        // excluding their columns here is what gives `--only-entity` its
+        // narrow, single-entity schema for free, with no separate filtering
+        // step downstream.
+        if plan.pool_only {
+            continue;
+        }
         let cols: Vec<serde_json::Value> =
             serde_json::from_str(&plan.columns_json).unwrap_or_default();
         for col in &cols {
@@ -2049,6 +2095,7 @@ mod tests {
             output_format,
             graph_enabled,
             "parquet",
+            None,
         )
         .expect("build config");
         ctx.enable_watermark(&config.domain, config.size, config.seed);
@@ -2129,6 +2176,7 @@ mod tests {
             "ipc",
             true,
             "ipc",
+            None,
         )
         .expect("build config");
         ctx.enable_watermark(&config.domain, config.size, config.seed);
@@ -2213,6 +2261,7 @@ mod tests {
             "ipc",
             true,
             "ipc",
+            None,
         )
         .expect("build config");
         ctx.enable_watermark(&config.domain, config.size, config.seed);
@@ -2365,6 +2414,7 @@ mod tests {
             "ipc",
             false,
             "ipc",
+            None,
         )
         .expect("build config");
         ctx.enable_watermark(&config.domain, config.size, config.seed);
