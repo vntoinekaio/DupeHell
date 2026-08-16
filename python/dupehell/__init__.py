@@ -117,6 +117,7 @@ def generate(
     singleton_master_fraction: float | None = None,
     generate_graph: bool = False,
     graph_format: str = "parquet",
+    only_entity: str | None = None,
 ) -> GenerateResult:
     """Generate a synthetic record linkage dataset.
 
@@ -156,6 +157,17 @@ def generate(
             tabular output, RNG sequence, and memory baseline are unchanged when disabled.
         graph_format: Graph file format. ``"parquet"`` (default, ZSTD compressed)
             or ``"ipc"`` (Arrow IPC). Only used when ``generate_graph`` is true.
+        only_entity: If set, generate only this entity (e.g. ``domain="aviation"``,
+            ``only_entity="passenger"``) instead of the whole domain. ``size``
+            then applies entirely to this entity rather than being split
+            across the domain's entities by weight — no more over-generating
+            the full domain just to filter down to one entity type
+            afterward. Entities it references via FK are seeded with a
+            small, capped identifier pool (never written to output) so FK
+            columns stay populated with plausible values; entities it
+            doesn't reference are skipped. Output schema is narrowed to
+            just this entity's own columns. Raises :class:`PyValueError` if
+            *only_entity* isn't a valid entity name for *domain*.
 
     Returns:
         GenerateResult with paths and statistics. When ``generate_graph`` is true,
@@ -226,7 +238,7 @@ def generate(
         raise FileNotFoundError(msg) from None
     import os as _os
     _os.makedirs(output_dir, exist_ok=True)
-    return _generate(domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir, output_format, hard_neg_ratio, singleton_master_fraction, generate_graph, graph_format)
+    return _generate(domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir, output_format, hard_neg_ratio, singleton_master_fraction, generate_graph, graph_format, only_entity)
 
 
 def estimate_difficulty(

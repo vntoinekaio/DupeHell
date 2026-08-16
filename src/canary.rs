@@ -55,6 +55,13 @@ pub fn generate_all(
     let canary_seed = u64::from_str_radix(&sig, 16).unwrap();
 
     for (ent_idx, plan) in config.entity_plans.iter().enumerate() {
+        // Pool-only entities (`--only-entity`) exist solely to seed FK
+        // identifier pools — they're never written to the dataset, so they
+        // get no canary rows either (their columns aren't even part of
+        // `full_arc`'s schema, see `pipeline::build_full_schema`).
+        if plan.pool_only {
+            continue;
+        }
         let n = CANARY_COUNT;
         let batch_seed = canary_seed.wrapping_add(ent_idx as u64 * 1000);
 

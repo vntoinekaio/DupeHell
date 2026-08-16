@@ -124,6 +124,17 @@ struct Cli {
         help = "Graph output format: parquet (default, ZSTD compressed) or ipc (requires --graph)"
     )]
     graph_format: String,
+
+    #[arg(
+        long,
+        help = "Generate only this entity (e.g. --domain aviation --only-entity passenger). \
+                --size then applies entirely to this entity instead of being split across the \
+                domain's entities by weight. Other entities it references via FK are generated \
+                only far enough to seed a plausible-looking identifier pool (capped, never \
+                written to output); entities it doesn't reference are skipped entirely. Output \
+                schema is narrowed to just this entity's own columns."
+    )]
+    only_entity: Option<String>,
 }
 
 /// Rough peak-RSS-per-record, measured on this machine (Windows, release
@@ -269,6 +280,7 @@ fn main() {
         cli.hard_neg_ratio,
         singleton_master_fraction,
         &cli.locale,
+        cli.only_entity.as_deref(),
     );
     let config = match build_pipeline_config(
         &cli.domain,
@@ -282,6 +294,7 @@ fn main() {
         &effective_format,
         cli.graph,
         &cli.graph_format,
+        cli.only_entity.as_deref(),
     ) {
         Ok(c) => c,
         Err(e) => {
