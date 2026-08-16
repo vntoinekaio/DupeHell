@@ -1,4 +1,4 @@
-<!-- DupeHell -- MIT License . Educational Use Only -->
+<!-- DupeHell -- MIT License -->
 <!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
 <img src="https://raw.githubusercontent.com/vntoinekaio/DupeHell/master/docs/assets/logo_dupehell-3-w.png" alt="DupeHell Logo" width="400">
@@ -206,12 +206,13 @@ pip install target/wheels/dupehell-*.whl
 
 ## License
 
-MIT — **Educational Use Only**. 
+MIT.
 
-This software generates synthetic data for research and educational purposes
-only. It must not be used for fraud, identity theft, surveillance, or any
-illegal activity. See [ETHICS.md](ETHICS.md) for the full list of prohibited
-uses and responsible disclosure policy.
+This software is intended for research and educational use: generating
+synthetic data for record linkage / entity resolution benchmarking. It must
+not be used for fraud, identity theft, surveillance, or any illegal activity.
+See [ETHICS.md](ETHICS.md) for the full list of prohibited uses and
+responsible disclosure policy.
 
 If you use DupeHell in your research, please cite:
 

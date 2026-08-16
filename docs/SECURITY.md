@@ -1,4 +1,4 @@
-<!-- DupeHell -- MIT License . Educational Use Only -->
+<!-- DupeHell -- MIT License -->
 <!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
 # Security Policy
