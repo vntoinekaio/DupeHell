@@ -39,6 +39,7 @@ def generate(
     generate_graph: bool = ...,
     graph_format: str = ...,
     only_entity: Optional[str] = ...,
+    chunk_size: Optional[int] = ...,
 ) -> GenerateResult:
     """Generate a synthetic record-linkage dataset (optionally + a property graph).
 

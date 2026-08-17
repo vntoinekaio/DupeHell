@@ -123,6 +123,32 @@ pub struct PipelineStats {
     pub masters: usize,
 }
 
+/// Carries the running counters that `record_id`/`master_id` generation
+/// depend on across a sequence of chunked runs (`--chunk-size`), so chunk
+/// N+1 continues exactly where chunk N left off instead of restarting at
+/// 0 — genuinely contiguous, global identifiers over the whole logical
+/// dataset, with no shard-tag hack needed on top. Defaults (all zero) give
+/// the single-run behavior, unchanged.
+#[derive(Debug, Clone, Default)]
+pub struct ChunkOffsets {
+    /// Next `record_id` index to hand out (see `record_id_string`).
+    pub rid_offset: usize,
+    /// Next local `master_id` index per entity, indexed by the entity's
+    /// position in `PipelineConfig::entity_plans` (see `entity_prefix`).
+    /// Entities absent from a shorter previous chunk's plan (shouldn't
+    /// happen — the same schema/`--only-entity` produces the same plan
+    /// shape every chunk) simply default to 0 via `master_base`.
+    pub master_local: Vec<usize>,
+    /// Next `HN-{:09}` counter value (see `hn_master_id_counter`).
+    pub hn_master_counter: u64,
+}
+
+impl ChunkOffsets {
+    fn master_base(&self, entity_idx: usize) -> usize {
+        self.master_local.get(entity_idx).copied().unwrap_or(0)
+    }
+}
+
 // ── Fixed-width ASCII IDs ────────────────────────────────────────────────
 
 // `record_id`/`pad` are pure functions of the row index — "R-" + 13 digits
@@ -960,8 +986,25 @@ pub fn run_pipeline_with_progress(
     ctx: &Context,
     config: &PipelineConfig,
     output_dir: &str,
-    mut progress: Option<&mut dyn FnMut(usize, usize)>,
+    progress: Option<&mut dyn FnMut(usize, usize)>,
 ) -> Result<PipelineOutput, String> {
+    run_pipeline_chunked(ctx, config, output_dir, progress, None).map(|(out, _)| out)
+}
+
+/// Same as [`run_pipeline_with_progress`], but threads `record_id`/
+/// `master_id` counters through `offsets` (`None` == all-zero, identical to
+/// a normal single run) and returns the counters' final values alongside
+/// the usual output — the mechanism `--chunk-size` orchestration uses to
+/// keep IDs globally contiguous across a sequence of otherwise-independent
+/// chunk runs. See `ChunkOffsets` for why this exists.
+pub fn run_pipeline_chunked(
+    ctx: &Context,
+    config: &PipelineConfig,
+    output_dir: &str,
+    mut progress: Option<&mut dyn FnMut(usize, usize)>,
+    offsets: Option<&ChunkOffsets>,
+) -> Result<(PipelineOutput, ChunkOffsets), String> {
+    let offsets = offsets.cloned().unwrap_or_default();
     std::fs::create_dir_all(output_dir)
         .map_err(|e| format!("create output directory {output_dir:?}: {e}"))?;
     let t_start = std::time::Instant::now();
@@ -1015,7 +1058,7 @@ pub fn run_pipeline_with_progress(
     let gt_draft_path = format!("{}/{}_gt_draft.ipc", output_dir, config.run_id);
     let mut gt_acc = crate::gt::GtAccumulator::new(&gt_draft_path)?;
 
-    let mut global_rid_offset = 0usize;
+    let mut global_rid_offset = offsets.rid_offset;
 
     // ── Graph output (opt-in via --graph) ───────────────────────────────
     const GRAPH_MAX_CLUSTER_EDGES: usize = 10_000;
@@ -1089,6 +1132,7 @@ pub fn run_pipeline_with_progress(
         }
 
         let prefix = entity_prefix(plan_idx);
+        let master_base = offsets.master_base(plan_idx);
         let col_json_str = &plan.columns_json;
 
         // Per-entity streaming state
@@ -1240,7 +1284,7 @@ pub fn run_pipeline_with_progress(
 
             // Master IDs for this batch
             let batch_mids: Vec<String> = (offset..offset + batch_n)
-                .map(|i| format!("{}-{}", prefix, pad_string(i)))
+                .map(|i| format!("{}-{}", prefix, pad_string(master_base + i)))
                 .collect();
             let batch_mids_slice = &batch_mids[..];
 
@@ -1409,7 +1453,7 @@ pub fn run_pipeline_with_progress(
                             // is a pure function of (prefix, global index) — same
                             // formula as `batch_mids` above — so it's recomputed here
                             // instead of being cloned out of a retained master_id_pool.
-                            let global_idx = offset + indices.value(j) as usize;
+                            let global_idx = master_base + offset + indices.value(j) as usize;
                             mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
                         }
                         Ok((noisy, mb, unchanged))
@@ -1571,7 +1615,7 @@ pub fn run_pipeline_with_progress(
     // on the same master_id, which `gt.rs` would then count as sharing a
     // master — silently mislabeling a hard negative as a match. A counter
     // is unique by construction, eliminating the collision entirely.
-    let mut hn_master_id_counter: u64 = 0;
+    let mut hn_master_id_counter: u64 = offsets.hn_master_counter;
     for hn_cfg in config.hard_neg_types.iter() {
         if hn_cfg.count == 0 {
             continue;
@@ -1769,13 +1813,34 @@ pub fn run_pipeline_with_progress(
         graph_edges_final = Some(ep);
     }
 
-    Ok(PipelineOutput {
-        output_files: vec![dataset_path],
-        gt_file: gt_path,
-        stats,
-        nodes: graph_nodes_final,
-        edges: graph_edges_final,
-    })
+    // Carry each entity's final local master_id counter forward for the
+    // next chunk (`--chunk-size`) — pool_only entities never assign a
+    // master_id (see the `continue` above), so their slot is left as-is.
+    let mut master_local = offsets.master_local.clone();
+    if master_local.len() < config.entity_plans.len() {
+        master_local.resize(config.entity_plans.len(), 0);
+    }
+    for (idx, plan) in config.entity_plans.iter().enumerate() {
+        if !plan.pool_only {
+            master_local[idx] = offsets.master_base(idx) + plan.n_base;
+        }
+    }
+    let next_offsets = ChunkOffsets {
+        rid_offset: global_rid_offset,
+        master_local,
+        hn_master_counter: hn_master_id_counter,
+    };
+
+    Ok((
+        PipelineOutput {
+            output_files: vec![dataset_path],
+            gt_file: gt_path,
+            stats,
+            nodes: graph_nodes_final,
+            edges: graph_edges_final,
+        },
+        next_offsets,
+    ))
 }
 
 /// IPC → Parquet (ZSTD) conversion for graph files, mirroring the dataset
@@ -1820,6 +1885,269 @@ fn convert_ipc_to_parquet(ipc_path: &str, parquet_path: &str) -> Result<(), Stri
         .close()
         .map_err(|e| format!("close parquet {parquet_path}: {e}"))?;
     Ok(())
+}
+
+// ── Chunked generation (`--chunk-size`) ─────────────────────────────────────
+
+/// Streams every batch (IPC) or row group (Parquet) of each file in
+/// `in_paths` — all sharing the same schema, as chunk outputs from
+/// `run_chunked` always do — into a single `out_path`, never holding more
+/// than one batch/row-group resident at a time. Used to assemble
+/// `--chunk-size` chunk outputs (dataset/GT/graph files) into the one final
+/// file a normal (non-chunked) run would have produced.
+fn concat_dataset_files(
+    output_format: &str,
+    in_paths: &[String],
+    out_path: &str,
+) -> Result<(), String> {
+    if in_paths.is_empty() {
+        return Err("concat_dataset_files: no chunk files to concatenate".into());
+    }
+    if output_format == "parquet" {
+        concat_parquet_files(in_paths, out_path)
+    } else {
+        concat_ipc_files(in_paths, out_path)
+    }
+}
+
+fn concat_ipc_files(in_paths: &[String], out_path: &str) -> Result<(), String> {
+    use arrow::ipc::reader::FileReader;
+
+    let first_file =
+        std::fs::File::open(&in_paths[0]).map_err(|e| format!("open {}: {e}", in_paths[0]))?;
+    let schema = FileReader::try_new(first_file, None)
+        .map_err(|e| format!("ipc reader {}: {e}", in_paths[0]))?
+        .schema();
+
+    let out_file =
+        std::fs::File::create(out_path).map_err(|e| format!("create {out_path}: {e}"))?;
+    let mut writer = arrow::ipc::writer::FileWriter::try_new(out_file, &schema)
+        .map_err(|e| format!("ipc writer {out_path}: {e}"))?;
+
+    for path in in_paths {
+        let file = std::fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
+        let reader =
+            FileReader::try_new(file, None).map_err(|e| format!("ipc reader {path}: {e}"))?;
+        for batch_result in reader {
+            let batch = batch_result.map_err(|e| format!("read {path}: {e}"))?;
+            writer
+                .write(&batch)
+                .map_err(|e| format!("write {out_path}: {e}"))?;
+        }
+    }
+    writer
+        .finish()
+        .map_err(|e| format!("finish {out_path}: {e}"))
+}
+
+fn concat_parquet_files(in_paths: &[String], out_path: &str) -> Result<(), String> {
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+    let first_file =
+        std::fs::File::open(&in_paths[0]).map_err(|e| format!("open {}: {e}", in_paths[0]))?;
+    let first_builder = ParquetRecordBatchReaderBuilder::try_new(first_file)
+        .map_err(|e| format!("parquet reader {}: {e}", in_paths[0]))?;
+    let schema = first_builder.schema().clone();
+    let meta_kv: Vec<parquet::file::metadata::KeyValue> = first_builder
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()
+        .cloned()
+        .unwrap_or_default();
+
+    let out_file =
+        std::fs::File::create(out_path).map_err(|e| format!("create {out_path}: {e}"))?;
+    let zstd = parquet::basic::ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
+    let props = parquet::file::properties::WriterProperties::builder()
+        .set_compression(parquet::basic::Compression::ZSTD(zstd))
+        .set_max_row_group_row_count(Some(1_000_000))
+        .set_key_value_metadata(Some(meta_kv))
+        .build();
+    let mut writer = parquet::arrow::ArrowWriter::try_new(out_file, schema, Some(props))
+        .map_err(|e| format!("arrow writer {out_path}: {e}"))?;
+
+    for path in in_paths {
+        let file = std::fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+            .map_err(|e| format!("parquet reader {path}: {e}"))?
+            .build()
+            .map_err(|e| format!("build parquet reader {path}: {e}"))?;
+        for batch_result in reader {
+            let batch = batch_result.map_err(|e| format!("read {path}: {e}"))?;
+            writer
+                .write(&batch)
+                .map_err(|e| format!("write {out_path}: {e}"))?;
+        }
+    }
+    writer
+        .close()
+        .map(|_| ())
+        .map_err(|e| format!("close {out_path}: {e}"))
+}
+
+/// Generates `total_size` records by internally looping over
+/// `ceil(total_size / chunk_size)` sequential, independently-seeded chunk
+/// runs (`seed + chunk_idx`), keeping `record_id`/`master_id` globally
+/// contiguous across chunks (see `ChunkOffsets`) instead of the shard-tag
+/// hack an external concat script would need, then assembling the chunk
+/// outputs into one final dataset/GT/graph file via `concat_dataset_files`.
+/// RAM stays bounded to roughly one `--size chunk_size` run at a time — each
+/// chunk is a fully independent pipeline run, only the identifier counters
+/// and (for the final assembly step) the output files carry over.
+///
+/// If `chunk_size == 0` or `chunk_size >= total_size`, this is exactly one
+/// chunk — delegates straight to `run_pipeline_with_progress`, byte-for-byte
+/// identical to calling it directly (no `--chunk-size` given).
+#[allow(clippy::too_many_arguments)]
+pub fn run_chunked(
+    ctx: &Context,
+    domain: &str,
+    total_size: usize,
+    chunk_size: usize,
+    seed: u64,
+    difficulty: &str,
+    hard_neg_ratio: f64,
+    singleton_master_fraction: f64,
+    schema: &crate::schema::DomainSchema,
+    final_run_id: &str,
+    output_format: &str,
+    graph_enabled: bool,
+    graph_format: &str,
+    only_entity: Option<&str>,
+    output_dir: &str,
+    mut progress: Option<&mut dyn FnMut(usize, usize)>,
+) -> Result<PipelineOutput, String> {
+    if chunk_size == 0 || chunk_size >= total_size {
+        let config = crate::schema::build_pipeline_config(
+            domain,
+            total_size,
+            seed,
+            difficulty,
+            hard_neg_ratio,
+            singleton_master_fraction,
+            schema,
+            final_run_id,
+            output_format,
+            graph_enabled,
+            graph_format,
+            only_entity,
+        )?;
+        return run_pipeline_with_progress(ctx, &config, output_dir, progress);
+    }
+
+    let n_chunks = total_size.div_ceil(chunk_size);
+    let tmp_dir = format!("{output_dir}/.dupehell_chunks_{final_run_id}");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("create {tmp_dir:?}: {e}"))?;
+
+    let mut offsets = ChunkOffsets::default();
+    let mut dataset_chunks: Vec<String> = Vec::new();
+    let mut gt_chunks: Vec<String> = Vec::new();
+    let mut node_chunks: Vec<String> = Vec::new();
+    let mut edge_chunks: Vec<String> = Vec::new();
+    let mut agg = PipelineStats {
+        total_records: 0,
+        exact_dups: 0,
+        fuzzy_dups: 0,
+        hard_negs: 0,
+        uniques: 0,
+        masters: 0,
+    };
+
+    for chunk_idx in 0..n_chunks {
+        let this_size = chunk_size.min(total_size - chunk_idx * chunk_size);
+        let chunk_seed = seed.wrapping_add(chunk_idx as u64);
+        let chunk_run_id = format!("{final_run_id}__chunk{chunk_idx:04}");
+        let chunk_config = crate::schema::build_pipeline_config(
+            domain,
+            this_size,
+            chunk_seed,
+            difficulty,
+            hard_neg_ratio,
+            singleton_master_fraction,
+            schema,
+            &chunk_run_id,
+            output_format,
+            graph_enabled,
+            graph_format,
+            only_entity,
+        )?;
+
+        let already_written = agg.total_records;
+        let mut chunk_cb = |done: usize, _total: usize| {
+            if let Some(cb) = &mut progress {
+                cb(already_written + done, total_size);
+            }
+        };
+        let (out, next_offsets) = run_pipeline_chunked(
+            ctx,
+            &chunk_config,
+            &tmp_dir,
+            Some(&mut chunk_cb),
+            Some(&offsets),
+        )?;
+        offsets = next_offsets;
+
+        // `out.stats.total_records` is `global_rid_offset` at the end of
+        // the chunk, which started from `offsets.rid_offset` (the previous
+        // chunk's running total) — it's already the running grand total,
+        // not a per-chunk delta.
+        agg.total_records = out.stats.total_records;
+        agg.exact_dups += out.stats.exact_dups;
+        agg.fuzzy_dups += out.stats.fuzzy_dups;
+        agg.hard_negs += out.stats.hard_negs;
+        agg.uniques += out.stats.uniques;
+        agg.masters += out.stats.masters;
+
+        dataset_chunks.push(out.output_files[0].clone());
+        gt_chunks.push(out.gt_file.clone());
+        if let Some(n) = out.nodes {
+            node_chunks.push(n);
+        }
+        if let Some(e) = out.edges {
+            edge_chunks.push(e);
+        }
+    }
+
+    let dataset_ext = if output_format == "parquet" {
+        "parquet"
+    } else {
+        "ipc"
+    };
+    let final_dataset = format!("{output_dir}/{final_run_id}.{dataset_ext}");
+    concat_dataset_files(output_format, &dataset_chunks, &final_dataset)?;
+
+    let final_gt = format!("{output_dir}/{final_run_id}_ground_truth.{dataset_ext}");
+    concat_dataset_files(output_format, &gt_chunks, &final_gt)?;
+
+    let graph_ext = if graph_format == "parquet" {
+        "parquet"
+    } else {
+        "ipc"
+    };
+    let final_nodes = if !node_chunks.is_empty() {
+        let p = format!("{output_dir}/{final_run_id}_nodes.{graph_ext}");
+        concat_dataset_files(graph_format, &node_chunks, &p)?;
+        Some(p)
+    } else {
+        None
+    };
+    let final_edges = if !edge_chunks.is_empty() {
+        let p = format!("{output_dir}/{final_run_id}_edges.{graph_ext}");
+        concat_dataset_files(graph_format, &edge_chunks, &p)?;
+        Some(p)
+    } else {
+        None
+    };
+
+    std::fs::remove_dir_all(&tmp_dir).ok();
+
+    Ok(PipelineOutput {
+        output_files: vec![final_dataset],
+        gt_file: final_gt,
+        stats: agg,
+        nodes: final_nodes,
+        edges: final_edges,
+    })
 }
 
 // ── Metadata injection ──────────────────────────────────────────────────────

@@ -244,6 +244,7 @@ pub fn estimate_difficulty(
         singleton_master_fraction,
         "en",
         None,
+        None,
     );
     let config = build_pipeline_config(
         domain,
