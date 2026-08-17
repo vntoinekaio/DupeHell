@@ -1,5 +1,4 @@
 <!-- DupeHell -- MIT License -->
-<!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
 # Benchmarks
 

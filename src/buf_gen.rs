@@ -1,7 +1,6 @@
 // DupeHell -- MIT License
 //
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
 use std::sync::Arc;
@@ -188,13 +187,19 @@ pub fn buf_ssn(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
 /// Keep only ASCII alphanumeric characters, lowercased -- used to turn a
 /// pool name (possibly accented, possibly multi-word) into a safe email/
 /// username local-part fragment without risking invalid UTF-8 slicing.
-fn ascii_local(s: &str) -> String {
-    s.chars()
-        .filter_map(|c| {
-            let lc = c.to_ascii_lowercase();
-            lc.is_ascii_alphanumeric().then_some(lc)
-        })
-        .collect()
+/// Appends into a caller-owned, reusable buffer (not cleared here -- callers
+/// `clear()` it themselves, same convention as `build_string_array`'s row
+/// buffer) instead of allocating a fresh `String` per call.
+fn ascii_local_into(s: &str, buf: &mut Vec<u8>) {
+    for c in s.chars() {
+        let lc = c.to_ascii_lowercase();
+        if lc.is_ascii_alphanumeric() {
+            // SAFETY: `is_ascii_alphanumeric` guarantees `lc` is in 0..128,
+            // so truncating to `u8` reproduces the same byte `lc.to_string()`
+            // would have produced (ASCII chars are 1 byte in UTF-8).
+            buf.push(lc as u8);
+        }
+    }
 }
 
 /// `firstname.lastname######@example.com` (variable length, `example.com`
@@ -224,27 +229,31 @@ pub fn buf_email(n: usize, rng: &mut Rng, ctx: &Context) -> ArrayRef {
         .pool_store
         .get("last_name")
         .expect("pool 'last_name' not found");
+    let mut f_buf: Vec<u8> = Vec::with_capacity(16);
+    let mut l_buf: Vec<u8> = Vec::with_capacity(16);
     build_string_array(n, 38, |buf| {
-        let mut f = ascii_local(&first[rng.next_usize(first.len())]);
-        if f.is_empty() {
-            f = "user".to_string();
+        f_buf.clear();
+        ascii_local_into(&first[rng.next_usize(first.len())], &mut f_buf);
+        if f_buf.is_empty() {
+            f_buf.extend_from_slice(b"user");
         }
-        let mut l = ascii_local(&last[rng.next_usize(last.len())]);
-        if l.is_empty() {
-            l = "x".to_string();
+        l_buf.clear();
+        ascii_local_into(&last[rng.next_usize(last.len())], &mut l_buf);
+        if l_buf.is_empty() {
+            l_buf.push(b'x');
         }
         match rng.next_usize(3) {
             0 => {
-                buf.extend_from_slice(f.as_bytes());
+                buf.extend_from_slice(&f_buf);
                 buf.push(b'.');
-                buf.extend_from_slice(l.as_bytes());
+                buf.extend_from_slice(&l_buf);
             }
             1 => {
-                buf.push(f.as_bytes()[0]);
-                buf.extend_from_slice(l.as_bytes());
+                buf.push(f_buf[0]);
+                buf.extend_from_slice(&l_buf);
             }
             _ => {
-                buf.extend_from_slice(f.as_bytes());
+                buf.extend_from_slice(&f_buf);
             }
         }
         let num = rng.next_usize(900_000) + 100_000; // 100000-999999

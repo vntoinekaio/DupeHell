@@ -1,7 +1,6 @@
 // DupeHell -- MIT License
 //
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
 //! Extra noise types not covered by the original Rust port:

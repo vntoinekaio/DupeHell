@@ -1,5 +1,4 @@
 <!-- DupeHell -- MIT License -->
-<!-- EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses. -->
 
 <img src="https://raw.githubusercontent.com/vntoinekaio/DupeHell/master/docs/assets/logo_dupehell-3-w.png" alt="DupeHell Logo" width="400">
 

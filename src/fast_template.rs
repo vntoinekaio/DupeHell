@@ -1,7 +1,6 @@
 // DupeHell -- MIT License
 //
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
 use std::sync::Arc;
@@ -1122,19 +1121,15 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
     m.insert("address_type", gen_address_type);
     // Volume
     m.insert("volume", |n, rng, _| {
-        let mut builder = StringBuilder::with_capacity(n, n * 2);
-        for _ in 0..n {
-            builder.append_value((rng.next_usize(50) + 1).to_string());
-        }
-        Arc::new(builder.finish())
+        build_string_array(n, 2, |buf| {
+            write_num(buf, rng.next_usize(50) + 1);
+        })
     });
     // Issue
     m.insert("issue", |n, rng, _| {
-        let mut builder = StringBuilder::with_capacity(n, n * 2);
-        for _ in 0..n {
-            builder.append_value((rng.next_usize(12) + 1).to_string());
-        }
-        Arc::new(builder.finish())
+        build_string_array(n, 2, |buf| {
+            write_num(buf, rng.next_usize(12) + 1);
+        })
     });
     // Option1, Option2, Option3
     m.insert("option1", |n, rng, _| {
