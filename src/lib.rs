@@ -128,7 +128,7 @@ fn estimate_difficulty(
 #[pyo3(signature = (
     domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir,
     output_format, hard_neg_ratio, singleton_master_fraction, generate_graph,
-    graph_format, only_entity=None,
+    graph_format, only_entity=None, chunk_size=None,
 ))]
 #[allow(clippy::too_many_arguments)]
 fn generate(
@@ -146,6 +146,7 @@ fn generate(
     generate_graph: bool,
     graph_format: &str,
     only_entity: Option<&str>,
+    chunk_size: Option<usize>,
 ) -> PyResult<GenerateResult> {
     let schema =
         load_schema(domain, std::path::Path::new(schemas_dir)).map_err(PyValueError::new_err)?;
@@ -167,26 +168,52 @@ fn generate(
         singleton_master_fraction,
         locale,
         only_entity,
+        chunk_size,
     );
-    let config = build_pipeline_config(
-        domain,
-        size,
-        seed,
-        difficulty,
-        hard_neg_ratio,
-        singleton_master_fraction,
-        &schema,
-        &run_id,
-        output_format,
-        generate_graph,
-        graph_format,
-        only_entity,
-    )
-    .map_err(PyValueError::new_err)?;
 
-    ctx.enable_watermark(&config.domain, config.size, config.seed);
-
-    let output = run_pipeline(&ctx, &config, output_dir).map_err(PyValueError::new_err)?;
+    let output = match chunk_size {
+        Some(cs) if cs > 0 && cs < size => {
+            ctx.enable_watermark(domain, size, seed);
+            crate::pipeline::run_chunked(
+                &ctx,
+                domain,
+                size,
+                cs,
+                seed,
+                difficulty,
+                hard_neg_ratio,
+                singleton_master_fraction,
+                &schema,
+                &run_id,
+                output_format,
+                generate_graph,
+                graph_format,
+                only_entity,
+                output_dir,
+                None,
+            )
+            .map_err(PyValueError::new_err)?
+        }
+        _ => {
+            let config = build_pipeline_config(
+                domain,
+                size,
+                seed,
+                difficulty,
+                hard_neg_ratio,
+                singleton_master_fraction,
+                &schema,
+                &run_id,
+                output_format,
+                generate_graph,
+                graph_format,
+                only_entity,
+            )
+            .map_err(PyValueError::new_err)?;
+            ctx.enable_watermark(&config.domain, config.size, config.seed);
+            run_pipeline(&ctx, &config, output_dir).map_err(PyValueError::new_err)?
+        }
+    };
 
     Ok(GenerateResult {
         dataset: output.output_files.into_iter().next().unwrap_or_default(),

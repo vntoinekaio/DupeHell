@@ -135,6 +135,17 @@ struct Cli {
                 schema is narrowed to just this entity's own columns."
     )]
     only_entity: Option<String>,
+
+    #[arg(
+        long,
+        help = "Generate internally as ceil(size / chunk-size) sequential chunks (each an \
+                independently-seeded run, RAM-bounded like a --size chunk-size run) instead \
+                of one single run, then assemble the results into the same single dataset/GT/ \
+                graph files a non-chunked run would produce. record_id/master_id stay globally \
+                contiguous across chunks. Use when --size is large enough that a single run \
+                would exceed available RAM. No effect if omitted or >= --size."
+    )]
+    chunk_size: Option<usize>,
 }
 
 /// Rough peak-RSS-per-record, measured on this machine (Windows, release
@@ -224,7 +235,17 @@ fn main() {
         );
         std::process::exit(1);
     }
-    warn_if_memory_tight(cli.size);
+    if let Some(cs) = cli.chunk_size {
+        if cs == 0 {
+            eprintln!("Error: --chunk-size must be >= 1, got {cs}");
+            std::process::exit(1);
+        }
+        // RAM is bounded per chunk (each is an independent pipeline run),
+        // not by the total --size — that's the whole point of chunking.
+        warn_if_memory_tight(cs.min(cli.size));
+    } else {
+        warn_if_memory_tight(cli.size);
+    }
 
     let mut ctx = match Context::new(&cli.domain, &cli.locale, &cli.pools_dir.to_string_lossy()) {
         Ok(c) => c,
@@ -281,6 +302,7 @@ fn main() {
         singleton_master_fraction,
         &cli.locale,
         cli.only_entity.as_deref(),
+        cli.chunk_size,
     );
     let config = match build_pipeline_config(
         &cli.domain,
@@ -359,12 +381,29 @@ fn main() {
         eprint!("\r  Generating... {done}/{total} ({pct:.0}%)   ");
         let _ = std::io::Write::flush(&mut std::io::stderr());
     };
-    let output = match run_pipeline_with_progress(
-        &ctx,
-        &config,
-        &cli.output_dir.to_string_lossy(),
-        Some(&mut progress_cb),
-    ) {
+    let output_dir_str = cli.output_dir.to_string_lossy();
+    let output = match cli.chunk_size {
+        Some(cs) if cs > 0 && cs < cli.size => dupehell_core::pipeline::run_chunked(
+            &ctx,
+            &cli.domain,
+            cli.size,
+            cs,
+            cli.seed,
+            &cli.difficulty,
+            cli.hard_neg_ratio,
+            singleton_master_fraction,
+            &schema,
+            &run_id,
+            &effective_format,
+            cli.graph,
+            &cli.graph_format,
+            cli.only_entity.as_deref(),
+            &output_dir_str,
+            Some(&mut progress_cb),
+        ),
+        _ => run_pipeline_with_progress(&ctx, &config, &output_dir_str, Some(&mut progress_cb)),
+    };
+    let output = match output {
         Ok(o) => o,
         Err(e) => {
             eprintln!("Pipeline failed: {e}");

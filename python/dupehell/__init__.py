@@ -118,6 +118,7 @@ def generate(
     generate_graph: bool = False,
     graph_format: str = "parquet",
     only_entity: str | None = None,
+    chunk_size: int | None = None,
 ) -> GenerateResult:
     """Generate a synthetic record linkage dataset.
 
@@ -168,6 +169,16 @@ def generate(
             doesn't reference are skipped. Output schema is narrowed to
             just this entity's own columns. Raises :class:`PyValueError` if
             *only_entity* isn't a valid entity name for *domain*.
+        chunk_size: If set (and less than *size*), generate internally as
+            ``ceil(size / chunk_size)`` sequential chunks (each an
+            independently-seeded run, RAM-bounded like a
+            ``size=chunk_size`` run) instead of one single run, then
+            assemble the results into the same single dataset/ground-truth/
+            graph files a non-chunked run would produce. ``record_id``/
+            ``master_id`` stay globally contiguous across chunks — no
+            external retagging or concatenation needed. Use this when
+            ``size`` is large enough that a single run would exceed
+            available RAM.
 
     Returns:
         GenerateResult with paths and statistics. When ``generate_graph`` is true,
@@ -238,7 +249,7 @@ def generate(
         raise FileNotFoundError(msg) from None
     import os as _os
     _os.makedirs(output_dir, exist_ok=True)
-    return _generate(domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir, output_format, hard_neg_ratio, singleton_master_fraction, generate_graph, graph_format, only_entity)
+    return _generate(domain, size, seed, difficulty, output_dir, locale, pools_dir, schemas_dir, output_format, hard_neg_ratio, singleton_master_fraction, generate_graph, graph_format, only_entity, chunk_size)
 
 
 def estimate_difficulty(

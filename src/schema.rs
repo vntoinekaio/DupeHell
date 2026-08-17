@@ -215,6 +215,7 @@ pub fn deterministic_run_id(
     singleton_master_fraction: f64,
     locale: &str,
     only_entity: Option<&str>,
+    chunk_size: Option<usize>,
 ) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -229,6 +230,14 @@ pub fn deterministic_run_id(
     // hashed in, or two runs differing only in this one collide on the same
     // filename and silently overwrite each other.
     only_entity.unwrap_or("").hash(&mut hasher);
+    // `--chunk-size` doesn't change the final dataset's *content* (chunked
+    // and non-chunked runs of the same total size are meant to be
+    // equivalent data, modulo per-chunk RNG independence) but it DOES
+    // change the sequence of per-chunk seeds actually used internally
+    // (`seed + chunk_idx` per chunk vs a single unbroken `seed`), so two
+    // runs with the same total size/seed but a different chunking must
+    // never collide on the same output filename.
+    chunk_size.unwrap_or(0).hash(&mut hasher);
     format!("{}_{:x}", domain, hasher.finish())
 }
 
@@ -756,10 +765,10 @@ mod tests {
 
     #[test]
     fn test_deterministic_run_id_stable_and_sensitive() {
-        let a = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
-        let b = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
+        let a = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, None);
+        let b = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, None);
         assert_eq!(a, b);
-        let c = deterministic_run_id("kyc", 1000, 43, "medium", 0.1, 0.3, "en", None);
+        let c = deterministic_run_id("kyc", 1000, 43, "medium", 0.1, 0.3, "en", None, None);
         assert_ne!(a, c);
     }
 
@@ -769,9 +778,11 @@ mod tests {
     /// got the exact same output filename, silently overwriting each other.
     #[test]
     fn test_deterministic_run_id_sensitive_to_singleton_fraction_and_locale() {
-        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
-        let diff_fraction = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.5, "en", None);
-        let diff_locale = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "fr", None);
+        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, None);
+        let diff_fraction =
+            deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.5, "en", None, None);
+        let diff_locale =
+            deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "fr", None, None);
         assert_ne!(base, diff_fraction);
         assert_ne!(base, diff_locale);
         assert_ne!(diff_fraction, diff_locale);
@@ -782,7 +793,7 @@ mod tests {
     /// must not collide on the same run id (same class of bug as C14/C15).
     #[test]
     fn test_deterministic_run_id_sensitive_to_only_entity() {
-        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None);
+        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, None);
         let only_a = deterministic_run_id(
             "kyc",
             1000,
@@ -792,6 +803,7 @@ mod tests {
             0.3,
             "en",
             Some("natural_person"),
+            None,
         );
         let only_b = deterministic_run_id(
             "kyc",
@@ -802,10 +814,28 @@ mod tests {
             0.3,
             "en",
             Some("legal_entity"),
+            None,
         );
         assert_ne!(base, only_a);
         assert_ne!(base, only_b);
         assert_ne!(only_a, only_b);
+    }
+
+    /// Regression guard for the `chunk_size` hash input added alongside
+    /// `--chunk-size`: two runs with the same total size but a different
+    /// chunking must not collide on the same run id, since the per-chunk
+    /// seed sequence actually used internally differs (same class of bug
+    /// as C14/C15).
+    #[test]
+    fn test_deterministic_run_id_sensitive_to_chunk_size() {
+        let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, None);
+        let chunked_a =
+            deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, Some(500));
+        let chunked_b =
+            deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, Some(250));
+        assert_ne!(base, chunked_a);
+        assert_ne!(base, chunked_b);
+        assert_ne!(chunked_a, chunked_b);
     }
 
     #[test]
