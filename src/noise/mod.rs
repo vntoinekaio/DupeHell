@@ -1,7 +1,6 @@
 // DupeHell -- MIT License
 //
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
 pub mod addresses;
@@ -13,7 +12,7 @@ pub mod names;
 pub mod typos;
 pub mod visual;
 
-use arrow::array::{Array, ArrayRef, AsArray, StringArray, UInt32Array};
+use arrow::array::{Array, ArrayRef, AsArray, StringBuilder, UInt32Array};
 use arrow::compute::take;
 use std::sync::Arc;
 
@@ -87,26 +86,50 @@ fn apply_random_subtype(
         };
     }
 
+    // `row_group`/`row_pos` record, per original row, which sub-type group
+    // it landed in and its position within that group's `idxs` (built in
+    // the same pass as `groups`, no extra scan needed) -- used below to
+    // read each row's noised value straight out of its group's Arrow
+    // buffer, instead of copying every value into an intermediate owned
+    // `String` (`Vec<Option<String>>`) that `StringArray::from` would then
+    // copy AGAIN into the final buffer. Two full copy passes eliminated;
+    // only the one copy into the final `StringBuilder` remains, which is
+    // unavoidable either way.
     let mut groups: Vec<Vec<u32>> = vec![Vec::new(); fns.len()];
+    let mut row_group: Vec<u32> = Vec::with_capacity(n);
+    let mut row_pos: Vec<u32> = Vec::with_capacity(n);
     for i in 0..n {
-        groups[rng.next_usize(fns.len())].push(i as u32);
+        let g = rng.next_usize(fns.len());
+        row_pos.push(groups[g].len() as u32);
+        row_group.push(g as u32);
+        groups[g].push(i as u32);
     }
 
-    let mut out: Vec<Option<String>> = vec![None; n];
+    let mut noised_by_group: Vec<Option<ArrayRef>> = vec![None; fns.len()];
     for (k, idxs) in groups.into_iter().enumerate() {
         if idxs.is_empty() {
             continue;
         }
-        let idx_arr = UInt32Array::from(idxs.clone());
+        let idx_arr = UInt32Array::from(idxs);
         let sub = take(col, &idx_arr, None).expect("take for noise sub-type group");
-        let noised = fns[k](&*sub, rng);
-        let noised_s = noised.as_string::<i32>();
-        for (pos, &orig_i) in idxs.iter().enumerate() {
-            out[orig_i as usize] =
-                (!noised_s.is_null(pos)).then(|| noised_s.value(pos).to_string());
+        noised_by_group[k] = Some(fns[k](&*sub, rng));
+    }
+
+    let mut builder = StringBuilder::with_capacity(n, n * 16);
+    for i in 0..n {
+        let g = row_group[i] as usize;
+        let pos = row_pos[i] as usize;
+        let noised_s = noised_by_group[g]
+            .as_ref()
+            .expect("row's group has at least this row, so it was populated above")
+            .as_string::<i32>();
+        if noised_s.is_null(pos) {
+            builder.append_null();
+        } else {
+            builder.append_value(noised_s.value(pos));
         }
     }
-    Arc::new(StringArray::from(out))
+    Arc::new(builder.finish())
 }
 
 /// Dispatch hub: maps noise type string to the actual noise function.

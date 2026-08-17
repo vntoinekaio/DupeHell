@@ -1,7 +1,6 @@
 // DupeHell -- MIT License
 //
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
 use std::sync::Arc;
@@ -17,6 +16,11 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
+    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // inline — the `strategy` match arms below (0 and 1) draw extra values
+    // from `rng2` mid-loop, so inlining would change the RNG interleaving
+    // for later rows (verified: broke an A/B checksum on the same pattern
+    // in `noise/dates.rs`).
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(3)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 24);
@@ -86,6 +90,10 @@ pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
+    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // inline — the `4..=6` match arm below draws extra values from `rng2`
+    // mid-loop (digit corruption), so inlining would change the RNG
+    // interleaving for later rows. Same reasoning as `corrupt_email` above.
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(10)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 20);

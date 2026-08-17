@@ -1,7 +1,6 @@
 // DupeHell -- MIT License
 //
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
 use std::sync::Arc;
@@ -169,6 +168,11 @@ pub fn apply_case_swap(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let n = src.len();
     let mut rng2 = rng.fork();
 
+    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // inline — the `else` branch below draws one extra `rng2.next_usize(2)`
+    // per character, so inlining `r`'s draw would change the RNG
+    // interleaving for later rows. Same reasoning as `noise/dates.rs`'s
+    // `noise_dates`.
     let r_vals: Vec<f64> = (0..n).map(|_| rng2.next_f64()).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);

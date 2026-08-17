@@ -1,7 +1,6 @@
 // DupeHell -- MIT License
 //
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
-// EDUCATIONAL AND RESEARCH PURPOSES ONLY -- see ETHICS.md for prohibited uses.
 // No liability for misuse.
 
 use std::sync::Arc;
@@ -18,6 +17,13 @@ pub fn noise_dates(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
+    // NOTE (perf-hunt hunt1708, H2): drawing `op` eagerly for every row
+    // BEFORE the loop, rather than inline at the top of the loop body, is
+    // load-bearing here, not just a style choice — `fuzz_year` (op==1)
+    // consumes extra draws from `rng2` mid-loop. Moving the primary draw
+    // inline would interleave it with those secondary draws differently
+    // than today, changing every row's `op` from that point on (verified:
+    // broke an A/B checksum). Keep this precompute as-is.
     let ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(4)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
@@ -148,10 +154,10 @@ pub fn noise_dates_mix(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    let formats: Vec<usize> = (0..n).map(|_| rng2.next_usize(4)).collect();
-
     let mut builder = StringBuilder::with_capacity(n, n * 16);
-    for (i, &fmt) in formats.iter().enumerate().take(n) {
+    for i in 0..n {
+        // Same draw-order note as `noise_dates` above.
+        let fmt = rng2.next_usize(4);
         if src.is_null(i) {
             builder.append_null();
             continue;
@@ -191,6 +197,11 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
     let n = src.len();
     let mut rng2 = rng.fork();
 
+    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // inline — the `new_year` match arms below draw extra values from
+    // `rng2` mid-loop (`0`/`1`/`_` arms), so inlining `strategy`'s draw
+    // would change the RNG interleaving for every row after the first one
+    // that hits this branch. See `noise_dates`'s note for the same reason.
     let strategies: Vec<usize> = (0..n).map(|_| rng2.next_usize(3)).collect();
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
