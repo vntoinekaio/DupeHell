@@ -42,6 +42,8 @@ pub fn generate_all(
     ctx: &Context,
     config: &PipelineConfig,
     full_arc: &Arc<Schema>,
+    domain_dict: &pipeline::DictValues,
+    entity_type_dict: &pipeline::DictValues,
     null_cache: &mut FxHashMap<(DataType, usize), ArrayRef>,
     const_arr_cache: &mut FxHashMap<(String, usize), ArrayRef>,
     global_rid_offset: &mut usize,
@@ -127,17 +129,20 @@ pub fn generate_all(
             .map(|f| rb.schema().column_with_name(f.name()).map(|(idx, _)| idx))
             .collect();
 
-        let canary_rids = pipeline::record_id_strs(*global_rid_offset..*global_rid_offset + n);
+        let canary_rid_arr = pipeline::record_id_array(*global_rid_offset..*global_rid_offset + n);
         let canary_mids: Vec<String> = (0..n)
             .map(|j| format!("CANARY-{}-{:03}-{}", sig, j, ent_idx))
             .collect();
+        let canary_mid_arr = Arc::new(StringArray::from(canary_mids)) as ArrayRef;
 
         let aligned = pipeline::add_metadata_and_align(
             &rb,
             &config.domain,
             &plan.name,
-            &canary_rids,
-            &canary_mids,
+            domain_dict,
+            entity_type_dict,
+            &canary_rid_arr,
+            &canary_mid_arr,
             full_arc,
             &col_lookup,
             null_cache,

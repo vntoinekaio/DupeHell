@@ -117,18 +117,7 @@
         },
         {
           "name": "salary",
-          "type": "float",
-          "conditions": [
-            {
-              "depends_on": "contract_type",
-              "op": "in",
-              "value": [
-                "Rookie",
-                "Two-Way"
-              ],
-              "action": "set_value"
-            }
-          ]
+          "type": "float"
         },
         {
           "name": "contract_type",

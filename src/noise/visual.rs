@@ -103,7 +103,17 @@ pub fn apply_unicode_pollution(arr: &dyn arrow::array::Array, rng: &mut Rng) -> 
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 1).collect();
-    let positions: Vec<usize> = (0..n * 31).map(|_| rng2.next_usize(31)).collect();
+    // perf-hunt hunt1708 H3: was `n * 31` (matching the `% 31` modulus used
+    // below instead of the `.min(3)` cap on how many are ever read per
+    // row) -- `apply_homoglyph`/`apply_ocr_errors` size their own
+    // `positions` to `n * <their max ops>`, not to their position-index
+    // modulus. Only `n_op.min(3)` entries per row are ever read (see the
+    // loop below), so `n * 3` is the correct size; the extra `n * 28`
+    // draws per row were computed, stored, and never used. Not
+    // bit-identical with the old size (fewer RNG draws consumed changes
+    // everything downstream) -- confirmed and approved explicitly before
+    // this change.
+    let positions: Vec<usize> = (0..n * 3).map(|_| rng2.next_usize(31)).collect();
     let zw_idx: Vec<usize> = (0..n * 3)
         .map(|_| rng2.next_usize(ZERO_WIDTH_CHARS.len()))
         .collect();
@@ -112,7 +122,7 @@ pub fn apply_unicode_pollution(arr: &dyn arrow::array::Array, rng: &mut Rng) -> 
     let mut chars: Vec<char> = Vec::new();
     for (i, &n_op) in n_ops.iter().enumerate() {
         if get_chars_into(src, i, MIN_LEN_UNICODE, &mut chars) {
-            let pos_base = i * 31;
+            let pos_base = i * 3;
             let zw_base = i * 3;
             for j in 0..n_op.min(3) {
                 let pos = positions[pos_base + j] % (chars.len() + 1);

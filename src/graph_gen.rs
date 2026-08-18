@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, Float64Builder, StringBuilder};
+use arrow::array::{ArrayRef, Float64Builder, Int32Builder, StringBuilder};
+
+use crate::pipeline::DictValues;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
@@ -85,13 +87,20 @@ impl NodeWriter {
     }
 }
 
+/// `Dictionary(Int32, Utf8)` for `edge_type`/`subtype` — hunt1808/H11, an
+/// explicit output-contract change (not bit-identical: the declared column
+/// type changes from `Utf8`), applied on explicit user request.
+fn low_cardinality_dict_type() -> DataType {
+    DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
+}
+
 fn edge_schema(metadata: &HashMap<String, String>) -> Arc<Schema> {
     Arc::new(
         Schema::new(vec![
             Field::new("source_node_id", DataType::Utf8, false),
             Field::new("target_node_id", DataType::Utf8, false),
-            Field::new("edge_type", DataType::Utf8, false),
-            Field::new("subtype", DataType::Utf8, false),
+            Field::new("edge_type", low_cardinality_dict_type(), false),
+            Field::new("subtype", low_cardinality_dict_type(), false),
             Field::new("weight", DataType::Float64, false),
         ])
         .with_metadata(metadata.clone()),
@@ -104,8 +113,10 @@ pub struct EdgeWriter {
     schema: Arc<Schema>,
     src_buf: StringBuilder,
     tgt_buf: StringBuilder,
-    etype_buf: StringBuilder,
-    subtype_buf: StringBuilder,
+    etype_dict: DictValues,
+    etype_keys: Int32Builder,
+    subtype_dict: DictValues,
+    subtype_keys: Int32Builder,
     weight_buf: Float64Builder,
     count: usize,
 }
@@ -113,7 +124,21 @@ pub struct EdgeWriter {
 const EDGE_FLUSH: usize = 100_000;
 
 impl EdgeWriter {
-    pub fn new(path: &str, metadata: &HashMap<String, String>) -> Result<Self, String> {
+    /// `subtype_dict` must already contain every subtype value this run
+    /// will ever `push()` for this writer — the full known set (FK
+    /// `source_col`s + HN pattern kinds + `"complete"`/`"spanning_tree"`,
+    /// see the call site in `pipeline.rs`) — built once, before any edge is
+    /// pushed, and shared across every flushed batch (hunt1808/H11; see
+    /// `DictValues`'s doc comment for why IPC output requires this).
+    /// `edge_type`'s value set is fixed and universal (`"fk"`/`"hard_neg"`/
+    /// `"exact_dup"`/`"fuzzy_dup"`, see `pair_edge_type` and the two
+    /// `push()` call sites in `pipeline.rs`), so it's built here rather
+    /// than threaded in from every caller.
+    pub fn new(
+        path: &str,
+        metadata: &HashMap<String, String>,
+        subtype_dict: DictValues,
+    ) -> Result<Self, String> {
         let schema = edge_schema(metadata);
         let file = File::create(path).map_err(|e| format!("create edge file {path}: {e}"))?;
         let writer = FileWriter::try_new(file, &schema)
@@ -123,8 +148,10 @@ impl EdgeWriter {
             schema,
             src_buf: StringBuilder::new(),
             tgt_buf: StringBuilder::new(),
-            etype_buf: StringBuilder::new(),
-            subtype_buf: StringBuilder::new(),
+            etype_dict: DictValues::new(["fk", "hard_neg", "exact_dup", "fuzzy_dup"]),
+            etype_keys: Int32Builder::new(),
+            subtype_dict,
+            subtype_keys: Int32Builder::new(),
             weight_buf: Float64Builder::new(),
             count: 0,
         })
@@ -140,8 +167,9 @@ impl EdgeWriter {
     ) -> Result<(), String> {
         self.src_buf.append_value(src);
         self.tgt_buf.append_value(tgt);
-        self.etype_buf.append_value(etype);
-        self.subtype_buf.append_value(subtype);
+        self.etype_keys.append_value(self.etype_dict.key(etype));
+        self.subtype_keys
+            .append_value(self.subtype_dict.key(subtype));
         self.weight_buf.append_value(weight);
         self.count += 1;
         if self.count >= EDGE_FLUSH {
@@ -159,8 +187,8 @@ impl EdgeWriter {
             vec![
                 Arc::new(self.src_buf.finish()) as ArrayRef,
                 Arc::new(self.tgt_buf.finish()) as ArrayRef,
-                Arc::new(self.etype_buf.finish()) as ArrayRef,
-                Arc::new(self.subtype_buf.finish()) as ArrayRef,
+                self.etype_dict.finish_keys(self.etype_keys.finish()),
+                self.subtype_dict.finish_keys(self.subtype_keys.finish()),
                 Arc::new(self.weight_buf.finish()) as ArrayRef,
             ],
         )
@@ -230,9 +258,13 @@ pub fn push_dup_clusters(
             }
         } else {
             for i in 0..k {
+                let src = crate::pipeline::record_id_string(records[i] as usize);
+                // `j` indexes both `records` and `idents` in lockstep —
+                // an iterator/enumerate rewrite would need the same offset
+                // arithmetic clippy is suggesting away, for no clarity gain.
+                #[allow(clippy::needless_range_loop)]
                 for j in (i + 1)..k {
                     let etype = pair_edge_type(idents.get(i), idents.get(j));
-                    let src = crate::pipeline::record_id_string(records[i] as usize);
                     let tgt = crate::pipeline::record_id_string(records[j] as usize);
                     ew.push(&src, &tgt, etype, "complete", 1.0)?;
                 }
@@ -256,8 +288,13 @@ mod tests {
             let b = b.unwrap();
             let src = b.column(0).as_string::<i32>();
             let tgt = b.column(1).as_string::<i32>();
-            let et = b.column(2).as_string::<i32>();
-            let st = b.column(3).as_string::<i32>();
+            // `edge_type`/`subtype` are `Dictionary(Int32, Utf8)`
+            // (hunt1808/H11) — cast back to plain `Utf8` for this test-only
+            // comparison.
+            let et_col = arrow::compute::cast(b.column(2), &DataType::Utf8).unwrap();
+            let st_col = arrow::compute::cast(b.column(3), &DataType::Utf8).unwrap();
+            let et = et_col.as_string::<i32>();
+            let st = st_col.as_string::<i32>();
             let w = b.column(4).as_primitive::<arrow::datatypes::Float64Type>();
             for i in 0..b.num_rows() {
                 out.push((
@@ -295,7 +332,12 @@ mod tests {
         .unwrap();
         let pairs = members
             .into_iter()
-            .map(|(ridx, ident)| (master_key, ridx as u64, ident))
+            .map(|(ridx, ident)| {
+                (
+                    master_key,
+                    crate::gt::pack_ridx_identical(ridx as u64, ident),
+                )
+            })
             .collect();
         crate::gt::ClusterCsr::build(pairs)
     }
@@ -304,7 +346,12 @@ mod tests {
     fn push_dup_clusters_complete() {
         let path = temp_path("edges_complete.ipc");
         let _ = std::fs::remove_file(&path);
-        let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
+        let mut ew = EdgeWriter::new(
+            &path,
+            &HashMap::new(),
+            DictValues::new(["complete", "spanning_tree"]),
+        )
+        .unwrap();
         let clusters = one_cluster(1, vec![(1, true), (2, true), (3, true), (4, true)]);
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
         ew.finish().unwrap();
@@ -324,7 +371,12 @@ mod tests {
     fn push_dup_clusters_fuzzy_edge_type() {
         let path = temp_path("edges_fuzzy.ipc");
         let _ = std::fs::remove_file(&path);
-        let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
+        let mut ew = EdgeWriter::new(
+            &path,
+            &HashMap::new(),
+            DictValues::new(["complete", "spanning_tree"]),
+        )
+        .unwrap();
         // rid(1) (master) and rid(2) stayed identical; rid(3) was genuinely noised.
         let clusters = one_cluster(1, vec![(1, true), (2, true), (3, false)]);
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
@@ -346,7 +398,12 @@ mod tests {
     fn push_dup_clusters_spanning_tree() {
         let path = temp_path("edges_spanning.ipc");
         let _ = std::fs::remove_file(&path);
-        let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
+        let mut ew = EdgeWriter::new(
+            &path,
+            &HashMap::new(),
+            DictValues::new(["complete", "spanning_tree"]),
+        )
+        .unwrap();
         let members: Vec<(usize, bool)> = (0..200).map(|i| (i, true)).collect();
         let clusters = one_cluster(1, members.clone());
         // 200*199/2 = 19900 edges > 10000 -> spanning tree fallback (199 edges)
@@ -377,7 +434,12 @@ mod tests {
     fn push_dup_clusters_skips_singletons() {
         let path = temp_path("edges_singleton.ipc");
         let _ = std::fs::remove_file(&path);
-        let mut ew = EdgeWriter::new(&path, &HashMap::new()).unwrap();
+        let mut ew = EdgeWriter::new(
+            &path,
+            &HashMap::new(),
+            DictValues::new(["complete", "spanning_tree"]),
+        )
+        .unwrap();
         let clusters = one_cluster(1, vec![(1, true)]);
         push_dup_clusters(&mut ew, &clusters, 10_000).unwrap();
         ew.finish().unwrap();
