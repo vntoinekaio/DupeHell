@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{
-    Array, ArrayBuilder, ArrayRef, AsArray, StringArray, UInt64Array, UInt64Builder,
+    Array, ArrayBuilder, ArrayRef, AsArray, StringArray, StringBuilder, UInt64Array, UInt64Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -175,6 +175,10 @@ pub(crate) fn record_id_string(i: usize) -> String {
     String::from_utf8(buf.to_vec()).expect("record_id_string: buffer is 'R', '-' and ASCII digits")
 }
 
+// Only fixture code (this crate's `#[cfg(test)]` modules) needs a single
+// padded `String`/a `Vec<String>` of record ids any more — real code paths
+// all moved to `record_id_array`/`master_id_array_*` (hunt1808/H1).
+#[cfg(test)]
 #[inline]
 pub(crate) fn pad_string(i: usize) -> String {
     let mut buf = [0u8; PAD_LEN];
@@ -186,8 +190,87 @@ pub(crate) fn pad_string(i: usize) -> String {
     String::from_utf8(buf.to_vec()).expect("pad_string: buffer is always ASCII digits")
 }
 
+#[cfg(test)]
 pub(crate) fn record_id_strs(range: std::ops::Range<usize>) -> Vec<String> {
     range.map(record_id_string).collect()
+}
+
+/// Writes `val` right-aligned, zero-padded to `width` ASCII digits, at the
+/// end of `buf` (grows `buf` by exactly `width` bytes). Shared digit-writing
+/// core for `record_id_array`/`master_id_array_*`/`hn_master_id_array` —
+/// same arithmetic as `record_id_string`/`pad_string`, just writing into a
+/// caller-owned buffer instead of allocating its own.
+#[inline]
+fn write_digits(buf: &mut Vec<u8>, val: u64, width: usize) {
+    let start = buf.len();
+    buf.resize(start + width, b'0');
+    let mut n = val;
+    for j in (0..width).rev() {
+        buf[start + j] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+}
+
+/// Builds a `record_id` `StringArray` for `range` directly (one shared
+/// buffer via `buf_gen::build_string_array`, no per-row `String`) instead of
+/// collecting `Vec<String>` and recopying through `StringArray::
+/// from_iter_values` — same bytes, same order, see hunt1808/H1.
+pub(crate) fn record_id_array(range: std::ops::Range<usize>) -> ArrayRef {
+    let n = range.len();
+    let mut i = range.start as u64;
+    crate::buf_gen::build_string_array(n, RID_LEN, |buf| {
+        buf.push(b'R');
+        buf.push(b'-');
+        write_digits(buf, i, PAD_LEN);
+        i += 1;
+    })
+}
+
+/// Builds a `master_id` `StringArray` for the contiguous global-index range
+/// `start..start+n` (base entity batches: every row in the batch gets the
+/// next master index in order) — see hunt1808/H1.
+fn master_id_array_range(prefix: &str, start: usize, n: usize) -> ArrayRef {
+    let width = prefix.len() + 1 + PAD_LEN;
+    let mut i = start as u64;
+    crate::buf_gen::build_string_array(n, width, |buf| {
+        buf.extend_from_slice(prefix.as_bytes());
+        buf.push(b'-');
+        write_digits(buf, i, PAD_LEN);
+        i += 1;
+    })
+}
+
+/// Builds a `master_id` `StringArray` from an arbitrary (non-contiguous)
+/// sequence of global indices — duplicate-copy rows, whose master is
+/// whichever base row `indices` sampled, not a running counter. `indices`
+/// must yield exactly `n` values. See hunt1808/H1.
+fn master_id_array_from_indices(
+    prefix: &str,
+    mut indices: impl Iterator<Item = usize>,
+    n: usize,
+) -> ArrayRef {
+    let width = prefix.len() + 1 + PAD_LEN;
+    crate::buf_gen::build_string_array(n, width, |buf| {
+        let idx = indices
+            .next()
+            .expect("master_id_array_from_indices: fewer than n indices");
+        buf.extend_from_slice(prefix.as_bytes());
+        buf.push(b'-');
+        write_digits(buf, idx as u64, PAD_LEN);
+    })
+}
+
+/// Builds an `"HN-{:09}"` `master_id` `StringArray` for `n` rows, counting
+/// up from `start` — mirrors the previous per-row `format!("HN-{:09}", id)`
+/// loop, same values, same order. See hunt1808/H1.
+fn hn_master_id_array(start: u64, n: usize) -> ArrayRef {
+    const HN_WIDTH: usize = 12; // "HN-" + 9 digits
+    let mut id = start;
+    crate::buf_gen::build_string_array(n, HN_WIDTH, |buf| {
+        buf.extend_from_slice(b"HN-");
+        write_digits(buf, id, 9);
+        id += 1;
+    })
 }
 
 /// Inverse of `record_id_string`: parses `"R-0000000000007"` back to `7`.
@@ -281,7 +364,7 @@ struct HnPool {
     total_count: usize,
     // Global record_ids aligned positionally with `batch` rows (only populated
     // when graph output is enabled). Used to emit `hard_neg` edges.
-    record_ids: Vec<String>,
+    record_ids: ArrayRef,
 }
 
 // ── Noise column matching ─────────────────────────────────────────────────
@@ -687,7 +770,10 @@ fn unchanged_row_mask(
             }
         }
     }
-    Ok(changed.into_iter().map(|c| !c).collect())
+    for c in changed.iter_mut() {
+        *c = !*c;
+    }
+    Ok(changed)
 }
 
 /// Apply `noise_type` to `orig`, retrying with fresh randomness (merging in
@@ -736,7 +822,7 @@ fn apply_noise_with_retry(
         let mut retry_rng = Rng::new(rng.next_u64());
         let (retried, _) =
             apply_noise_to_batch(orig, noise_type, plan_cols, &mut retry_rng, exclude_cols)?;
-        let mask = arrow::array::BooleanArray::from(unchanged.clone());
+        let mask = arrow::array::BooleanArray::from_iter(unchanged.iter().map(|&u| Some(u)));
         let mut merged_cols: Vec<ArrayRef> = noisy.columns().to_vec();
         for &i in &target_idxs {
             merged_cols[i] =
@@ -800,20 +886,33 @@ fn apply_extra_pass_per_row(
     // categories active — hunt2407.md), that's up to 9x redundant work per
     // extra pass. Grouping first means each row's noise is computed once,
     // on a batch sized to just its own group.
+    // `row_group`/`row_pos` record, per original row, which type-group it
+    // landed in and its position within that group's `idxs` (built in the
+    // same pass as `groups`) — same technique as
+    // `noise::apply_random_subtype` (hunt1808/H2, transposing that fix one
+    // level up): every noised value is read straight out of its group's
+    // Arrow buffer at scatter time below, instead of round-tripping through
+    // a `HashMap<String, Vec<Option<String>>>` of owned `String`s that a
+    // final `StringArray::from` would then copy AGAIN.
     let mut groups: Vec<Vec<u32>> = vec![Vec::new(); all_types.len()];
+    let mut row_group: Vec<u32> = Vec::with_capacity(n);
+    let mut row_pos: Vec<u32> = Vec::with_capacity(n);
     for (i, &t) in per_row_type.iter().enumerate() {
+        row_pos.push(groups[t].len() as u32);
+        row_group.push(t as u32);
         groups[t].push(i as u32);
     }
 
     let schema = noisy.schema();
     let mut pass_unchanged = vec![true; n];
-    // column name -> full-length scatter buffer, lazily seeded from
-    // `noisy`'s own values and overwritten in place per group that
-    // touches it. Only columns some active type actually targets get an
-    // entry — untouched columns are left as direct clones of `noisy`'s
-    // arrays at the end, same "don't rebuild what didn't change" principle
-    // as the H1 fix above.
-    let mut touched: HashMap<String, Vec<Option<String>>> = HashMap::new();
+    let mut noised_by_group: Vec<Option<RecordBatch>> = vec![None; all_types.len()];
+    // Per group, the column indices its noise_type actually targeted —
+    // needed at scatter time to tell "this row's group touched this
+    // column" (read `noised_by_group`) from "this row's group left this
+    // column alone" (read `noisy`, unchanged) — different types touch
+    // different column sets.
+    let mut group_target_idxs: Vec<Vec<usize>> = vec![Vec::new(); all_types.len()];
+    let mut touched_cols: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
 
     for (type_idx, idxs) in groups.into_iter().enumerate() {
         if idxs.is_empty() {
@@ -824,32 +923,43 @@ fn apply_extra_pass_per_row(
         let subset = pick_rows(noisy, &idx_arr)?;
         let (noised_subset, subset_unchanged, target_cols) =
             apply_noise_with_retry(&subset, ttype, &[], rng, exclude_cols)?;
-        for col_name in &target_cols {
-            let Ok(col_idx) = schema.index_of(col_name) else {
-                continue;
-            };
-            let noised_col = noised_subset.column(col_idx).as_string::<i32>();
-            let buf = touched.entry(col_name.clone()).or_insert_with(|| {
-                let orig = noisy.column(col_idx).as_string::<i32>();
-                (0..n)
-                    .map(|i| (!orig.is_null(i)).then(|| orig.value(i).to_string()))
-                    .collect()
-            });
-            for (local_pos, &orig_i) in idxs.iter().enumerate() {
-                buf[orig_i as usize] = (!noised_col.is_null(local_pos))
-                    .then(|| noised_col.value(local_pos).to_string());
-            }
-        }
+        let target_idxs: Vec<usize> = target_cols
+            .iter()
+            .filter_map(|c| schema.index_of(c).ok())
+            .collect();
+        touched_cols.extend(target_idxs.iter().copied());
+        group_target_idxs[type_idx] = target_idxs;
         for (local_pos, &orig_i) in idxs.iter().enumerate() {
             pass_unchanged[orig_i as usize] = subset_unchanged[local_pos];
         }
+        noised_by_group[type_idx] = Some(noised_subset);
     }
 
     let mut merged_cols: Vec<ArrayRef> = noisy.columns().to_vec();
-    for (col_name, buf) in touched {
-        if let Ok(col_idx) = schema.index_of(&col_name) {
-            merged_cols[col_idx] = Arc::new(StringArray::from(buf));
+    for col_idx in touched_cols {
+        let orig_col = noisy.column(col_idx).as_string::<i32>();
+        let mut builder = StringBuilder::with_capacity(n, n * 16);
+        for i in 0..n {
+            let g = row_group[i] as usize;
+            if group_target_idxs[g].contains(&col_idx) {
+                let pos = row_pos[i] as usize;
+                let noised_col = noised_by_group[g]
+                    .as_ref()
+                    .expect("row's group has at least this row, so it was populated above")
+                    .column(col_idx)
+                    .as_string::<i32>();
+                if noised_col.is_null(pos) {
+                    builder.append_null();
+                } else {
+                    builder.append_value(noised_col.value(pos));
+                }
+            } else if orig_col.is_null(i) {
+                builder.append_null();
+            } else {
+                builder.append_value(orig_col.value(i));
+            }
         }
+        merged_cols[col_idx] = Arc::new(builder.finish());
     }
     let current = RecordBatch::try_new(noisy.schema(), merged_cols)
         .map_err(|e| format!("rebuild extra-pass batch: {e}"))?;
@@ -965,6 +1075,29 @@ impl DatasetWriter {
     }
 }
 
+// ── perf-hunt RSS-by-phase instrumentation (hunt1708.md, RAM pass) ─────────
+//
+// Temporary, non-invasive: only samples/prints when `RUST_LOG=debug` (or
+// lower) is enabled -- default runs pay one `log::log_enabled!` check per
+// call site and nothing else. Reuses `sysinfo` (already a normal
+// dependency, already used for the same purpose in `main.rs`'s
+// `warn_if_memory_tight`) instead of adding a new one for a temporary
+// probe. Not a substitute for real allocation-site attribution (no VTune
+// `memory-consumption` support on this machine/CPU, see hunt1708.md) --
+// just phase-boundary RSS deltas to localize which part of the pipeline
+// dominates peak RAM before writing an isolated micro-bench for it.
+fn log_rss(label: &str) {
+    if !log::log_enabled!(log::Level::Debug) {
+        return;
+    }
+    let pid = sysinfo::Pid::from_u32(std::process::id());
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+    if let Some(p) = sys.process(pid) {
+        log::debug!("[hunt_rss] {label}: rss={:.1} Mo", p.memory() as f64 / 1e6);
+    }
+}
+
 // ── Main pipeline ──────────────────────────────────────────────────────────
 
 pub fn run_pipeline(
@@ -1009,6 +1142,7 @@ pub fn run_pipeline_chunked(
     let t_start = std::time::Instant::now();
 
     let t_alloc = t_start.elapsed().as_secs_f64();
+    log_rss("start");
 
     // ── Phase 14: Streaming pipeline ─────────────────────────────────────
     // Generates, extracts FK/HN, remaps, and sinks each batch per entity
@@ -1023,6 +1157,21 @@ pub fn run_pipeline_chunked(
     let metadata = build_metadata_map(config);
     // Build the full schema once (union of all entity columns + metadata)
     let full_arc = Arc::new(build_full_schema(config, &metadata));
+    // One shared dictionary per low-cardinality column, built from the full
+    // known value set before any batch is written (hunt1808/H11) — every
+    // `domain`/`entity_type` array for the rest of this file reuses these
+    // same `values`, required for IPC dictionary consistency (see
+    // `DictValues`). `entity_type`'s value set is exactly the written
+    // (non-pool-only) entity plans' names — base/dup/HN/canary rows never
+    // carry any other entity_type value.
+    let domain_dict = DictValues::new([config.domain.clone()]);
+    let entity_type_dict = DictValues::new(
+        config
+            .entity_plans
+            .iter()
+            .filter(|p| !p.pool_only)
+            .map(|p| p.name.clone()),
+    );
     let dataset_ext = if config.output_format == "parquet" {
         "parquet"
     } else {
@@ -1074,7 +1223,7 @@ pub fn run_pipeline_chunked(
                 .map_err(|e| format!("init node writer: {e}"))?,
         );
         edge_writer = Some(
-            crate::graph_gen::EdgeWriter::new(&edges_ipc, &metadata)
+            crate::graph_gen::EdgeWriter::new(&edges_ipc, &metadata, subtype_dict(config))
                 .map_err(|e| format!("init edge writer: {e}"))?,
         );
         graph_nodes_path = Some(nodes_ipc);
@@ -1132,7 +1281,9 @@ pub fn run_pipeline_chunked(
 
         let prefix = entity_prefix(plan_idx);
         let master_base = offsets.master_base(plan_idx);
-        let col_json_str = &plan.columns_json;
+        // Parsed once per entity, not once per batch (hunt1808/H8) — see
+        // `entity_gen::parse_columns`'s doc comment.
+        let parsed_columns = crate::entity_gen::parse_columns(&plan.columns_json)?;
 
         // Per-entity streaming state
         let fk_targeted = fk_targets.contains(plan.name.as_str());
@@ -1145,7 +1296,7 @@ pub fn run_pipeline_chunked(
         // Arrow buffers in `hn_pools` for the rest of the run for nothing.
         let hn_targeted = hn_pool_sizing.contains_key(plan.name.as_str());
         let mut hn_slices: Vec<RecordBatch> = Vec::new();
-        let mut hn_slice_rids: Vec<Vec<String>> = Vec::new();
+        let mut hn_slice_rids: Vec<ArrayRef> = Vec::new();
         let mut batch_rng = Rng::new(config.seed.wrapping_add(100));
         let mut fk_rng = Rng::new(config.seed.wrapping_add(42));
 
@@ -1185,11 +1336,13 @@ pub fn run_pipeline_chunked(
             let batch_seed = config.seed.wrapping_add(batch_idx as u64 * 1000 + 1000);
 
             // Generate batch
-            let request_json = format!(
-                r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{},"row_offset":{}}}"#,
-                plan.name, batch_n, batch_seed, col_json_str, offset,
-            );
-            let rb = crate::entity_gen::generate_entity_batch(ctx, &request_json)?;
+            let rb = crate::entity_gen::generate_entity_batch_parsed(
+                ctx,
+                &parsed_columns,
+                batch_n,
+                batch_seed,
+                offset,
+            )?;
 
             // FK remap (uses pools from previously processed entities)
             let mut fk_edges_by_remap: Vec<(String, ArrayRef, f64)> = Vec::new();
@@ -1264,7 +1417,8 @@ pub fn run_pipeline_chunked(
                 // HN pool can later resolve `hard_neg` edge targets. Use
                 // `global_rid_offset`, never the per-entity `offset`.
                 if config.graph_enabled {
-                    hn_slice_rids.push(record_id_strs(global_rid_offset..global_rid_offset + take));
+                    hn_slice_rids
+                        .push(record_id_array(global_rid_offset..global_rid_offset + take));
                 }
             }
 
@@ -1282,20 +1436,19 @@ pub fn run_pipeline_chunked(
             }
 
             // Master IDs for this batch
-            let batch_mids: Vec<String> = (offset..offset + batch_n)
-                .map(|i| format!("{}-{}", prefix, pad_string(master_base + i)))
-                .collect();
-            let batch_mids_slice = &batch_mids[..];
+            let batch_mid_arr = master_id_array_range(&prefix, master_base + offset, batch_n);
 
             // Add metadata + IPC write
-            let rid_slice = record_id_strs(global_rid_offset..global_rid_offset + batch_n);
+            let rid_arr = record_id_array(global_rid_offset..global_rid_offset + batch_n);
             let t_m0 = std::time::Instant::now();
             let base_rb = add_metadata_and_align(
                 &rb,
                 &config.domain,
                 &plan.name,
-                &rid_slice,
-                batch_mids_slice,
+                &domain_dict,
+                &entity_type_dict,
+                &rid_arr,
+                &batch_mid_arr,
                 &full_arc,
                 col_lookup.as_ref().unwrap(),
                 &mut null_cache,
@@ -1315,7 +1468,9 @@ pub fn run_pipeline_chunked(
                         (subtype, target_rids.as_string::<i32>(), *weight)
                     })
                     .collect();
-                for (i, rid) in rid_slice.iter().enumerate().take(batch_n) {
+                let rid_str_arr = rid_arr.as_string::<i32>();
+                for i in 0..batch_n {
+                    let rid = rid_str_arr.value(i);
                     for (subtype, target_rids, weight) in &fk_edges_by_remap {
                         ew.push(rid, target_rids.value(i), "fk", subtype, *weight)
                             .map_err(|e| format!("push fk edge: {e}"))?;
@@ -1351,7 +1506,7 @@ pub fn run_pipeline_chunked(
             if has_dups {
                 let t_d0 = std::time::Instant::now();
                 let mut dup_batches: Vec<RecordBatch> = Vec::new();
-                let mut dup_mids_buf: Vec<String> = Vec::new();
+                let mut dup_master_idx_buf: Vec<usize> = Vec::new();
 
                 // Collect FK columns to exclude from noise
                 let fk_exclude_cols: Vec<String> = plan
@@ -1395,10 +1550,9 @@ pub fn run_pipeline_chunked(
                 let all_types_ref = &all_types;
                 let noise_passes = config.noise_passes.max(1);
 
-                type DupNoiseResult = Result<(RecordBatch, Vec<String>, Vec<bool>), String>;
+                type DupNoiseResult = Result<(RecordBatch, Vec<usize>, Vec<bool>), String>;
                 let fk_exclude_ref = &fk_exclude_cols;
                 let rb_ref = &rb;
-                let prefix_ref: &str = &prefix;
                 // `rayon::scope`'s `par_iter().map(...).collect()` runs each
                 // noise-type bucket on Rayon's already-warm global pool
                 // instead of spawning a fresh OS thread per bucket per batch
@@ -1453,7 +1607,7 @@ pub fn run_pipeline_chunked(
                             // formula as `batch_mids` above — so it's recomputed here
                             // instead of being cloned out of a retained master_id_pool.
                             let global_idx = master_base + offset + indices.value(j) as usize;
-                            mb.push(format!("{}-{}", prefix_ref, pad_string(global_idx)));
+                            mb.push(global_idx);
                         }
                         Ok((noisy, mb, unchanged))
                     })
@@ -1462,15 +1616,21 @@ pub fn run_pipeline_chunked(
                 for res in results {
                     let (rb, mb, unchanged) = res?;
                     dup_batches.push(rb);
-                    dup_mids_buf.extend(mb);
+                    dup_master_idx_buf.extend(mb);
                     dup_is_identical_buf.extend(unchanged);
                 }
                 _t_dup += t_d0.elapsed().as_secs_f64();
 
                 // Write dups
                 if !dup_batches.is_empty() {
-                    let dup_total = dup_mids_buf.len();
-                    let dup_rids = record_id_strs(global_rid_offset..global_rid_offset + dup_total);
+                    let dup_total = dup_master_idx_buf.len();
+                    let dup_rid_arr =
+                        record_id_array(global_rid_offset..global_rid_offset + dup_total);
+                    let dup_mid_arr = master_id_array_from_indices(
+                        &prefix,
+                        dup_master_idx_buf.iter().copied(),
+                        dup_total,
+                    );
 
                     let concated = if dup_batches.len() == 1 {
                         dup_batches.into_iter().next().unwrap()
@@ -1494,8 +1654,10 @@ pub fn run_pipeline_chunked(
                         &concated,
                         &config.domain,
                         &plan.name,
-                        &dup_rids,
-                        &dup_mids_buf,
+                        &domain_dict,
+                        &entity_type_dict,
+                        &dup_rid_arr,
+                        &dup_mid_arr,
                         &full_arc,
                         col_lookup.as_ref().unwrap(),
                         &mut null_cache,
@@ -1584,10 +1746,11 @@ pub fn run_pipeline_chunked(
                     .map_err(|e| format!("hn pool concat batch: {e}"))?
             };
             // `record_ids` aligns positionally with the concatenated pool rows.
-            let record_ids = if config.graph_enabled {
-                hn_slice_rids.into_iter().flatten().collect::<Vec<String>>()
+            let record_ids: ArrayRef = if config.graph_enabled {
+                let refs: Vec<&dyn Array> = hn_slice_rids.iter().map(|a| a.as_ref()).collect();
+                arrow::compute::concat(&refs).map_err(|e| format!("hn rid concat: {e}"))?
             } else {
-                Vec::new()
+                Arc::new(StringArray::new_null(0))
             };
             hn_pools.insert(
                 plan.name.clone(),
@@ -1601,6 +1764,7 @@ pub fn run_pipeline_chunked(
     }
     let t1e_elapsed = t1e.elapsed().as_secs_f64();
     log::debug!("[sink_profile] write={_t_write:.3}s calls={_write_calls}");
+    log_rss("after entity batches (fk_pools+hn_pools built)");
 
     // ── Phase 2: Hard negatives ────────────────────────────────────────────
     let t2 = std::time::Instant::now();
@@ -1643,15 +1807,9 @@ pub fn run_pipeline_chunked(
             continue;
         }
 
-        let hn_rids = record_id_strs(global_rid_offset..global_rid_offset + n_hn);
-
-        let hn_mids: Vec<String> = (0..n_hn)
-            .map(|_i| {
-                let id = hn_master_id_counter;
-                hn_master_id_counter += 1;
-                format!("HN-{:09}", id)
-            })
-            .collect();
+        let hn_rid_arr = record_id_array(global_rid_offset..global_rid_offset + n_hn);
+        let hn_mid_arr = hn_master_id_array(hn_master_id_counter, n_hn);
+        hn_master_id_counter += n_hn as u64;
 
         // Build col lookup for the HN entity type schema
         let hn_schema = hn_rb.schema();
@@ -1666,8 +1824,10 @@ pub fn run_pipeline_chunked(
             &hn_rb,
             &config.domain,
             &hn_cfg.entity_type,
-            &hn_rids,
-            &hn_mids,
+            &domain_dict,
+            &entity_type_dict,
+            &hn_rid_arr,
+            &hn_mid_arr,
             &full_arc,
             &hn_col_lookup,
             &mut hn_null_cache,
@@ -1689,9 +1849,11 @@ pub fn run_pipeline_chunked(
             nw.write_batch(&hn_rb_full)
                 .map_err(|e| format!("write hn node: {e}"))?;
             if let Some((idx_a, pattern)) = hn_src {
-                for i in 0..n_hn {
-                    let tgt = &pool_data.record_ids[idx_a[i]];
-                    ew.push(&hn_rids[i], tgt, "hard_neg", &pattern, 1.0)
+                let hn_rid_str_arr = hn_rid_arr.as_string::<i32>();
+                let pool_rid_arr = pool_data.record_ids.as_string::<i32>();
+                for (i, &pool_idx) in idx_a.iter().enumerate().take(n_hn) {
+                    let tgt = pool_rid_arr.value(pool_idx);
+                    ew.push(hn_rid_str_arr.value(i), tgt, "hard_neg", &pattern, 1.0)
                         .map_err(|e| format!("push hn edge: {e}"))?;
                 }
             }
@@ -1707,6 +1869,14 @@ pub fn run_pipeline_chunked(
         global_rid_offset += n_hn;
     }
     let t2_elapsed = t2.elapsed().as_secs_f64();
+    // `hn_pools` is never read again past this point, but its natural scope
+    // end is the whole function — dropping it explicitly here frees its RAM
+    // (measured 125.1 Mo on a 50M-record aviation/hell run, hunt1808/H-RAM2)
+    // as soon as it's actually done being useful instead of letting it sit
+    // resident through canary generation, the dataset writer's finish, and
+    // GT accumulation.
+    drop(hn_pools);
+    log_rss("after hard negatives");
 
     // ── Canary records ────────────────────────────────────────────────────
     {
@@ -1716,6 +1886,8 @@ pub fn run_pipeline_chunked(
             ctx,
             config,
             &full_arc,
+            &domain_dict,
+            &entity_type_dict,
             &mut canary_null_cache,
             &mut canary_const_arr_cache,
             &mut global_rid_offset,
@@ -1725,6 +1897,7 @@ pub fn run_pipeline_chunked(
             &mut gt_acc,
         )?;
     }
+    log_rss("after canary records");
 
     // ── Phase 3: Finalize + GT (streamed, see crate::gt::GtAccumulator) ────
     let t3 = std::time::Instant::now();
@@ -1732,6 +1905,7 @@ pub fn run_pipeline_chunked(
         .finish()
         .map_err(|e| format!("finish dataset writer: {e}"))?;
     let t3a_elapsed = t3.elapsed().as_secs_f64();
+    log_rss("after dataset writer finish");
 
     let t3b = std::time::Instant::now();
     let t_gt0 = std::time::Instant::now();
@@ -1753,6 +1927,7 @@ pub fn run_pipeline_chunked(
     let _t_gt_write = t_gt0.elapsed().as_secs_f64();
     let t3b_elapsed = t3b.elapsed().as_secs_f64();
     let _t3_elapsed = t3.elapsed().as_secs_f64();
+    log_rss("after GT finish (cluster_map built)");
 
     // ── Graph: emit duplicate-cluster edges from the post-GT cluster_map ──
     if config.graph_enabled
@@ -1811,6 +1986,7 @@ pub fn run_pipeline_chunked(
         graph_nodes_final = Some(np);
         graph_edges_final = Some(ep);
     }
+    log_rss("end (after graph finalize)");
 
     // Carry each entity's final local master_id counter forward for the
     // next chunk (`--chunk-size`) — pool_only entities never assign a
@@ -2206,12 +2382,127 @@ fn structural_key_columns_note(config: &PipelineConfig) -> String {
 // ── Schema alignment ───────────────────────────────────────────────────────
 
 /// Build the union schema from all entity plans (all columns + metadata).
-fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>) -> Schema {
-    let mut field_map: Vec<(String, DataType, bool)> = Vec::new();
-    let metadata_fields = ["record_id", "domain", "entity_type", "master_id"];
-    for mf in &metadata_fields {
-        field_map.push((mf.to_string(), DataType::Utf8, false));
+/// `Dictionary(Int32, Utf8)` for the near-constant-cardinality metadata
+/// columns (`domain`/`entity_type`/`match_type`/`difficulty`/`edge_type`/
+/// `subtype`) — hunt1808/H11, an explicit output-contract change (not
+/// bit-identical: the declared column type changes from `Utf8`), applied
+/// on explicit user request.
+pub(crate) fn low_cardinality_dict_type() -> DataType {
+    DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
+}
+
+/// A single dictionary (`values` + a `value -> key` index) shared by every
+/// `DictionaryArray` built for one column across an entire output file.
+///
+/// Arrow's IPC `FileWriter` requires exactly one dictionary per field for
+/// the whole file — writing a batch whose dictionary *content* differs from
+/// a previously-written one for that field is a hard error ("Dictionary
+/// replacement detected"), not just wasted work. A fresh
+/// `StringDictionaryBuilder` per batch (the naive approach) builds a new,
+/// batch-scoped dictionary every time — even when every batch happens to
+/// use the exact same logical value set, the *order*/*subset* actually
+/// registered can differ batch to batch, which is a real content
+/// difference. `DictValues` fixes the dictionary's content once (built
+/// from the full known value set for this column *before* any batch is
+/// written) and every batch's `DictionaryArray` reuses the same `values`
+/// `Arc` — trivially identical content by construction, for the life of
+/// one output file.
+pub(crate) struct DictValues {
+    values: ArrayRef,
+    index: HashMap<String, i32>,
+}
+
+impl DictValues {
+    pub(crate) fn new<I, S>(values: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let owned: Vec<String> = values.into_iter().map(Into::into).collect();
+        let index: HashMap<String, i32> = owned
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.clone(), i as i32))
+            .collect();
+        Self {
+            values: Arc::new(StringArray::from(owned)),
+            index,
+        }
     }
+
+    fn idx(&self, value: &str) -> i32 {
+        *self.index.get(value).unwrap_or_else(|| {
+            panic!("DictValues: value {value:?} was not in the pre-built dictionary")
+        })
+    }
+
+    fn build(&self, keys: arrow::array::Int32Array) -> ArrayRef {
+        Arc::new(
+            arrow::array::DictionaryArray::<arrow::datatypes::Int32Type>::try_new(
+                keys,
+                self.values.clone(),
+            )
+            .expect("DictValues::build: key array out of range for this dictionary"),
+        )
+    }
+
+    /// `n` copies of `value` (must already be in the dictionary).
+    pub(crate) fn const_array(&self, value: &str, n: usize) -> ArrayRef {
+        self.build(arrow::array::Int32Array::from(vec![self.idx(value); n]))
+    }
+
+    /// Exposed for callers that build a `DictionaryArray` row by row (e.g.
+    /// `gt.rs`'s `match_type` column): the key for `value`, to push into an
+    /// `Int32Builder`, plus `finish_keys` to wrap the finished key array in
+    /// this dictionary's `values`.
+    pub(crate) fn key(&self, value: &str) -> i32 {
+        self.idx(value)
+    }
+
+    pub(crate) fn finish_keys(&self, keys: arrow::array::Int32Array) -> ArrayRef {
+        self.build(keys)
+    }
+}
+
+/// Full known `subtype` value set for `_edges` output (hunt1808/H11): every
+/// FK remap's `source_col` (the `"fk"`-edge subtype, see the `push()` call
+/// in the base-batch FK-edge loop above), every hard-negative pattern kind
+/// actually configured (the `"hard_neg"`-edge subtype — `config_json`'s
+/// `"pattern"` field, e.g. `"same_field"`, NOT the schema's per-type name;
+/// see `hn_common::generate_hard_negatives`), and the two literal dup-
+/// cluster edge subtypes (`graph_gen::push_dup_clusters`). Built once,
+/// before any edge is written, so `EdgeWriter` can hold one dictionary for
+/// the whole `_edges` file's lifetime.
+fn subtype_dict(config: &PipelineConfig) -> DictValues {
+    let mut values: Vec<String> = vec!["complete".to_string(), "spanning_tree".to_string()];
+    for plan in &config.entity_plans {
+        for remap in &plan.fk_remaps {
+            values.push(remap.source_col.clone());
+        }
+    }
+    for hn in &config.hard_neg_types {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&hn.config_json)
+            && let Some(pattern) = v.get("pattern").and_then(|p| p.as_str())
+        {
+            values.push(pattern.to_string());
+        }
+    }
+    values.sort_unstable();
+    values.dedup();
+    DictValues::new(values)
+}
+
+fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>) -> Schema {
+    let mut field_map: Vec<(String, DataType, bool)> = vec![
+        ("record_id".to_string(), DataType::Utf8, false),
+        ("domain".to_string(), low_cardinality_dict_type(), false),
+        (
+            "entity_type".to_string(),
+            low_cardinality_dict_type(),
+            false,
+        ),
+        ("master_id".to_string(), DataType::Utf8, false),
+    ];
     for plan in &config.entity_plans {
         // Pool-only entities (`--only-entity`) are never written to output —
         // excluding their columns here is what gives `--only-entity` its
@@ -2256,8 +2547,10 @@ pub(crate) fn add_metadata_and_align(
     rb: &RecordBatch,
     domain: &str,
     entity_type: &str,
-    record_ids: &[String],
-    master_ids: &[String],
+    domain_dict: &DictValues,
+    entity_type_dict: &DictValues,
+    record_ids: &ArrayRef,
+    master_ids: &ArrayRef,
     full_arc: &Arc<Schema>,
     col_lookup: &[Option<usize>],
     null_cache: &mut FxHashMap<(DataType, usize), ArrayRef>,
@@ -2267,31 +2560,22 @@ pub(crate) fn add_metadata_and_align(
     // `domain` is constant for the whole run and `entity_type` repeats
     // across every batch of a given entity (and often across HN/canary
     // sections too) — cache the built repeat-array per (value, n) instead
-    // of rebuilding an n-length StringArray on every call, same idea as
-    // `null_cache` above for the always-null columns.
+    // of rebuilding an n-length array on every call, same idea as
+    // `null_cache` above for the always-null columns. Built as
+    // `Dictionary(Int32, Utf8)` against the run-wide `domain_dict`/
+    // `entity_type_dict` (hunt1808/H11) — every batch's array reuses the
+    // exact same dictionary `values`, required for IPC output (see
+    // `DictValues`'s doc comment).
     let domain_arr = const_arr_cache
         .entry((domain.to_string(), n))
-        .or_insert_with(|| {
-            Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
-                domain, n,
-            ))) as ArrayRef
-        })
+        .or_insert_with(|| domain_dict.const_array(domain, n))
         .clone();
     let et_arr = const_arr_cache
         .entry((entity_type.to_string(), n))
-        .or_insert_with(|| {
-            Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
-                entity_type,
-                n,
-            ))) as ArrayRef
-        })
+        .or_insert_with(|| entity_type_dict.const_array(entity_type, n))
         .clone();
-    let rid_arr = Arc::new(StringArray::from_iter_values(
-        record_ids.iter().map(|s| s.as_str()),
-    )) as ArrayRef;
-    let mid_arr = Arc::new(StringArray::from_iter_values(
-        master_ids.iter().map(|s| s.as_str()),
-    )) as ArrayRef;
+    let rid_arr = record_ids.clone();
+    let mid_arr = master_ids.clone();
 
     let mut all_arrays: Vec<ArrayRef> = Vec::with_capacity(4 + col_lookup.len());
     all_arrays.push(rid_arr);
@@ -2517,18 +2801,21 @@ mod tests {
             std::collections::HashMap::new();
         for batch in reader {
             let batch = batch.expect("read edges batch");
-            let edge_type = batch
-                .column_by_name("edge_type")
-                .expect("edge_type col")
-                .as_any()
-                .downcast_ref::<arrow::array::StringArray>()
-                .expect("edge_type as string");
-            let subtype = batch
-                .column_by_name("subtype")
-                .expect("subtype col")
-                .as_any()
-                .downcast_ref::<arrow::array::StringArray>()
-                .expect("subtype as string");
+            // `edge_type`/`subtype` are `Dictionary(Int32, Utf8)`
+            // (hunt1808/H11) — cast back to plain `Utf8` for this test-only
+            // comparison.
+            let edge_type_col = arrow::compute::cast(
+                batch.column_by_name("edge_type").expect("edge_type col"),
+                &DataType::Utf8,
+            )
+            .expect("cast edge_type to Utf8");
+            let edge_type = edge_type_col.as_string::<i32>();
+            let subtype_col = arrow::compute::cast(
+                batch.column_by_name("subtype").expect("subtype col"),
+                &DataType::Utf8,
+            )
+            .expect("cast subtype to Utf8");
+            let subtype = subtype_col.as_string::<i32>();
             let weight = batch
                 .column_by_name("weight")
                 .expect("weight col")
@@ -2614,12 +2901,14 @@ mod tests {
                 .as_any()
                 .downcast_ref::<arrow::array::StringArray>()
                 .expect("target_node_id as string");
-            let edge_type = batch
-                .column_by_name("edge_type")
-                .expect("edge_type col")
-                .as_any()
-                .downcast_ref::<arrow::array::StringArray>()
-                .expect("edge_type as string");
+            // `edge_type` is `Dictionary(Int32, Utf8)` (hunt1808/H11) —
+            // cast back to plain `Utf8` for this test-only comparison.
+            let edge_type_col = arrow::compute::cast(
+                batch.column_by_name("edge_type").expect("edge_type col"),
+                &DataType::Utf8,
+            )
+            .expect("cast edge_type to Utf8");
+            let edge_type = edge_type_col.as_string::<i32>();
             let weight = batch
                 .column_by_name("weight")
                 .expect("weight col")
@@ -2767,7 +3056,12 @@ mod tests {
         let ds_rid = ds.column_by_name("record_id").unwrap().as_string::<i32>();
         let ds_mid = ds.column_by_name("master_id").unwrap().as_string::<i32>();
         let gt_rid = gt.column_by_name("record_id").unwrap().as_string::<i32>();
-        let gt_mt = gt.column_by_name("match_type").unwrap().as_string::<i32>();
+        // `match_type` is `Dictionary(Int32, Utf8)` (hunt1808/H11) — cast
+        // back to plain `Utf8` for this test-only comparison.
+        let gt_mt_col =
+            arrow::compute::cast(gt.column_by_name("match_type").unwrap(), &DataType::Utf8)
+                .unwrap();
+        let gt_mt = gt_mt_col.as_string::<i32>();
 
         let mut match_type_by_rid: HashMap<&str, &str> = HashMap::new();
         for i in 0..gt.num_rows() {

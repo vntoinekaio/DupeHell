@@ -3,7 +3,8 @@
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
 // No liability for misuse.
 
-use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, StringArray, StringBuilder};
+use arrow::array::{Array, ArrayRef, AsArray, BooleanArray};
+use arrow::buffer::BooleanBuffer;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use std::collections::HashMap;
@@ -34,6 +35,19 @@ use std::sync::Arc;
 /// `records` (potentially tens of millions of entries at 100M+ hell scale
 /// with `--graph`, a low singleton fraction). Found via a triage of
 /// reusable Rust perf patterns (hunt3007/H7, Linkars trick #22).
+/// A `BooleanArray` of `n` copies of `value`, built directly from a
+/// `BooleanBuffer` (one bitmap allocation, `n/8` bytes) instead of
+/// `BooleanArray::from(vec![value; n])` (an `n`-byte `Vec<bool>` allocated
+/// and memset, then re-packed into a bitmap by `From`).
+fn const_bool_array(n: usize, value: bool) -> ArrayRef {
+    let buf = if value {
+        BooleanBuffer::new_set(n)
+    } else {
+        BooleanBuffer::new_unset(n)
+    };
+    Arc::new(BooleanArray::new(buf, None))
+}
+
 struct Bitset {
     words: Vec<u64>,
     len: usize,
@@ -107,27 +121,60 @@ pub struct ClusterCsr {
     is_identical: Bitset,
 }
 
+/// `record_idx` (from `parse_record_idx`) is bounded by `PAD_LEN` (13)
+/// decimal digits — `< 10^13 ≈ 2^43.2` — so bit 63 is always free to carry
+/// `is_identical` alongside it in one `u64`, the same trick
+/// `pack_master_key` already uses for its own high bits (hunt1808/H-RAM3).
+/// Packing this into `ClusterCsr::build`'s transient pair list drops it
+/// from `(u64, u64, bool)` (24 bytes/entry — `bool` pads the tuple to the
+/// next 8-byte alignment boundary, measured on this machine) to `(u64,
+/// u64)` (16 bytes/entry, −33%), at potentially tens of millions of
+/// entries (every row of every duplicated cluster, `--graph` mode).
+const RIDX_IDENTICAL_BIT: u64 = 1 << 63;
+const RIDX_MASK: u64 = !RIDX_IDENTICAL_BIT;
+
+/// Packs `(record_idx, is_identical)` into `ClusterCsr::build`'s pair
+/// representation — see `RIDX_IDENTICAL_BIT`.
+pub(crate) fn pack_ridx_identical(record_idx: u64, is_identical: bool) -> u64 {
+    debug_assert_eq!(
+        record_idx & RIDX_IDENTICAL_BIT,
+        0,
+        "record_idx must fit in the low 63 bits"
+    );
+    record_idx | if is_identical { RIDX_IDENTICAL_BIT } else { 0 }
+}
+
 impl ClusterCsr {
     /// Builds the CSR from an unordered flat list of `(packed_master_key,
-    /// record_idx, is_identical)` triples. Sorting once by `(master_key,
-    /// record_idx)` both groups every triple by cluster and orders each
-    /// cluster's members ascending, in one pass — no need to pre-count
-    /// group sizes or build the structure incrementally.
-    pub(crate) fn build(mut pairs: Vec<(u64, u64, bool)>) -> Self {
-        pairs.sort_unstable_by_key(|&(mk, ridx, _)| (mk, ridx));
+    /// packed_ridx_identical)` pairs (see `pack_ridx_identical`). Sorting
+    /// once by `(master_key, record_idx)` — masking off the packed
+    /// `is_identical` bit for the comparison, so it can't perturb member
+    /// order within a cluster — both groups every pair by cluster and
+    /// orders each cluster's members ascending, in one pass; no need to
+    /// pre-count group sizes or build the structure incrementally.
+    ///
+    /// Sorted in parallel (`rayon`, already a warm dependency by this point
+    /// in the run): the sort key `(master_key, record_idx)` is unique per
+    /// entry (one record belongs to exactly one cluster, and a
+    /// `record_idx` is unique across the whole run), so an unstable
+    /// parallel sort produces the exact same total order as the previous
+    /// single-threaded one — determinism doesn't depend on stability here.
+    pub(crate) fn build(mut pairs: Vec<(u64, u64)>) -> Self {
+        use rayon::slice::ParallelSliceMut;
+        pairs.par_sort_unstable_by_key(|&(mk, r)| (mk, r & RIDX_MASK));
 
         let mut offsets = Vec::new();
         let mut records = Vec::with_capacity(pairs.len());
         let mut is_identical = Bitset::with_capacity(pairs.len());
         let mut last_key: Option<u64> = None;
 
-        for (mk, ridx, ident) in pairs {
+        for (mk, r) in pairs {
             if last_key != Some(mk) {
                 offsets.push(records.len() as u32);
                 last_key = Some(mk);
             }
-            records.push(ridx);
-            is_identical.push(ident);
+            records.push(r & RIDX_MASK);
+            is_identical.push(r & RIDX_IDENTICAL_BIT != 0);
         }
         offsets.push(records.len() as u32);
 
@@ -187,11 +234,22 @@ pub struct GtResult {
     pub cluster_map: ClusterCsr,
 }
 
+/// `Dictionary(Int32, Utf8)` for `entity_type`/`match_type`/`difficulty` —
+/// hunt1808/H11, an explicit output-contract change (not bit-identical:
+/// the declared column type changes from `Utf8`), applied on explicit user
+/// request. `entity_type` here must match `pipeline::low_cardinality_dict_type`
+/// exactly — this column's data is `add_metadata_and_align`'s `et_arr`,
+/// pushed straight through by `push_*_batch`, so draft/final schema must
+/// declare the same type it's actually built as.
+fn low_cardinality_dict_type() -> DataType {
+    DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
+}
+
 fn draft_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
         Field::new("record_id", DataType::Utf8, false),
         Field::new("master_id", DataType::Utf8, false),
-        Field::new("entity_type", DataType::Utf8, false),
+        Field::new("entity_type", low_cardinality_dict_type(), false),
         // `true` for duplicate-copy rows whose assigned noise ended up not
         // changing anything visible; `false` for duplicate copies that were
         // genuinely altered, and for base/master rows (a base row is never
@@ -320,19 +378,15 @@ impl GtAccumulator {
         master_ids: &ArrayRef,
     ) -> Result<(), String> {
         let mids = master_ids.as_string::<i32>();
-        for i in 0..mids.len() {
-            if !mids.is_null(i) {
-                self.n_base_masters += 1;
-            }
-        }
+        self.n_base_masters += mids.len() - mids.null_count();
         // `is_identical = false`: a base row is not itself a "copy that
         // happened to match" — whether it should read as `exact_dup` is
         // resolved at `finish` from `masters_with_exact_copy`, not hardcoded
         // here (this used to be `true` unconditionally, which mislabeled
         // every duplicated master's base row `exact_dup` even when all of
         // its actual duplicate copies were fuzzy — none byte-identical).
-        let all_false: ArrayRef = Arc::new(BooleanArray::from(vec![false; mids.len()]));
-        let all_true: ArrayRef = Arc::new(BooleanArray::from(vec![true; mids.len()]));
+        let all_false = const_bool_array(mids.len(), false);
+        let all_true = const_bool_array(mids.len(), true);
         self.write_draft(record_ids, entity_types, master_ids, &all_false, &all_true)
     }
 
@@ -371,7 +425,7 @@ impl GtAccumulator {
                 }
             }
         }
-        let all_false: ArrayRef = Arc::new(BooleanArray::from(vec![false; mids.len()]));
+        let all_false = const_bool_array(mids.len(), false);
         self.write_draft(
             record_ids,
             entity_types,
@@ -393,7 +447,7 @@ impl GtAccumulator {
         // `is_identical`/`is_base` are meaningless for hard_neg/canary rows
         // (classified by master_id prefix regardless), so the values don't
         // matter.
-        let all_false: ArrayRef = Arc::new(BooleanArray::from(vec![false; record_ids.len()]));
+        let all_false = const_bool_array(record_ids.len(), false);
         self.write_draft(record_ids, entity_types, master_ids, &all_false, &all_false)
     }
 
@@ -426,9 +480,9 @@ impl GtAccumulator {
             Schema::new(vec![
                 Field::new("record_id", DataType::Utf8, false),
                 Field::new("master_id", DataType::Utf8, false),
-                Field::new("entity_type", DataType::Utf8, false),
-                Field::new("match_type", DataType::Utf8, false),
-                Field::new("difficulty", DataType::Utf8, false),
+                Field::new("entity_type", low_cardinality_dict_type(), false),
+                Field::new("match_type", low_cardinality_dict_type(), false),
+                Field::new("difficulty", low_cardinality_dict_type(), false),
             ])
             .with_metadata(metadata.clone()),
         );
@@ -450,7 +504,26 @@ impl GtAccumulator {
         // `ClusterCsr`) instead of a `HashMap<String, Vec<...>>` -- avoids a
         // `String` allocation per record_id/master_id, the dominant RAM cost
         // of this bookkeeping at 200M+ records.
-        let mut cluster_pairs: Vec<(u64, u64, bool)> = Vec::new();
+        let mut cluster_pairs: Vec<(u64, u64)> = Vec::new();
+        // `difficulty` is constant for the whole run and `n` only ever takes
+        // two values across all batches (the draft's batch size, and the
+        // final remainder) — cache the built column by `n` instead of
+        // reallocating+refilling it every batch (same pattern as
+        // `pipeline.rs`'s `const_arr_cache`).
+        let mut diff_arr_cache: Option<(usize, ArrayRef)> = None;
+        // Fixed, fully-known value sets — built once, before any batch is
+        // written, and reused for every batch's `DictionaryArray` (hunt1808/
+        // H11; see `pipeline::DictValues`'s doc comment for why a *shared*
+        // dictionary is required for IPC output, not just a same-content
+        // one built fresh per batch).
+        let match_type_dict = crate::pipeline::DictValues::new([
+            "hard_neg",
+            "canary",
+            "exact_dup",
+            "fuzzy_dup",
+            "unique",
+        ]);
+        let difficulty_dict = crate::pipeline::DictValues::new([difficulty.to_string()]);
 
         for batch_result in reader {
             let batch = batch_result.map_err(|e| format!("read gt draft batch: {e}"))?;
@@ -460,7 +533,7 @@ impl GtAccumulator {
             let ident_col = batch.column(3).as_boolean();
             let base_col = batch.column(4).as_boolean();
 
-            let mut mt_builder = StringBuilder::with_capacity(n, n * 10);
+            let mut mt_keys = arrow::array::Int32Builder::with_capacity(n);
             for i in 0..n {
                 let mid = if mid_col.is_null(i) {
                     ""
@@ -510,7 +583,7 @@ impl GtAccumulator {
                     n_unique += 1;
                     "unique"
                 };
-                mt_builder.append_value(mt);
+                mt_keys.append_value(match_type_dict.key(mt));
                 // Every row of a duplicated master belongs to its cluster,
                 // tagged with its own identical/fuzzy status. Only tracked
                 // when `--graph` is enabled: `cluster_pairs` is exclusively
@@ -531,13 +604,18 @@ impl GtAccumulator {
                                 rid_col.value(i)
                             )
                         });
-                    cluster_pairs.push((master_key, record_idx, is_identical));
+                    cluster_pairs.push((master_key, pack_ridx_identical(record_idx, is_identical)));
                 }
             }
-            let mt_arr: ArrayRef = Arc::new(mt_builder.finish());
-            let diff_arr: ArrayRef = Arc::new(StringArray::from_iter_values(std::iter::repeat_n(
-                difficulty, n,
-            )));
+            let mt_arr = match_type_dict.finish_keys(mt_keys.finish());
+            let diff_arr = match &diff_arr_cache {
+                Some((cached_n, arr)) if *cached_n == n => arr.clone(),
+                _ => {
+                    let arr = difficulty_dict.const_array(difficulty, n);
+                    diff_arr_cache = Some((n, arr.clone()));
+                    arr
+                }
+            };
 
             let final_batch = RecordBatch::try_new(
                 final_schema.clone(),
@@ -656,6 +734,21 @@ mod tests {
         Arc::new(BooleanArray::from(values))
     }
 
+    /// `entity_type` fixtures (hunt1808/H11): the real column is
+    /// `Dictionary(Int32, Utf8)`, built from `add_metadata_and_align`'s
+    /// `entity_type_dict` — these tests build the draft schema directly,
+    /// so they need to hand `push_*_batch` a matching dictionary array
+    /// rather than the plain `StringArray` `arr()` builds. `dict` must be
+    /// the SAME `DictValues` instance across every `dict_arr` call feeding
+    /// one draft file — a fresh dictionary per call is exactly the
+    /// "Dictionary replacement" bug this whole hunt/H11 fixes in the real
+    /// pipeline code, and IPC enforces it just as strictly in tests.
+    fn dict_arr(dict: &crate::pipeline::DictValues, values: Vec<&str>) -> ArrayRef {
+        let keys =
+            arrow::array::Int32Array::from(values.iter().map(|v| dict.key(v)).collect::<Vec<_>>());
+        dict.finish_keys(keys)
+    }
+
     /// Reads the final GT file into a `record_id -> match_type` map. A map
     /// (rather than a positional `Vec`) keeps the assertions independent of
     /// draft row order, which is caller-determined (base/dup/other batches
@@ -670,10 +763,12 @@ mod tests {
                 .column_by_name("record_id")
                 .unwrap()
                 .as_string::<i32>();
-            let mt = batch
-                .column_by_name("match_type")
-                .unwrap()
-                .as_string::<i32>();
+            // `match_type` is `Dictionary(Int32, Utf8)` (hunt1808/H11) —
+            // cast back to plain `Utf8` for this test-only comparison.
+            let mt_col =
+                arrow::compute::cast(batch.column_by_name("match_type").unwrap(), &DataType::Utf8)
+                    .unwrap();
+            let mt = mt_col.as_string::<i32>();
             for i in 0..batch.num_rows() {
                 out.insert(rid.value(i).to_string(), mt.value(i).to_string());
             }
@@ -703,18 +798,19 @@ mod tests {
         let final_path = tmp_path("basic_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
+        let et_dict = crate::pipeline::DictValues::new(["person"]);
         // Base rows: rid(1) (master mid(1), later duplicated), rid(3)
         // (singleton mid(2)), rid(6) (singleton mid(5)).
         acc.push_base_batch(
             &arr_owned(vec![rid(1), rid(3), rid(6)]),
-            &arr(vec!["person", "person", "person"]),
+            &dict_arr(&et_dict, vec!["person", "person", "person"]),
             &arr_owned(vec![mid(1), mid(2), mid(5)]),
         )
         .unwrap();
         // Dup row: rid(2) duplicates mid(1), unchanged by its noise pass.
         acc.push_dup_batch(
             &arr_owned(vec![rid(2)]),
-            &arr(vec!["person"]),
+            &dict_arr(&et_dict, vec!["person"]),
             &arr_owned(vec![mid(1)]),
             &barr(vec![true]),
         )
@@ -722,7 +818,7 @@ mod tests {
         // Hard negatives: rid(4), rid(5).
         acc.push_other_batch(
             &arr_owned(vec![rid(4), rid(5)]),
-            &arr(vec!["person", "person"]),
+            &dict_arr(&et_dict, vec!["person", "person"]),
             &arr(vec!["HN-0000003", "HN-0000004"]),
         )
         .unwrap();
@@ -762,17 +858,18 @@ mod tests {
         let final_path = tmp_path("fuzzy_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
+        let et_dict = crate::pipeline::DictValues::new(["person"]);
         // Triplet: rid(1) is the master, rid(2) was left unchanged by its
         // noise pass, rid(3) was genuinely altered.
         acc.push_base_batch(
             &arr_owned(vec![rid(1)]),
-            &arr(vec!["person"]),
+            &dict_arr(&et_dict, vec!["person"]),
             &arr_owned(vec![mid(1)]),
         )
         .unwrap();
         acc.push_dup_batch(
             &arr_owned(vec![rid(2), rid(3)]),
-            &arr(vec!["person", "person"]),
+            &dict_arr(&et_dict, vec!["person", "person"]),
             &arr_owned(vec![mid(1), mid(1)]),
             &barr(vec![true, false]),
         )
@@ -806,18 +903,19 @@ mod tests {
         let final_path = tmp_path("multi_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
+        let et_dict = crate::pipeline::DictValues::new(["person"]);
         // Base batch: two masters, one of which (mid(1)) is duplicated in a
         // later, separate dup batch — simulating a master's duplicate
         // landing in a different batch than its base row.
         acc.push_base_batch(
             &arr_owned(vec![rid(1), rid(3)]),
-            &arr(vec!["person", "person"]),
+            &dict_arr(&et_dict, vec!["person", "person"]),
             &arr_owned(vec![mid(1), mid(2)]),
         )
         .unwrap();
         acc.push_dup_batch(
             &arr_owned(vec![rid(2)]),
-            &arr(vec!["person"]),
+            &dict_arr(&et_dict, vec!["person"]),
             &arr_owned(vec![mid(1)]),
             &barr(vec![true]),
         )
@@ -849,9 +947,10 @@ mod tests {
         let final_path = tmp_path("suffix_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
+        let et_dict = crate::pipeline::DictValues::new(["person", "account"]);
         acc.push_base_batch(
             &arr(vec!["R1", "R2"]),
-            &arr(vec!["person", "account"]),
+            &dict_arr(&et_dict, vec!["person", "account"]),
             &arr(vec!["PERSON-0000001", "ACCOUNT-0000001"]),
         )
         .unwrap();
@@ -881,23 +980,24 @@ mod tests {
         let final_path = tmp_path("cm_final");
 
         let mut acc = GtAccumulator::new(&draft).unwrap();
+        let et_dict = crate::pipeline::DictValues::new(["person"]);
         acc.push_base_batch(
             &arr_owned(vec![rid(1), rid(3), rid(6)]),
-            &arr(vec!["person", "person", "person"]),
+            &dict_arr(&et_dict, vec!["person", "person", "person"]),
             &arr_owned(vec![mid(1), mid(2), mid(5)]),
         )
         .unwrap();
         // rid(2) (mid(1)) stayed identical; rid(7) (mid(5)) was genuinely noised.
         acc.push_dup_batch(
             &arr_owned(vec![rid(2), rid(7)]),
-            &arr(vec!["person", "person"]),
+            &dict_arr(&et_dict, vec!["person", "person"]),
             &arr_owned(vec![mid(1), mid(5)]),
             &barr(vec![true, false]),
         )
         .unwrap();
         acc.push_other_batch(
             &arr_owned(vec![rid(4), rid(5)]),
-            &arr(vec!["person", "person"]),
+            &dict_arr(&et_dict, vec!["person", "person"]),
             &arr(vec!["HN-0000003", "HN-0000004"]),
         )
         .unwrap();
@@ -926,5 +1026,102 @@ mod tests {
         assert!(groups.next().is_none());
 
         std::fs::remove_file(&final_path).ok();
+    }
+
+    // ── perf-hunt RAM pass (hunt1708.md) ─────────────────────────────────
+    //
+    // Not a correctness test -- #[ignore]'d so it never runs in normal
+    // `cargo test`. Isolated measurement (never a full pipeline run, per
+    // perf-hunt rule 4): compares process RSS growth for two separate
+    // `FxHashSet<u64>` (`dup_masters` + `masters_with_exact_copy` as they
+    // exist today) against one combined `FxHashMap<u64, bool>`, at the
+    // cardinality actually observed on a real run (aviation/hell/50M:
+    // masters=21,666,666, uniques=5,855,236 -> dup_masters.len() ~=
+    // 15,811,430; masters_with_exact_copy is a subset, sized here at 70%
+    // of that as a representative estimate -- exact_dups=23,237,057 of
+    // fuzzy+exact=44,144,764 total duplicate rows is ~53% at the row
+    // level, but a master with ANY identical copy is more common than
+    // that row-level fraction suggests, so 70% is a deliberately
+    // generous (not cherry-picked-low) estimate for this comparison).
+    // Run with:
+    //   cargo test --release gt::tests::hunt_ram_dup_masters_vs_combined_map -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn hunt_ram_dup_masters_vs_combined_map() {
+        fn rss_mb() -> f64 {
+            let pid = sysinfo::Pid::from_u32(std::process::id());
+            let mut sys = sysinfo::System::new();
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+            sys.process(pid)
+                .map(|p| p.memory() as f64 / 1e6)
+                .unwrap_or(0.0)
+        }
+
+        const N_DUP_MASTERS: usize = 15_811_430;
+        const N_EXACT_COPY: usize = (N_DUP_MASTERS as f64 * 0.70) as usize;
+
+        // Deterministic, well-spread u64 keys (not sequential -- sequential
+        // keys would let the hash table's bucket layout be unrealistically
+        // cache-friendly compared to the real `pack_master_key` output,
+        // which mixes an entity_idx high-bit prefix with a local counter).
+        // A cheap SplitMix64-style mix is enough to spread bits without
+        // pulling in a new dependency for a throwaway measurement.
+        fn mix(i: u64) -> u64 {
+            let mut z = i.wrapping_add(0x9E3779B97F4A7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+            z ^ (z >> 31)
+        }
+
+        // ── Scenario A: two separate FxHashSet<u64> (today's shape) ────────
+        let rss0 = rss_mb();
+        let mut dup_masters: rustc_hash::FxHashSet<u64> =
+            rustc_hash::FxHashSet::with_capacity_and_hasher(N_DUP_MASTERS, Default::default());
+        for i in 0..N_DUP_MASTERS as u64 {
+            dup_masters.insert(mix(i));
+        }
+        let mut masters_with_exact_copy: rustc_hash::FxHashSet<u64> =
+            rustc_hash::FxHashSet::with_capacity_and_hasher(N_EXACT_COPY, Default::default());
+        for i in 0..N_EXACT_COPY as u64 {
+            // Subset of the same key space as dup_masters (every master
+            // with an exact copy is also in dup_masters), same mix.
+            masters_with_exact_copy.insert(mix(i));
+        }
+        let rss_two_sets = rss_mb();
+        println!(
+            "[hunt_ram] two FxHashSet<u64> ({} + {} entries): rss delta = {:.1} Mo (rss0={:.1} -> {:.1})",
+            dup_masters.len(),
+            masters_with_exact_copy.len(),
+            rss_two_sets - rss0,
+            rss0,
+            rss_two_sets
+        );
+        drop(dup_masters);
+        drop(masters_with_exact_copy);
+
+        // ── Scenario B: one combined FxHashMap<u64, bool> ──────────────────
+        let rss1 = rss_mb();
+        let mut combined: rustc_hash::FxHashMap<u64, bool> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(N_DUP_MASTERS, Default::default());
+        for i in 0..N_DUP_MASTERS as u64 {
+            combined.insert(mix(i), i < N_EXACT_COPY as u64);
+        }
+        let rss_combined = rss_mb();
+        println!(
+            "[hunt_ram] one FxHashMap<u64,bool> ({} entries): rss delta = {:.1} Mo (rss1={:.1} -> {:.1})",
+            combined.len(),
+            rss_combined - rss1,
+            rss1,
+            rss_combined
+        );
+        drop(combined);
+
+        let delta_two = rss_two_sets - rss0;
+        let delta_one = rss_combined - rss1;
+        println!(
+            "[hunt_ram] combined map saves {:.1} Mo ({:.1}%) vs two separate sets, at this cardinality",
+            delta_two - delta_one,
+            100.0 * (delta_two - delta_one) / delta_two.max(1.0)
+        );
     }
 }

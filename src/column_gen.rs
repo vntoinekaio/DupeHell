@@ -333,14 +333,18 @@ pub fn generate_column(
                 // would recycle the same CUST-0000000.. range as the batch
                 // before it, since generate_column is called once per
                 // BATCH_SIZE=500_000 chunk. `write_zpad` truncates rather
-                // than widens, unlike `format!("{:07}", i)`, so entities
-                // beyond 10M rows would still wrap — acceptable for now.
+                // than widens, unlike `format!("{:07}", i)` — width 10
+                // (was 7) covers up to 9,999,999,999 rows for one entity,
+                // comfortably past any `--size` exercised so far (a 100M
+                // real run measured 56M+ truncation warnings at width 7,
+                // since entities routinely exceed 10M rows well before
+                // `--size` reaches 100M — see hunt1808).
                 let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
                 let mut i: usize = row_offset;
-                build_string_array(n, 12, |buf| {
+                build_string_array(n, 15, |buf| {
                     buf.extend_from_slice(prefix.as_bytes());
                     buf.push(b'-');
-                    write_zpad(buf, i, 7);
+                    write_zpad(buf, i, 10);
                     i += 1;
                 })
             } else {

@@ -108,15 +108,7 @@
         {
           "name": "end_date",
           "type": "date",
-          "null_rate_default": 0.2,
-          "conditions": [
-            {
-              "depends_on": "status",
-              "op": "eq",
-              "value": "closed",
-              "action": "set_value"
-            }
-          ]
+          "null_rate_default": 0.2
         },
         {
           "name": "status",

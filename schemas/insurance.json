@@ -121,24 +121,7 @@
         },
         {
           "name": "end_date",
-          "type": "date",
-          "conditions": [
-            {
-              "depends_on": "status",
-              "op": "eq",
-              "value": "active",
-              "action": "set_value"
-            },
-            {
-              "depends_on": "status",
-              "op": "in",
-              "value": [
-                "lapsed",
-                "cancelled"
-              ],
-              "action": "set_value"
-            }
-          ]
+          "type": "date"
         },
         {
           "name": "status",
