@@ -49,7 +49,7 @@ dupehell/
 │       └── extra.rs
 ├── pyproject.toml          # Python packaging (maturin)
 ├── schemas/*.json          # 40 domain schemas
-├── assets/pools/           # 133 pool files (multi-lang)
+├── assets/pools/           # 151 pool files (multi-lang)
 ├── docs/                  # Documentation
 └── CODE_OF_CONDUCT.md      # Contributor Covenant
 ```
@@ -59,7 +59,7 @@ dupehell/
 ## Testing
 
 ```bash
-cargo test          # 113 tests, ~30s
+cargo test          # 162 tests, ~30s
 ```
 
 ---
@@ -82,5 +82,5 @@ cargo test          # 113 tests, ~30s
 
 ## Performance
 
-See [BENCHMARK.md](./BENCHMARK.md) for detailed metrics (up to 300M records,
-~620-706K rec/s).
+See [BENCHMARK.md](./BENCHMARK.md) for detailed metrics (up to 50M records,
+all 40 domains, ~660-720K rec/s average).

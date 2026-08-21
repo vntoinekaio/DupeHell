@@ -65,8 +65,8 @@ Each run produces:
 Add `--graph` (CLI) or `generate_graph=True` (Python) to additionally emit a
 property graph alongside the usual tabular dataset — nodes (one per record,
 same attributes as the dataset) and typed edges (`fk`, `exact_dup`,
-`hard_neg`) linking `record_id`s that a record-linkage/graph pipeline should
-resolve to the same entity or a hard negative. Disabled by default: tabular
+`fuzzy_dup`, `hard_neg`) linking `record_id`s that a record-linkage/graph
+pipeline should resolve to the same entity or a hard negative. Disabled by default: tabular
 output, RNG sequence, and memory footprint are unchanged when omitted.
 
 ```python
@@ -151,7 +151,7 @@ metrics at scale.
 ## Architecture
 
 ```
-lib.rs / main.rs → Context (133 pools) → PipelineConfig → run_pipeline()
+lib.rs / main.rs → Context (151 pools) → PipelineConfig → run_pipeline()
                                                           │
          ┌────────────────────────────────────────────────┼────────────────────┐
          ▼                                                ▼                    ▼
@@ -175,7 +175,7 @@ lib.rs / main.rs → Context (133 pools) → PipelineConfig → run_pipeline()
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Installation, quick start, output formats |
 | [docs/API.md](docs/API.md) | Full Python & Rust API reference |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Architecture, development workflow |
-| [docs/BENCHMARK.md](docs/BENCHMARK.md) | Performance metrics (up to 75M records) |
+| [docs/BENCHMARK.md](docs/BENCHMARK.md) | Performance metrics (up to 50M records) |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security policy & vulnerability reporting |
 
 ---

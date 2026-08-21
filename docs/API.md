@@ -18,9 +18,11 @@ def generate(
     schemas_dir: str | None = None,
     output_format: str = "parquet",
     hard_neg_ratio: float = 0.3,
-    singleton_master_fraction: float = 0.10,
+    singleton_master_fraction: float | None = None,
     generate_graph: bool = False,
     graph_format: str = "parquet",
+    only_entity: str | None = None,
+    chunk_size: int | None = None,
 ) -> GenerateResult
 ```
 
@@ -40,9 +42,11 @@ Generate a synthetic dataset for a given domain.
 | `schemas_dir` | `str \| None` | `None` | Path to domain schema files. If `None`, tries `./schemas` then the package-installed path. |
 | `output_format` | `str` | `"parquet"` | `"parquet"` (default, ZSTD compressed) or `"ipc"` (Arrow IPC). |
 | `hard_neg_ratio` | `float` | `0.3` | Internal scaling knob for the hard-negative count, **not** the literal fraction of records that become hard negatives. Actual count ≈ `n_duplicates × hard_neg_ratio × 0.125`, where `n_duplicates` depends on `difficulty` (light ~0.28×`size`, medium ~0.40×`size`, hell ~0.57×`size`); at `difficulty="medium"` + default `0.3` this is ~1.5% of `size`. Use `estimate()` to see the exact count for a given value before generating. |
-| `singleton_master_fraction` | `float` | `0.10` | Fraction of masters with only one record. |
+| `singleton_master_fraction` | `float \| None` | `None` | Fraction of masters with only one record (0.0-1.0). If `None` (default), uses the chosen `difficulty` tier's own value (0.50/0.30/0.10 for light/medium/hell). Passing an explicit value that differs from the tier default emits a `UserWarning`, since it makes the actual duplicate volume diverge from what `estimate_difficulty()` reports for that `difficulty`. |
 | `generate_graph` | `bool` | `False` | Also emit a property graph (nodes + typed edges) alongside the tabular dataset, for graph-based entity resolution / community detection benchmarking. |
 | `graph_format` | `str` | `"parquet"` | `"parquet"` or `"ipc"` — output format for the graph files. Only used when `generate_graph=True`. |
+| `only_entity` | `str \| None` | `None` | If set, generate only this entity (e.g. `domain="aviation"`, `only_entity="passenger"`) instead of the whole domain. `size` applies entirely to this entity. Raises `PyValueError` if not a valid entity name for `domain`. |
+| `chunk_size` | `int \| None` | `None` | If set and less than `size`, generate internally as `ceil(size / chunk_size)` sequential, RAM-bounded chunks, then assemble into the same single dataset/ground-truth/graph files a non-chunked run would produce. `record_id`/`master_id` stay globally contiguous across chunks. Use when `size` is large enough that a single run would exceed available RAM. |
 
 **Returns:** [`GenerateResult`](#generateresult)
 
@@ -60,6 +64,7 @@ Returned by `generate()`.
 | `ground_truth` | `str` | Path to the ground-truth labels file |
 | `total_records` | `int` | Total records in the dataset |
 | `exact_dups` | `int` | Exact duplicate rows |
+| `fuzzy_dups` | `int` | Fuzzy (noised) duplicate rows |
 | `hard_negs` | `int` | Hard negative pairs |
 | `uniques` | `int` | Unique / singleton records |
 | `masters` | `int` | Distinct master entities |
@@ -262,16 +267,19 @@ dupehell [OPTIONS]
 | `--seed <SEED>` | `42` | PRNG seed |
 | `--difficulty <LEVEL>` | `medium` | `light`, `medium`, or `hell` |
 | `--estimate` | — | Estimate theoretical max F1 and exit (no data) |
+| `--pcore-only` | off | Pin the process to performance (P) cores only, on hybrid P-core/E-core CPUs (Windows only; no-op elsewhere) |
 | `--output-format <FMT>` | `parquet` | `parquet` (ZSTD compressed) or `ipc` |
-| `--parquet` | — | Shorthand for `--output-format parquet` |
+| `--parquet` | — | Shorthand for `--output-format parquet` (the default; kept for backward compatibility) |
 | `--graph` | off | Also emit a property graph (nodes + typed edges) alongside the dataset |
 | `--graph-format <FMT>` | `parquet` | `parquet` or `ipc`, only used with `--graph` |
 | `--output-dir <PATH>` | `.` | Output directory |
 | `--hard-neg-ratio <FLOAT>` | `0.3` | Hard negative ratio |
-| `--singleton-master-fraction <FLOAT>` | `0.1` | Singleton fraction |
+| `--singleton-master-fraction <FLOAT>` | tier default | Fraction of masters with only one record. Defaults to the chosen `--difficulty` tier's own value (0.50/0.30/0.10 for light/medium/hell) — pass explicitly only to override. |
 | `--locale <LOCALE>` | `en` | Pool locale: `en`, `fr`, `de`, `es`, `it`, `pt` |
 | `--pools-dir <PATH>` | `assets/pools` | Pool data directory |
 | `--schemas-dir <PATH>` | `schemas` | Schema directory |
+| `--only-entity <NAME>` | — | Generate only this entity (e.g. `--domain aviation --only-entity passenger`); `--size` applies entirely to it |
+| `--chunk-size <N>` | — | Generate internally as sequential, RAM-bounded chunks of this size, assembled into the same single output files; `record_id`/`master_id` stay globally contiguous |
 
 ### Library
 
