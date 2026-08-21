@@ -9,7 +9,7 @@ repository = "https://github.com/vntoinekaio/DupeHell"
 readme = "README.md"
 keywords = ["synthetic-data", "record-linkage", "entity-resolution", "deduplication"]
 categories = ["command-line-utilities", "science"]
-exclude = ["python/", "pyproject.toml", ".github/", "tests/test_graph_gen.py"]
+exclude = ["python/", "pyproject.toml", ".github/", "tests/test_graph_gen.py", "sz.rs", "sz.pdb", "docs/superpowers/"]
 
 [lib]
 name = "dupehell_core"
