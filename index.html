@@ -257,7 +257,6 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
           <h3>Throughput vs Dataset Size (hell difficulty)</h3>
           <div class="chart-legend">
             <span><span class="dot" style="background:#00d4aa"></span>IPC</span>
-            <span><span class="dot" style="background:#f0b429"></span>Parquet</span>
           </div>
         </div>
         <svg viewBox="0 0 650 160" xmlns="http://www.w3.org/2000/svg">
@@ -289,35 +288,23 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
           <text x="62" y="144" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="end">0</text>
           <!-- x-axis labels -->
           <text x="70" y="158" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="middle">1M</text>
-          <text x="253" y="158" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="middle">5M</text>
-          <text x="437" y="158" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="middle">10M</text>
-          <text x="620" y="158" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="middle">20M</text>
+          <text x="253" y="158" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="middle">10M</text>
+          <text x="437" y="158" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="middle">20M</text>
+          <text x="620" y="158" fill="#8892a4" font-family="SF Mono,Fira Code,monospace" font-size="8" text-anchor="middle">50M</text>
           <!-- IPC area fill -->
-          <polygon points="70,98.0 253,45.1 437,38.4 620,28.0 620,140 70,140" fill="url(#ipcGrad)"/>
+          <polygon points="70,39.7 253,36.2 437,38.3 620,45.0 620,140 70,140" fill="url(#ipcGrad)"/>
           <!-- IPC line -->
-          <polyline points="70,98.0 253,45.1 437,38.4 620,28.0" fill="none" stroke="#00d4aa" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)"/>
+          <polyline points="70,39.7 253,36.2 437,38.3 620,45.0" fill="none" stroke="#00d4aa" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)"/>
           <!-- IPC dots -->
-          <circle cx="70" cy="98.0" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
-          <circle cx="253" cy="45.1" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
-          <circle cx="437" cy="38.4" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
-          <circle cx="620" cy="28.0" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
-          <!-- Parquet area fill -->
-          <polygon points="70,105.7 253,73.2 437,71.6 437,140 70,140" fill="url(#parquetGrad)"/>
-          <!-- Parquet line -->
-          <polyline points="70,105.7 253,73.2 437,71.6" fill="none" stroke="#f0b429" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)"/>
-          <!-- Parquet dots -->
-          <circle cx="70" cy="105.7" r="4.5" fill="#f0b429" stroke="#0a0e17" stroke-width="2"/>
-          <circle cx="253" cy="73.2" r="4.5" fill="#f0b429" stroke="#0a0e17" stroke-width="2"/>
-          <circle cx="437" cy="71.6" r="4.5" fill="#f0b429" stroke="#0a0e17" stroke-width="2"/>
+          <circle cx="70" cy="39.7" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
+          <circle cx="253" cy="36.2" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
+          <circle cx="437" cy="38.3" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
+          <circle cx="620" cy="45.0" r="4.5" fill="#00d4aa" stroke="#0a0e17" stroke-width="2"/>
           <!-- value annotations for IPC -->
-          <text x="70" y="92" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">280.2K</text>
-          <text x="253" y="39" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">632.5K</text>
-          <text x="437" y="32" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">677.6K</text>
-          <text x="620" y="22" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">746.5K</text>
-          <!-- value annotations for Parquet -->
-          <text x="70" y="116" fill="#f0b429" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">228.6K</text>
-          <text x="253" y="83" fill="#f0b429" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">445.5K</text>
-          <text x="437" y="82" fill="#f0b429" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">456.1K</text>
+          <text x="70" y="33" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">695.5K</text>
+          <text x="253" y="30" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">718.8K</text>
+          <text x="437" y="32" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">704.9K</text>
+          <text x="620" y="39" fill="#00d4aa" font-family="SF Mono,Fira Code,monospace" font-size="7" text-anchor="middle">660.0K</text>
         </svg>
       </div>
     </div>
@@ -328,10 +315,24 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
           <tr><th>Size</th><th>Ø rec/s</th><th>Fastest domain</th><th>Slowest domain</th><th>Range</th></tr>
         </thead>
         <tbody>
-          <tr><td>1M</td><td>280,175</td><td>academia 3.2s</td><td>supplychain 4.5s</td><td>1.3s</td></tr>
-          <tr><td>5M</td><td>632,487</td><td>aviation 6.8s</td><td>crm 10.5s</td><td>3.7s</td></tr>
-          <tr><td>10M</td><td>677,579</td><td>academia 11.8s</td><td>manufacturing 23.6s</td><td>11.8s</td></tr>
-          <tr><td>20M</td><td>746,520</td><td>academia 21.6s</td><td>kyc 34.6s</td><td>13.0s</td></tr>
+          <tr><td>1M</td><td>695,476</td><td>renewable_energy 1.0s</td><td>kyc 3.2s</td><td>2.2s</td></tr>
+          <tr><td>10M</td><td>718,822</td><td>renewable_energy 9.6s</td><td>kyc 34.7s</td><td>25.1s</td></tr>
+          <tr><td>20M</td><td>704,888</td><td>renewable_energy 20.1s</td><td>kyc 72.6s</td><td>52.5s</td></tr>
+          <tr><td>50M</td><td>659,987</td><td>social_media 56.4s</td><td>kyc 165.2s</td><td>108.8s</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Size</th><th>IPC Ø rec/s</th><th>Parquet Ø rec/s</th><th>Overhead</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1M</td><td>695,476</td><td>650,883</td><td>-6.4%</td></tr>
+          <tr><td>5M</td><td>734,773</td><td>705,807</td><td>-3.9%</td></tr>
+          <tr><td>10M</td><td>718,822</td><td>700,238</td><td>-2.6%</td></tr>
+          <tr><td>20M</td><td>704,888</td><td>690,241</td><td>-2.1%</td></tr>
         </tbody>
       </table>
     </div>
