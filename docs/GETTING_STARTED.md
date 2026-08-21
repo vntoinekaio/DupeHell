@@ -54,9 +54,9 @@ dupehell --help
 ### Graph output
 
 Add `--graph` (CLI) or `generate_graph=True` (Python) to also emit a property
-graph — nodes (one per record) and typed edges (`exact_dup`, `hard_neg`)
-linking `record_id`s that a record-linkage/graph pipeline should (or
-shouldn't) merge:
+graph — nodes (one per record) and typed edges (`fk`, `exact_dup`,
+`fuzzy_dup`, `hard_neg`) linking `record_id`s that a record-linkage/graph
+pipeline should (or shouldn't) merge:
 
 ```bash
 dupehell --domain fintech --size 10000 --seed 42 --graph
