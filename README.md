@@ -108,31 +108,39 @@ Throughput averaged across all 40 domains.
 
 | Size | Ø rec/s | Fastest domain | Slowest domain | Range |
 |------|---------|----------------|----------------|-------|
-| 1M | 149,448¹ | sports 3.1s | kyc 35.2s | 32.0s |
-| 5M | 632,487 | aviation 6.8s | crm 10.5s | 3.7s |
-| 10M | 677,579 | academia 11.8s | manufacturing 23.6s | 11.8s |
-| 20M | 746,520 | academia 21.6s | kyc 34.6s | 13.0s |
+| 1M | 695,476 | renewable_energy 1.0s | kyc 3.2s | 2.2s |
+| 10M | 718,822 | renewable_energy 9.6s | kyc 34.7s | 25.1s |
+| 20M | 704,888 | renewable_energy 20.1s | kyc 72.6s | 52.5s |
+| 50M | 659,987 | social_media 56.4s | kyc 165.2s | 108.8s |
 
-¹ Refreshed 2026-07-24 against the current pipeline (post multi-pass `hell`
-tier, see [docs/BENCHMARK.md](docs/BENCHMARK.md)); 5M/10M/20M rows are from
-the prior sweep, not yet rerun. **kyc** is a persistent outlier — its
-`natural_person` entity has 23 columns (2-3x most domains), which
-disproportionately multiplies the cost of `hell`'s 3 noise passes. Excluding
-kyc, the 1M average is 152,535 rec/s.
+Refreshed against the current pipeline, all 40 domains, single consistent
+sweep (see [docs/BENCHMARK.md](docs/BENCHMARK.md) for the full per-domain
+table). **kyc** is a persistent outlier at every scale — its
+`natural_person` entity is the widest, most PII-dense schema in the crate,
+and at `hell` all 9 noise categories are simultaneously active on it (vs.
+often a single active category on sparser schemas). Excluding kyc, the 1M
+average is 705,333 rec/s. Throughput drops noticeably at 50M for the
+heavier/denser schemas (`crm`, `ecommerce`, `insurance`, `technology`,
+`supplychain`, `telecom`) — a known non-monotonic slowdown at higher
+record counts, tracked separately.
 
 ### IPC vs Parquet
 
-Difficulty **hell**, domain-average throughput.
+Difficulty **hell**, domain-average throughput across all 40 domains.
+Parquet is the CLI default (ZSTD(3) compressed); IPC is the
+internal/streaming-oriented format.
 
-| Size | IPC | Parquet |
-|------|-----|---------|
-| 1M | 280.2K rec/s | 228.6K rec/s |
-| 5M | 632.5K rec/s | 445.5K rec/s |
-| 10M | 677.6K rec/s | 456.1K rec/s |
-| 20M | 746.5K rec/s | — |
+| Size | IPC | Parquet | Overhead |
+|------|-----|---------|---------|
+| 1M | 695.5K rec/s | 650.9K rec/s | -6.4% |
+| 5M | 734.8K rec/s | 705.8K rec/s | -3.9% |
+| 10M | 718.8K rec/s | 700.2K rec/s | -2.6% |
+| 20M | 704.9K rec/s | 690.2K rec/s | -2.1% |
 
-Not yet refreshed against the current pipeline (see footnote above) — kept
-as the last measured baseline.
+Parquet's cost shrinks as scale grows — the fixed per-file ZSTD
+compression overhead gets amortized over more rows. Parquet is a
+reasonable default at any scale tested here; IPC remains the better
+choice for pure raw-throughput or internal streaming use cases.
 
 See [docs/BENCHMARK.md](docs/BENCHMARK.md) for the full per-domain matrix
 (all 3 difficulties, `--graph` overhead, FK edge weighting) and single-domain
