@@ -485,7 +485,33 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             contains_any(&lower, PERSON_NAME_WORDS) && !is_specifically_company_name(&lower)
         }
         "dates" | "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
-            contains_any(&lower, &["date", "birth", "incorporation", "founding"])
+            // "time"/"since"/"period" added (hunt2808.md): the schema's
+            // `date`/`datetime` column type already tells the generator a
+            // column is a date, but this predicate only ever looked at the
+            // *name* -- `departure_time`/`arrival_time` (aviation, travel),
+            // `member_since` (hospitality), `pay_period_start`/`_end`
+            // (hr), `admission_time`/`discharge_time` (healthcare),
+            // `period_start`/`_end` (energy) all carry a real `date`/
+            // `datetime` schema type but none contain "date"/"birth"/
+            // "incorporation"/"founding" -- silently zero noise coverage
+            // from this category regardless of `passes`, on every
+            // difficulty tier. Checked against all 40 domains' column
+            // names for false-positive collisions before adding (none:
+            // the few non-Utf8 hits, e.g. `lifetime_stays`/`lead_time_days`/
+            // `on_time_rate`, are ints/floats already excluded upstream by
+            // `match_noise_columns`'s Utf8-only filter).
+            contains_any(
+                &lower,
+                &[
+                    "date",
+                    "birth",
+                    "incorporation",
+                    "founding",
+                    "time",
+                    "since",
+                    "period",
+                ],
+            )
         }
         "missing" | "missing_pattern" => {
             contains_any(&lower, &["phone", "email", "mobile", "address", "street"])
@@ -518,6 +544,20 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
                 // noise coverage regardless of `passes`, floor-ing hell's
                 // f1_max well above its intended ceiling on that schema.
                 "registration",
+                // "sku"/"barcode"/"imei"/"imsi"/"iccid" added (hunt2808.md):
+                // real sector-specific identifiers this fixed keyword list
+                // didn't recognize -- `sku` (ecommerce/fashion/retail/
+                // supplychain), `barcode`/`package_barcode` (ecommerce/
+                // biotech/logistics), `imei`/`imsi`/`iccid` (telecom
+                // `device`, standard cellular identifiers) all had zero
+                // noise coverage from this category. Checked against all
+                // 40 domains for false-positive collisions before adding
+                // (none found).
+                "sku",
+                "barcode",
+                "imei",
+                "imsi",
+                "iccid",
             ],
         ),
         "extra"
@@ -535,8 +575,14 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             if lower.contains("email") || lower.contains("ip_address") {
                 return false;
             }
-            contains_any(&lower, &["address", "street", "city", "note", "comment"])
-                || contains_any(&lower, PERSON_NAME_WORDS)
+            // "bio" added (hunt2808.md): free-text fields named `bio`/
+            // `biography` (social_media, publishing) are exactly the kind
+            // of column this category targets, just not covered by the
+            // existing "note"/"comment" keywords.
+            contains_any(
+                &lower,
+                &["address", "street", "city", "note", "comment", "bio"],
+            ) || contains_any(&lower, PERSON_NAME_WORDS)
                 || contains_any(&lower, COMPANY_NAME_WORDS)
         }
         "companies" | "acronym" | "legal_form_drop" | "word_dropout" | "company_scramble" => {
@@ -563,11 +609,20 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             // actually targeted them -- e.g. kyc's `residential_state` /
             // `residential_country` / `registered_country` had zero real
             // noise coverage regardless of `passes`.
+            // "location" added (hunt2808.md): `social_media::profile`'s
+            // `location` field is semantically an address/place field but
+            // wasn't covered by any existing keyword. Checked against all
+            // 40 domains for false-positive substring collisions before
+            // adding (none — the only "location"-containing columns are
+            // genuinely location-like: `work_location`, `branch_location`,
+            // `shelf_location`).
             !lower.contains("ip_address")
                 && !lower.contains("email")
                 && contains_any(
                     &lower,
-                    &["address", "street", "postal", "city", "state", "country"],
+                    &[
+                        "address", "street", "postal", "city", "state", "country", "location",
+                    ],
                 )
         }
         "exact" | "english_name" | "estonian_name" | "lithuanian_name" | "slovak_name"
@@ -1761,6 +1816,27 @@ pub fn run_pipeline_chunked(
                 },
             );
         }
+
+        // Per-entity RSS checkpoint (hunt2808, RAM-first pass): the
+        // aggregate "after entity batches" checkpoint below only samples
+        // once for the whole domain, which can't tell apart an entity that
+        // dominates RAM from one that's negligible when a domain has
+        // several entities. `dup_masters_len`/`masters_with_exact_copy_len`
+        // are read straight off `gt_acc` so H1 (cumulative GT bookkeeping
+        // growing with total duplicated masters seen so far) can be
+        // confirmed/refuted directly instead of inferred from RSS deltas
+        // that also include this entity's own transient batch buffers.
+        log::debug!(
+            "[hunt_gt_sets] after entity '{}' ({} base rows): dup_masters={} masters_with_exact_copy={}",
+            plan.name,
+            plan.n_base,
+            gt_acc.dup_masters_len(),
+            gt_acc.masters_with_exact_copy_len(),
+        );
+        log_rss(&format!(
+            "after entity '{}' ({} base rows)",
+            plan.name, plan.n_base
+        ));
     }
     let t1e_elapsed = t1e.elapsed().as_secs_f64();
     log::debug!("[sink_profile] write={_t_write:.3}s calls={_write_calls}");
@@ -2617,6 +2693,122 @@ fn pick_rows(rb: &RecordBatch, indices: &UInt64Array) -> Result<RecordBatch, Str
 mod tests {
     use super::*;
     use crate::schema::{build_pipeline_config, load_schema};
+
+    /// Diagnostic scan (hunt2808.md, RAM-first pass that turned up a noise
+    /// coverage gap instead): for every entity of every domain schema,
+    /// checks whether AT LEAST ONE of `hell`'s 9 noise categories has any
+    /// target column at all. An entity with zero matching columns across
+    /// all 9 categories gets `target_cols.is_empty()` on every attempt
+    /// (`apply_noise_with_retry`, line ~811) -- its duplicates stay
+    /// byte-identical to their master forever, regardless of `passes`, on
+    /// every difficulty tier (not just hell, since hell's category list is
+    /// the broadest; an entity failing all 9 fails every subset too).
+    /// Confirmed root cause for aviation's `flight` entity (0/9
+    /// categories match `flight_number`/`origin_airport`/
+    /// `destination_airport`/`departure_time`/`arrival_time`/`status`/
+    /// `source_system` -- `departure_time`/`arrival_time` are `datetime`
+    /// columns but the `dates` category predicate only matches
+    /// `"date"`/`"birth"`/`"incorporation"`/`"founding"`, never `"time"`).
+    ///
+    /// Deliberately reimplements just enough of `col_type_from_str`'s
+    /// Utf8-vs-not split (only int/float/boolean are excluded; string,
+    /// date, and datetime all end up `DataType::Utf8` per
+    /// `entity_gen::col_type_to_arrow`) rather than importing it, since
+    /// that function is private to `entity_gen` -- diagnostic-only code,
+    /// not meant to become a permanent dependency.
+    ///
+    /// This is a report, not an assertion: intentionally does NOT fail the
+    /// suite (a coverage gap is a data-quality finding for the hunt file,
+    /// not a regression this specific test should gate) -- run with
+    /// `cargo test --release test_hunt2808_noise_coverage_scan -- --nocapture --ignored`
+    /// to see the full per-domain/per-entity table.
+    #[test]
+    #[ignore = "hunt2808 diagnostic scan, not a pass/fail regression test -- run explicitly with --ignored --nocapture"]
+    fn test_hunt2808_noise_coverage_scan() {
+        const HELL_NOISE_TYPES: &[&str] = &[
+            "typo_aggressive",
+            "visual",
+            "unicode_pollution",
+            "names",
+            "dates",
+            "identifiers",
+            "addresses",
+            "companies",
+            "extra",
+        ];
+
+        let mut zero_coverage: Vec<(String, String, usize)> = Vec::new();
+        let mut total_entities = 0usize;
+        let mut schema_files: Vec<_> = std::fs::read_dir("schemas")
+            .expect("read schemas/ dir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "json"))
+            .collect();
+        schema_files.sort();
+
+        for path in &schema_files {
+            let domain = path.file_stem().unwrap().to_string_lossy().to_string();
+            let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            let json: serde_json::Value =
+                serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            let Some(entities) = json.get("entities").and_then(|v| v.as_array()) else {
+                continue;
+            };
+            for entity in entities {
+                total_entities += 1;
+                let ename = entity
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+                    .to_string();
+                let fk_exclude: std::collections::HashSet<&str> = entity
+                    .get("fk_remaps")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|r| r.get("source_col").and_then(|v| v.as_str()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let cols = entity
+                    .get("columns")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+
+                let mut n_matched_categories = 0usize;
+                for &ntype in HELL_NOISE_TYPES {
+                    let has_match = cols.iter().any(|c| {
+                        let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let ctype = c.get("type").and_then(|v| v.as_str()).unwrap_or("string");
+                        let is_utf8 = !matches!(ctype, "int" | "float" | "boolean");
+                        is_utf8
+                            && !fk_exclude.contains(name)
+                            && noise_type_targets_column(ntype, name)
+                    });
+                    if has_match {
+                        n_matched_categories += 1;
+                    }
+                }
+                if n_matched_categories == 0 {
+                    zero_coverage.push((domain.clone(), ename, cols.len()));
+                }
+            }
+        }
+
+        eprintln!(
+            "\n[hunt2808_coverage] {total_entities} entities scanned across {} domains",
+            schema_files.len()
+        );
+        eprintln!(
+            "[hunt2808_coverage] {} entities with ZERO matching hell noise category:",
+            zero_coverage.len()
+        );
+        for (domain, entity, ncols) in &zero_coverage {
+            eprintln!("[hunt2808_coverage]   {domain}::{entity} ({ncols} columns)");
+        }
+    }
 
     /// Regression for the perf-hunt cross-contamination bug (hunt2407.md):
     /// `COMPANY_NAME_WORDS` and `PERSON_NAME_WORDS` both contain the bare

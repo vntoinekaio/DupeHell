@@ -329,6 +329,20 @@ pub struct GtAccumulator {
 }
 
 impl GtAccumulator {
+    /// Current size of `dup_masters` (hunt2808, RAM-first pass) -- lets
+    /// call sites log this cumulative-over-the-whole-run set's growth
+    /// directly, instead of inferring it from RSS deltas that also include
+    /// unrelated per-entity batch buffers.
+    pub(crate) fn dup_masters_len(&self) -> usize {
+        self.dup_masters.len()
+    }
+
+    /// Current size of `masters_with_exact_copy` (hunt2808, RAM-first
+    /// pass) -- see `dup_masters_len`.
+    pub(crate) fn masters_with_exact_copy_len(&self) -> usize {
+        self.masters_with_exact_copy.len()
+    }
+
     pub fn new(draft_path: &str) -> Result<Self, String> {
         let schema = draft_schema();
         let file = std::fs::File::create(draft_path)
