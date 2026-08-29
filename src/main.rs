@@ -147,19 +147,20 @@ struct Cli {
     chunk_size: Option<usize>,
 }
 
-/// Rough peak-RSS-per-record, measured on this machine (Windows, release
-/// build): 859 MB / 10.15M records (~89 B/rec) on `ecommerce`/medium, up to
-/// 1285 MB / 10.15M records (~127 B/rec) on `ecommerce`/hell with `--graph`
-/// (the worst case tried: max noise-type variety + graph node/edge buffers).
-/// Rounded up for headroom across domains with more columns and to hedge
-/// against super-linear growth at larger scale, which this single-machine
-/// measurement can't rule out.
-const BYTES_PER_RECORD_ESTIMATE: usize = 150;
+/// Conservative floor on bytes/record used only to flag genuinely tight
+/// runs, not to project a peak RSS — actual usage depends heavily on
+/// domain/difficulty/--graph and measured peaks stayed well under this
+/// on every scale tried so far (see hunt2808.md). Not meant to be tightened
+/// into an accurate estimator; it exists purely as a coarse tripwire.
+const BYTES_PER_RECORD_FLOOR: usize = 150;
 
-/// Best-effort warning if the requested `--size` looks likely to exceed
-/// available system RAM, using `BYTES_PER_RECORD_ESTIMATE`. Advisory only —
-/// if system memory can't be read (sandboxed/unusual environment), this
-/// silently does nothing rather than block a run on a guess.
+/// Best-effort warning if the requested `--size` looks likely to be tight on
+/// available system RAM. Deliberately gives no GB projection — past
+/// measurements showed the naive per-record estimate overshoots real usage
+/// by a wide and inconsistent margin, so a numeric prediction here would
+/// just be misleading. Advisory only — if system memory can't be read
+/// (sandboxed/unusual environment), this silently does nothing rather than
+/// block a run on a guess.
 fn warn_if_memory_tight(size: usize) {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
@@ -167,14 +168,12 @@ fn warn_if_memory_tight(size: usize) {
     if available == 0 {
         return;
     }
-    let estimated = size as u64 * BYTES_PER_RECORD_ESTIMATE as u64;
-    if estimated > available {
+    let floor = size as u64 * BYTES_PER_RECORD_FLOOR as u64;
+    if floor > available {
         eprintln!(
-            "Warning: --size {size} is estimated to need ~{:.1} GB of RAM \
-             (rough estimate, ~{BYTES_PER_RECORD_ESTIMATE} B/record), but only \
-             ~{:.1} GB is available. The run may be killed by the OS or swap \
-             heavily. Consider a smaller --size or splitting into multiple runs.",
-            estimated as f64 / 1e9,
+            "Warning: --size {size} may be tight on available RAM (~{:.1} GB free). \
+             If the run is unusually slow, it's likely swapping — consider a smaller \
+             --size or splitting into multiple runs.",
             available as f64 / 1e9,
         );
     }
