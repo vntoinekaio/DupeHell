@@ -137,12 +137,22 @@ fn normalize_dash(s: &str) -> String {
     rejoin_datetime(date_part.replace('/', "-"), time_part)
 }
 
-/// Swap day and month in a date string.
+/// Swap day and month in a date string. Detects which end holds the year
+/// the same way `fuzz_year` does, since the generator's native format is
+/// `YYYY-MM-DD` (`column_gen.rs`'s `gen_date`/`gen_datetime`) — the previous
+/// `parts[0].len() <= 2` check only ever matched `DD-MM-YYYY`, making this a
+/// guaranteed no-op on every freshly generated date.
 fn swap_dm(s: &str) -> String {
     let (date_part, time_part) = split_datetime(s);
     let mut parts: Vec<&str> = date_part.split(['-', '/']).collect();
-    if parts.len() == 3 && parts[0].len() <= 2 && parts[1].len() <= 2 {
-        parts.swap(0, 1);
+    if parts.len() == 3 {
+        if parts[0].len() == 4 {
+            // YYYY-MM-DD: day/month are parts[1]/parts[2].
+            parts.swap(1, 2);
+        } else if parts[2].len() == 4 && parts[0].len() <= 2 && parts[1].len() <= 2 {
+            // DD-MM-YYYY: day/month are parts[0]/parts[1].
+            parts.swap(0, 1);
+        }
     }
     rejoin_datetime(parts.join("-"), time_part)
 }
@@ -289,6 +299,16 @@ mod tests {
         let mut rng = test_rng();
         let result = apply_age_impossible(&*arr, &mut rng);
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_swap_dm_year_first_format() {
+        // `column_gen::gen_date`/`gen_datetime` always produce YYYY-MM-DD —
+        // before the fix, `swap_dm` only recognized DD-MM-YYYY and was a
+        // guaranteed no-op on this format.
+        assert_eq!(swap_dm("2020-03-15"), "2020-15-03");
+        // DD-MM-YYYY still swaps correctly (unchanged behavior).
+        assert_eq!(swap_dm("15-03-2020"), "03-15-2020");
     }
 
     #[test]

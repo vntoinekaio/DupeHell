@@ -165,11 +165,18 @@ pub fn corrupt_national_id(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arra
 
     let mut builder = StringBuilder::with_capacity(n, n * 16);
     for i in 0..n {
-        if src.is_null(i) || src.value(i).is_empty() {
+        if src.is_null(i) {
             builder.append_null();
             continue;
         }
         let s = src.value(i);
+        if s.is_empty() {
+            // Nothing to corrupt at a position that doesn't exist — leave a
+            // legitimate empty string as-is instead of silently turning it
+            // into null (a different value with different match semantics).
+            builder.append_value(s);
+            continue;
+        }
         let mut chars: Vec<char> = s.chars().collect();
         let pos = rng2.next_usize(chars.len());
         let c = chars[pos];
@@ -259,6 +266,19 @@ mod tests {
         let mut rng = test_rng();
         let result = corrupt_national_id(&*arr, &mut rng);
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_corrupt_national_id_empty_stays_empty_not_null() {
+        // An empty (but non-null) value has no position to corrupt — it must
+        // stay an empty string, not silently turn into null (a different
+        // value with different match semantics for an ER benchmark).
+        let arr = make_arr(&["123-45-6789", ""]);
+        let mut rng = test_rng();
+        let result = corrupt_national_id(&*arr, &mut rng);
+        let s = result.as_string::<i32>();
+        assert!(!s.is_null(1), "empty input must not become null");
+        assert_eq!(s.value(1), "");
     }
 
     #[test]
