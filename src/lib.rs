@@ -155,6 +155,12 @@ fn generate(
             "invalid output format '{output_format}'; expected 'ipc' or 'parquet'"
         )));
     }
+    if !schema::valid_difficulty_names().contains(&difficulty) {
+        return Err(PyValueError::new_err(format!(
+            "invalid difficulty '{difficulty}'; expected one of {:?}",
+            schema::valid_difficulty_names()
+        )));
+    }
 
     let mut ctx = Context::new(domain, locale, pools_dir).map_err(PyValueError::new_err)?;
 

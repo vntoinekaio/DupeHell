@@ -186,6 +186,16 @@ fn difficulty_settings(difficulty: &str) -> DifficultySettings {
         .unwrap_or_else(|| DIFFICULTY_MAP[1].1.clone())
 }
 
+/// The exact set of `--difficulty` / Python `difficulty=` values accepted —
+/// derived from `DIFFICULTY_MAP` so there is one source of truth. The CLI
+/// (`main.rs`) already rejects anything else via `clap::PossibleValuesParser`;
+/// this exists so the PyO3 `generate()` binding (`lib.rs`) can reject an
+/// unrecognized value too instead of silently falling back to `medium` via
+/// `difficulty_settings`'s own fallback above.
+pub fn valid_difficulty_names() -> Vec<&'static str> {
+    DIFFICULTY_MAP.iter().map(|(name, _)| *name).collect()
+}
+
 /// Generate a domain-unique run ID based on the current Unix timestamp (hex).
 pub fn chrono_now() -> String {
     let start = std::time::SystemTime::now()
@@ -378,9 +388,29 @@ pub fn build_pipeline_config(
         })
         .collect();
 
+    // Every entity gets at least 2 identities when the budget allows it
+    // (`r.max(2.0)`), so even a low-weight entity can support a duplicate
+    // pair. But at small `--size` with many entities, `n_entities * 2` can
+    // exceed `total_unique` — the plain largest-remainder distribution below
+    // only ever tops UP to `total_unique` (`need = total_unique.max(floor_sum)
+    // - floor_sum`, clamped to 0), it never tops back down, so the guaranteed
+    // floor silently overshot the requested `--size` (confirmed: `sports`,
+    // 7 entities, `--size 20` produced 66 records instead of 20). Falling
+    // back to a plain `floor()` (no artificial minimum, some entities may
+    // land on 0 and simply produce no rows — already handled by
+    // `if plan.n_base == 0 { continue; }` in pipeline.rs) keeps
+    // `floor_sum <= total_unique` guaranteed in both branches, so the
+    // remainder distribution below still lands on exactly `total_unique`.
+    let n_entities = active_entities.len();
     let mut floor_map: HashMap<&str, usize> = HashMap::new();
-    for (name, r) in &raw_floats {
-        floor_map.insert(name, r.max(2.0) as usize);
+    if total_unique >= 2 * n_entities {
+        for (name, r) in &raw_floats {
+            floor_map.insert(name, r.max(2.0) as usize);
+        }
+    } else {
+        for (name, r) in &raw_floats {
+            floor_map.insert(name, r.floor() as usize);
+        }
     }
     let floor_sum: usize = floor_map.values().sum();
     let need = total_unique.max(floor_sum) - floor_sum;
@@ -577,6 +607,15 @@ mod tests {
         load_schema("aviation", &schemas_dir()).expect("load aviation.json")
     }
 
+    fn sports_schema() -> DomainSchema {
+        load_schema("sports", &schemas_dir()).expect("load sports.json")
+    }
+
+    #[test]
+    fn test_valid_difficulty_names() {
+        assert_eq!(valid_difficulty_names(), vec!["light", "medium", "hell"]);
+    }
+
     #[test]
     fn test_load_schema_known_domain() {
         let schema = kyc_schema();
@@ -616,6 +655,70 @@ mod tests {
         // Every entity must get at least the floor of 2 base records.
         assert!(config.entity_plans.iter().all(|p| p.n_base >= 2));
         assert!(!config.hard_neg_types.is_empty());
+    }
+
+    #[test]
+    fn test_build_pipeline_config_small_size_many_entities_does_not_overshoot() {
+        // Regression: `sports` has 7 entities. Before the fix, the
+        // per-entity floor of 2 (`max(2.0)`) was never scaled back down
+        // when `2 * n_entities > total_unique`, so a tiny `--size` produced
+        // far more base rows than requested (confirmed via real CLI run:
+        // `--size 20 --difficulty hell` generated 66 base+dup rows total —
+        // `total_unique` alone, the sum of n_base here, was already
+        // overshooting `size` before duplicates were even added).
+        let schema = sports_schema();
+        assert_eq!(
+            schema.entities.len(),
+            7,
+            "this test assumes sports has 7 entities"
+        );
+        let size = 20;
+        let config = build_pipeline_config(
+            "sports",
+            size,
+            42,
+            "hell",
+            0.1,
+            0.10,
+            &schema,
+            "sports_test",
+            "parquet",
+            false,
+            "parquet",
+            None,
+        )
+        .expect("build config");
+        let n_base_sum: usize = config.entity_plans.iter().map(|p| p.n_base).sum();
+        // `total_unique <= size` always holds by construction (see
+        // `build_pipeline_config`), and `n_base_sum` must equal
+        // `total_unique` exactly — never exceed `size`.
+        assert!(
+            n_base_sum <= size,
+            "n_base sum {n_base_sum} overshoots requested size {size}"
+        );
+    }
+
+    #[test]
+    fn test_build_pipeline_config_normal_size_still_floors_at_2() {
+        // Non-regression: at a realistic size, every entity should still
+        // get at least its floor of 2 base rows (unchanged from before).
+        let schema = sports_schema();
+        let config = build_pipeline_config(
+            "sports",
+            100_000,
+            42,
+            "hell",
+            0.1,
+            0.10,
+            &schema,
+            "sports_test2",
+            "parquet",
+            false,
+            "parquet",
+            None,
+        )
+        .expect("build config");
+        assert!(config.entity_plans.iter().all(|p| p.n_base >= 2));
     }
 
     #[test]
