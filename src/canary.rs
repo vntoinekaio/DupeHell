@@ -66,10 +66,18 @@ pub fn generate_all(
         let n = CANARY_COUNT;
         let batch_seed = canary_seed.wrapping_add(ent_idx as u64 * 1000);
 
-        // Generate normally via entity generator
+        // Generate normally via entity generator, offset past this entity's
+        // own base rows (indices 0..plan.n_base, see the main loop in
+        // pipeline.rs) so the `_id` fallback generator (column_gen.rs) never
+        // hands a canary row the same identifier as a real base row —
+        // omitting `row_offset` here defaulted it to 0, so every canary
+        // batch silently reused PREFIX-0000000000/1/2, colliding with the
+        // entity's first 3 real rows (found via the aviation passenger_id
+        // low-agreement investigation: a canary row and a real, unrelated
+        // passenger sharing the same passenger_id).
         let request_json = format!(
-            r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{}}}"#,
-            plan.name, n, batch_seed, plan.columns_json,
+            r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{},"row_offset":{}}}"#,
+            plan.name, n, batch_seed, plan.columns_json, plan.n_base,
         );
         let mut rb = entity_gen::generate_entity_batch(ctx, &request_json)?;
 
