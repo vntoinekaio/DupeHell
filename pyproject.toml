@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "dupehell"
-version = "0.5.3"
+version = "0.5.4"
 description = "Synthetic multi-domain dataset generator for record linkage benchmarking"
 readme = "README.md"
 license = "MIT"
