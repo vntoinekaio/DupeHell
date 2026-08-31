@@ -57,10 +57,21 @@ impl GraphFormat {
 /// expected to be rare/environmental (disk full, permissions) and fatal to
 /// the run either way.
 pub struct NodeWriter {
-    tx: Option<mpsc::Sender<RecordBatch>>,
+    tx: Option<mpsc::SyncSender<RecordBatch>>,
     handle: Option<JoinHandle<Result<(), String>>>,
     schema: Arc<Schema>,
 }
+
+/// Bounds how many node batches can be in flight (queued in the channel +
+/// one being encoded) before `write_batch` blocks and applies backpressure.
+/// An unbounded `mpsc::channel` here would let the queue grow without limit
+/// whenever the writer thread falls behind the rest of the pipeline (real at
+/// high record counts: measured +80% peak RSS at 100M with `--graph`,
+/// vs. +5-7% at 1M-10M, hunt3108_graph/H1 follow-up) -- a small bound caps
+/// the extra memory to a handful of batches while still letting the node
+/// encode of the previous batch overlap with the caller writing the current
+/// one to the main dataset (the actual gain this thread exists for).
+const NODE_WRITER_CHANNEL_CAP: usize = 2;
 
 impl NodeWriter {
     /// `path` is the final file (written directly, no draft/rename).
@@ -90,7 +101,7 @@ impl NodeWriter {
         let mut writer = FileWriter::try_new(file, &schema)
             .map_err(|e| format!("node FileWriter {path}: {e}"))?;
 
-        let (tx, rx) = mpsc::channel::<RecordBatch>();
+        let (tx, rx) = mpsc::sync_channel::<RecordBatch>(NODE_WRITER_CHANNEL_CAP);
         let handle = std::thread::Builder::new()
             .name("dupehell-node-writer".to_string())
             .spawn(move || -> Result<(), String> {
