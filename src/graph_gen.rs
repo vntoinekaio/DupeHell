@@ -6,8 +6,10 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::sync::Arc;
+use std::sync::mpsc;
+use std::thread::JoinHandle;
 
-use arrow::array::{ArrayRef, Float64Builder, Int32Builder, StringBuilder};
+use arrow::array::{ArrayRef, Float64Array, Float64Builder, Int32Builder, StringBuilder};
 
 use crate::pipeline::DictValues;
 use arrow::datatypes::{DataType, Field, Schema};
@@ -34,8 +36,29 @@ impl GraphFormat {
 ///
 /// The node schema is the pipeline `full_arc` with column 0 (`record_id`)
 /// renamed `node_id`; all other columns are kept positionally identical.
+///
+/// The actual IPC encode+write happens on a dedicated background thread
+/// (hunt3108_graph/H1): every batch written to the main dataset file used to
+/// also be written here, synchronously, right before the dataset write —
+/// doubling the IPC-encoding cost of every batch (measured ~+95-97%
+/// overhead in isolation, consistent across schema widths). `write_batch`
+/// only rebuilds the batch under the node schema (cheap: `Arc`-cloned
+/// columns, no data copy) and hands it to the writer thread over a channel,
+/// letting that thread's encode+write overlap with whatever the caller does
+/// next (typically: write the same batch to the main dataset file).
+///
+/// Errors from the background thread surface at `finish()`, not at the
+/// `write_batch` call where the failing write actually happened — a
+/// deliberate trade-off of this design (the alternative, checking after
+/// every send, would need a round-trip per batch and defeat the point of
+/// overlapping the I/O). On failure, a run keeps generating and writing to
+/// the main dataset until `finish()` is reached, which is more wasted work
+/// than the previous synchronous version, but write failures here are
+/// expected to be rare/environmental (disk full, permissions) and fatal to
+/// the run either way.
 pub struct NodeWriter {
-    writer: FileWriter<File>,
+    tx: Option<mpsc::Sender<RecordBatch>>,
+    handle: Option<JoinHandle<Result<(), String>>>,
     schema: Arc<Schema>,
 }
 
@@ -64,26 +87,57 @@ impl NodeWriter {
         let schema = Arc::new(Schema::new(fields).with_metadata(metadata.clone()));
 
         let file = File::create(path).map_err(|e| format!("create node file {path}: {e}"))?;
-        let writer = FileWriter::try_new(file, &schema)
+        let mut writer = FileWriter::try_new(file, &schema)
             .map_err(|e| format!("node FileWriter {path}: {e}"))?;
-        Ok(NodeWriter { writer, schema })
+
+        let (tx, rx) = mpsc::channel::<RecordBatch>();
+        let handle = std::thread::Builder::new()
+            .name("dupehell-node-writer".to_string())
+            .spawn(move || -> Result<(), String> {
+                for rb in rx {
+                    writer
+                        .write(&rb)
+                        .map_err(|e| format!("write node batch: {e}"))?;
+                }
+                writer
+                    .finish()
+                    .map_err(|e| format!("finish node writer: {e}"))
+            })
+            .map_err(|e| format!("spawn node writer thread: {e}"))?;
+
+        Ok(NodeWriter {
+            tx: Some(tx),
+            handle: Some(handle),
+            schema,
+        })
     }
 
     /// `batch` is a base/dup/hn/canary record batch in `full_arc` layout
     /// (record_id in column 0). Rebuilt positionally with the node schema
-    /// (column 0 renamed `node_id`).
+    /// (column 0 renamed `node_id`) here, on the caller's thread — cheap,
+    /// no data copy — then handed off; the actual IPC write happens on the
+    /// background thread, overlapped with whatever the caller does next.
     pub fn write_batch(&mut self, batch: &RecordBatch) -> Result<(), String> {
         let rb = RecordBatch::try_new(self.schema.clone(), batch.columns().to_vec())
             .map_err(|e| format!("rebuild node batch: {e}"))?;
-        self.writer
-            .write(&rb)
-            .map_err(|e| format!("write node batch: {e}"))
+        self.tx
+            .as_ref()
+            .expect("write_batch called after finish()")
+            .send(rb)
+            .map_err(|_| {
+                "node writer thread terminated early (see finish() for the underlying error)"
+                    .to_string()
+            })
     }
 
+    /// Closes the channel (signals the background thread to finish writing
+    /// and close the file), then joins it and surfaces any write error.
     pub fn finish(mut self) -> Result<(), String> {
-        self.writer
-            .finish()
-            .map_err(|e| format!("finish node writer: {e}"))
+        drop(self.tx.take());
+        match self.handle.take().expect("finish() called twice").join() {
+            Ok(res) => res,
+            Err(_) => Err("node writer thread panicked".to_string()),
+        }
     }
 }
 
@@ -176,6 +230,52 @@ impl EdgeWriter {
             self.flush()?;
         }
         Ok(())
+    }
+
+    /// Vectorized alternative to `push()` for callers that already hold a
+    /// whole column's worth of `src`/`tgt` node ids as materialized
+    /// `ArrayRef`s (FK-remap and hard-negative edges — `pipeline.rs`'s
+    /// per-row loops used to re-extract each value from an existing
+    /// `StringArray` via `.value(i)` and re-append it through a
+    /// `StringBuilder`, plus one `HashMap` lookup per row for `etype`/
+    /// `subtype`, even though `etype`/`subtype`/`weight` are constant for
+    /// the whole call — hunt3108_graph/H2, measured ~12x faster than the
+    /// scalar loop it replaces). `src`/`tgt` are reused via `Arc` clone —
+    /// zero-copy, no re-encoding of already-built strings.
+    ///
+    /// Flushes any buffered scalar rows first: edges have no ordering
+    /// semantics downstream (ground truth reads them as an unordered set of
+    /// pairs), so this is purely to keep the file a simple append sequence
+    /// rather than interleaving a partially-filled scalar buffer with a
+    /// direct batch write.
+    pub fn push_batch(
+        &mut self,
+        src: &ArrayRef,
+        tgt: &ArrayRef,
+        etype: &str,
+        subtype: &str,
+        weight: f64,
+    ) -> Result<(), String> {
+        self.flush()?;
+        let n = src.len();
+        if n == 0 {
+            return Ok(());
+        }
+        let weight_arr: ArrayRef = Arc::new(Float64Array::from(vec![weight; n]));
+        let rb = RecordBatch::try_new(
+            self.schema.clone(),
+            vec![
+                src.clone(),
+                tgt.clone(),
+                self.etype_dict.const_array(etype, n),
+                self.subtype_dict.const_array(subtype, n),
+                weight_arr,
+            ],
+        )
+        .map_err(|e| format!("build edge batch: {e}"))?;
+        self.writer
+            .write(&rb)
+            .map_err(|e| format!("write edge batch: {e}"))
     }
 
     fn flush(&mut self) -> Result<(), String> {

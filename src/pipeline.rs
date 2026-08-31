@@ -1517,19 +1517,15 @@ pub fn run_pipeline_chunked(
             {
                 nw.write_batch(&base_rb)
                     .map_err(|e| format!("write node: {e}"))?;
-                let fk_edges_by_remap: Vec<_> = fk_edges_by_remap
-                    .iter()
-                    .map(|(subtype, target_rids, weight)| {
-                        (subtype, target_rids.as_string::<i32>(), *weight)
-                    })
-                    .collect();
-                let rid_str_arr = rid_arr.as_string::<i32>();
-                for i in 0..batch_n {
-                    let rid = rid_str_arr.value(i);
-                    for (subtype, target_rids, weight) in &fk_edges_by_remap {
-                        ew.push(rid, target_rids.value(i), "fk", subtype, *weight)
-                            .map_err(|e| format!("push fk edge: {e}"))?;
-                    }
+                // hunt3108_graph/H2: `rid_arr` and each remap's `target_rids`
+                // are already whole `StringArray`s in row order -- push them
+                // as a single batch (one `Arc` clone each) instead of the
+                // previous `for i in 0..batch_n` scalar loop that
+                // re-extracted `.value(i)` and re-appended through a
+                // `StringBuilder` plus a `HashMap` lookup per row.
+                for (subtype, target_rids, weight) in &fk_edges_by_remap {
+                    ew.push_batch(&rid_arr, target_rids, "fk", subtype, *weight)
+                        .map_err(|e| format!("push fk edge batch: {e}"))?;
                 }
             }
 
@@ -1925,13 +1921,20 @@ pub fn run_pipeline_chunked(
             nw.write_batch(&hn_rb_full)
                 .map_err(|e| format!("write hn node: {e}"))?;
             if let Some((idx_a, pattern)) = hn_src {
-                let hn_rid_str_arr = hn_rid_arr.as_string::<i32>();
-                let pool_rid_arr = pool_data.record_ids.as_string::<i32>();
-                for (i, &pool_idx) in idx_a.iter().enumerate().take(n_hn) {
-                    let tgt = pool_rid_arr.value(pool_idx);
-                    ew.push(hn_rid_str_arr.value(i), tgt, "hard_neg", &pattern, 1.0)
-                        .map_err(|e| format!("push hn edge: {e}"))?;
-                }
+                // hunt3108_graph/H2: gather the target ids with the `take`
+                // kernel (vectorized) instead of a scalar
+                // `for i in .. { pool_rid_arr.value(idx_a[i]) }` loop, then
+                // push the whole edge batch in one call -- same reasoning as
+                // the FK-edge site above.
+                let take_n = n_hn.min(idx_a.len());
+                let idx_arr = arrow::array::UInt64Array::from_iter_values(
+                    idx_a.iter().take(take_n).map(|&i| i as u64),
+                );
+                let tgt_arr = arrow::compute::take(&pool_data.record_ids, &idx_arr, None)
+                    .map_err(|e| format!("take hn target ids: {e}"))?;
+                let src_arr = hn_rid_arr.slice(0, take_n);
+                ew.push_batch(&src_arr, &tgt_arr, "hard_neg", &pattern, 1.0)
+                    .map_err(|e| format!("push hn edge batch: {e}"))?;
             }
         }
 
