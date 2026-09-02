@@ -38,7 +38,16 @@ pub fn pool_values(pool_name: &str, n: usize, rng: &mut Rng, ctx: &Context) -> A
         return Arc::new(builder.finish());
     }
     let len = pool.len();
-    let mut builder = StringBuilder::with_capacity(n, n * 16);
+    // Sized to this pool's actual average value width (perf-hunt
+    // hunt0109/H3), not a flat 16-byte guess: a short pool like
+    // `gender`/`country_code` used to over-reserve (dead RSS never
+    // touched), while a long one like `company`/`job_title` used to
+    // under-reserve and pay a `StringBuilder` values-buffer realloc +
+    // memcpy of everything written so far, once or twice per batch. Summing
+    // `pool.len()` entries (at most a few thousand) is negligible next to
+    // `n` (up to `BATCH_SIZE = 500_000`).
+    let avg_width = pool.iter().map(|s| s.len()).sum::<usize>() / len + 1;
+    let mut builder = StringBuilder::with_capacity(n, n * avg_width);
     for _ in 0..n {
         builder.append_value(&pool[rng.next_usize(len)]);
     }

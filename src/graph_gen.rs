@@ -190,15 +190,16 @@ const EDGE_FLUSH: usize = 100_000;
 
 impl EdgeWriter {
     /// `subtype_dict` must already contain every subtype value this run
-    /// will ever `push()` for this writer — the full known set (FK
+    /// will ever push for this writer — the full known set (FK
     /// `source_col`s + HN pattern kinds + `"complete"`/`"spanning_tree"`,
     /// see the call site in `pipeline.rs`) — built once, before any edge is
     /// pushed, and shared across every flushed batch (hunt1808/H11; see
     /// `DictValues`'s doc comment for why IPC output requires this).
     /// `edge_type`'s value set is fixed and universal (`"fk"`/`"hard_neg"`/
-    /// `"exact_dup"`/`"fuzzy_dup"`, see `pair_edge_type` and the two
-    /// `push()` call sites in `pipeline.rs`), so it's built here rather
-    /// than threaded in from every caller.
+    /// `"exact_dup"`/`"fuzzy_dup"`, see `pair_edge_key` in
+    /// `push_dup_clusters` and the `push_batch` call sites in
+    /// `pipeline.rs`), so it's built here rather than threaded in from
+    /// every caller.
     pub fn new(
         path: &str,
         metadata: &HashMap<String, String>,
@@ -222,19 +223,35 @@ impl EdgeWriter {
         })
     }
 
-    pub fn push(
+    /// Resolve `etype`/`subtype` to their dictionary keys once, for a
+    /// caller that pushes many edges sharing few distinct etype/subtype
+    /// values (`push_dup_clusters`) — see `push_keys`.
+    pub fn etype_key(&self, etype: &str) -> i32 {
+        self.etype_dict.key(etype)
+    }
+
+    pub fn subtype_key(&self, subtype: &str) -> i32 {
+        self.subtype_dict.key(subtype)
+    }
+
+    /// Same as [`push`](Self::push), but takes already-resolved
+    /// `etype`/`subtype` dictionary keys instead of re-hashing the strings
+    /// through `DictValues::key` on every call (perf-hunt hunt0109/H9(a)):
+    /// `push_dup_clusters` calls this per edge, where `etype`/`subtype`
+    /// only ever take 2 values each across the whole cluster set — resolved
+    /// once by the caller via `etype_key`/`subtype_key`.
+    pub fn push_keys(
         &mut self,
         src: &str,
         tgt: &str,
-        etype: &str,
-        subtype: &str,
+        etype_key: i32,
+        subtype_key: i32,
         weight: f64,
     ) -> Result<(), String> {
         self.src_buf.append_value(src);
         self.tgt_buf.append_value(tgt);
-        self.etype_keys.append_value(self.etype_dict.key(etype));
-        self.subtype_keys
-            .append_value(self.subtype_dict.key(subtype));
+        self.etype_keys.append_value(etype_key);
+        self.subtype_keys.append_value(subtype_key);
         self.weight_buf.append_value(weight);
         self.count += 1;
         if self.count >= EDGE_FLUSH {
@@ -322,30 +339,40 @@ impl EdgeWriter {
     }
 }
 
-/// Edge type for a pair of cluster members: `exact_dup` only when *both*
-/// ends are byte-for-byte identical to the cluster's master (transitively
-/// identical to each other too); `fuzzy_dup` as soon as either end was
-/// genuinely noised, since two fuzzy copies (or a fuzzy copy and the master)
-/// aren't guaranteed to match each other exactly.
-fn pair_edge_type(a_identical: bool, b_identical: bool) -> &'static str {
-    if a_identical && b_identical {
-        "exact_dup"
-    } else {
-        "fuzzy_dup"
-    }
-}
-
 /// Emit duplicate-cluster edges. For a cluster of size `k`, emit the full
 /// `k(k-1)/2` complete graph unless it exceeds `max_edges`, in which case a
 /// deterministic spanning tree (sorted order) is emitted instead. Each
 /// edge's `edge_type` reflects whether both endpoints are genuinely
 /// byte-identical (`exact_dup`) or at least one was noised (`fuzzy_dup`) —
-/// see `pair_edge_type`.
+/// see `pair_edge_key` below.
 pub fn push_dup_clusters(
     ew: &mut EdgeWriter,
     clusters: &crate::gt::ClusterCsr,
     max_edges: usize,
 ) -> Result<(), String> {
+    // Resolved once, not once per edge (perf-hunt hunt0109/H9(a)): `etype`
+    // only ever takes 2 values here (`exact_dup`/`fuzzy_dup`: `exact_dup`
+    // only when *both* ends are byte-for-byte identical to the cluster's
+    // master — transitively identical to each other too; `fuzzy_dup` as
+    // soon as either end was genuinely noised, since two fuzzy copies
+    // aren't guaranteed to match each other exactly) and `subtype` only 2
+    // (`complete`/`spanning_tree`), but the previous code re-hashed one of
+    // each through
+    // `DictValues::key`'s `HashMap<String, i32>` on every single edge —
+    // this cluster-edge path is the highest-volume edge source in the
+    // graph output (up to k(k-1)/2 edges per duplicated cluster).
+    let k_exact = ew.etype_key("exact_dup");
+    let k_fuzzy = ew.etype_key("fuzzy_dup");
+    let k_complete = ew.subtype_key("complete");
+    let k_spanning = ew.subtype_key("spanning_tree");
+    let pair_edge_key = |a: bool, b: bool| if a && b { k_exact } else { k_fuzzy };
+
+    // Reused across every edge endpoint (perf-hunt hunt0109/H9(b)) instead
+    // of one `String` allocation per endpoint via `record_id_string` — see
+    // `pipeline::append_record_id`.
+    let mut src_buf: Vec<u8> = Vec::with_capacity(crate::pipeline::RID_LEN);
+    let mut tgt_buf: Vec<u8> = Vec::with_capacity(crate::pipeline::RID_LEN);
+
     for (records, idents) in clusters.groups() {
         let k = records.len();
         if k < 2 {
@@ -362,22 +389,31 @@ pub fn push_dup_clusters(
                 "dup cluster has {n_edges} edges > {max_edges}, using spanning tree fallback"
             );
             for i in 0..k - 1 {
-                let etype = pair_edge_type(idents.get(i), idents.get(i + 1));
-                let src = crate::pipeline::record_id_string(records[i] as usize);
-                let tgt = crate::pipeline::record_id_string(records[i + 1] as usize);
-                ew.push(&src, &tgt, etype, "spanning_tree", 1.0)?;
+                let etype_key = pair_edge_key(idents.get(i), idents.get(i + 1));
+                src_buf.clear();
+                crate::pipeline::append_record_id(&mut src_buf, records[i]);
+                tgt_buf.clear();
+                crate::pipeline::append_record_id(&mut tgt_buf, records[i + 1]);
+                let src = std::str::from_utf8(&src_buf).expect("append_record_id: ASCII digits");
+                let tgt = std::str::from_utf8(&tgt_buf).expect("append_record_id: ASCII digits");
+                ew.push_keys(src, tgt, etype_key, k_spanning, 1.0)?;
             }
         } else {
             for i in 0..k {
-                let src = crate::pipeline::record_id_string(records[i] as usize);
+                src_buf.clear();
+                crate::pipeline::append_record_id(&mut src_buf, records[i]);
+                let src = std::str::from_utf8(&src_buf).expect("append_record_id: ASCII digits");
                 // `j` indexes both `records` and `idents` in lockstep —
                 // an iterator/enumerate rewrite would need the same offset
                 // arithmetic clippy is suggesting away, for no clarity gain.
                 #[allow(clippy::needless_range_loop)]
                 for j in (i + 1)..k {
-                    let etype = pair_edge_type(idents.get(i), idents.get(j));
-                    let tgt = crate::pipeline::record_id_string(records[j] as usize);
-                    ew.push(&src, &tgt, etype, "complete", 1.0)?;
+                    let etype_key = pair_edge_key(idents.get(i), idents.get(j));
+                    tgt_buf.clear();
+                    crate::pipeline::append_record_id(&mut tgt_buf, records[j]);
+                    let tgt =
+                        std::str::from_utf8(&tgt_buf).expect("append_record_id: ASCII digits");
+                    ew.push_keys(src, tgt, etype_key, k_complete, 1.0)?;
                 }
             }
         }

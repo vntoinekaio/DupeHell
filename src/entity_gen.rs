@@ -86,17 +86,6 @@ fn col_type_from_str(s: &str) -> ColType {
     }
 }
 
-fn col_type_to_arrow(s: &str) -> DataType {
-    match s {
-        "int" => DataType::Int64,
-        "float" => DataType::Float64,
-        "boolean" => DataType::Boolean,
-        "date" => DataType::Utf8,
-        "datetime" => DataType::Utf8,
-        _ => DataType::Utf8,
-    }
-}
-
 // ── Column conditions ─────────────────────────────────────────────────────
 
 fn apply_column_conditions(
@@ -517,8 +506,13 @@ fn apply_action_set_pool(
         }
         batch.insert(col_name.to_string(), Arc::new(builder.finish()));
     } else {
-        let mut builder = StringBuilder::with_capacity(n, n * 16);
         let src = arr.as_string::<i32>();
+        // Sized from the existing source column's value buffer, same as
+        // `pool_lookup::pool_values`/`pipeline.rs`'s extra-pass scatter
+        // (perf-hunt hunt0109/H3) — an exact, free-to-read bound instead of
+        // a flat 16-byte guess.
+        let cap_bytes = src.value_data().len().max(n);
+        let mut builder = StringBuilder::with_capacity(n, cap_bytes);
         let mut pool_idx = 0;
         for (i, &m) in mask.iter().enumerate().take(n) {
             if m {
@@ -581,7 +575,7 @@ pub(crate) fn generate_entity_batch_parsed(
     // Generate columns in parallel — fork sub-RNGs for each column
     let col_count = columns.len();
     let mut col_defs: Vec<ColumnDef> = Vec::with_capacity(col_count);
-    let mut field_infos: Vec<(String, DataType, bool)> = Vec::with_capacity(col_count);
+    let mut nullables: Vec<bool> = Vec::with_capacity(col_count);
     for col_def in columns {
         let ct = col_type_from_str(&col_def.col_type);
         let nullable = col_def.nullable;
@@ -592,11 +586,7 @@ pub(crate) fn generate_entity_batch_parsed(
             nullable,
             null_rate: col_def.null_rate_default,
         });
-        field_infos.push((
-            col_def.name.clone(),
-            col_type_to_arrow(&col_def.col_type),
-            nullable,
-        ));
+        nullables.push(nullable);
     }
 
     let mut sub_rngs: Vec<Rng> = (0..col_count).map(|_| rng.fork()).collect();
@@ -610,10 +600,21 @@ pub(crate) fn generate_entity_batch_parsed(
         })
         .collect();
 
+    // Field type comes from the array `generate_column` actually built,
+    // not a name-independent guess from the JSON `"type"` string (perf-hunt
+    // hunt0109/H4): a handful of string columns route to a template that
+    // produces `Dictionary(Int32, Utf8)` instead of plain `Utf8` (see
+    // `fast_template::is_dict_encoded_template`), and `col_type_to_arrow`
+    // had no way to know that — it always mapped `"string"` to `Utf8`,
+    // which `RecordBatch::try_new` below then hard-rejected as a schema/
+    // array type mismatch. Reading the type off `arr` directly is also
+    // strictly more robust than re-deriving name resolution a third time
+    // (this function, `column_gen::generate_column`, and
+    // `pipeline::build_full_schema` would otherwise all need to agree).
     let mut fields: Vec<Field> = Vec::with_capacity(col_count);
     let mut batch_map: HashMap<String, ArrayRef> = HashMap::new();
-    for ((name, arr), (_, dt, nullable)) in results.drain(..).zip(field_infos) {
-        fields.push(Field::new(&name, dt, nullable));
+    for ((name, arr), nullable) in results.drain(..).zip(nullables) {
+        fields.push(Field::new(&name, arr.data_type().clone(), nullable));
         batch_map.insert(name, arr);
     }
 

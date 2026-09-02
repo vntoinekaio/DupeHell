@@ -159,9 +159,17 @@ impl ChunkOffsets {
 // the transient `Vec<String>` built per batch is bounded by `BATCH_SIZE`
 // and freed right after use, same as `batch_mids`/`dup_mids_buf`/`hn_mids`
 // elsewhere in this file.
-const RID_LEN: usize = 15; // "R-" + 13 digits
-const PAD_LEN: usize = 13; // 13 digits
+pub(crate) const RID_LEN: usize = 15; // "R-" + 13 digits
+pub(crate) const PAD_LEN: usize = 13; // 13 digits
 
+// Every real (non-test) code path now uses `record_id_array`/
+// `master_id_array_*` (hunt1808/H1) or, on scalar (one-id-at-a-time) call
+// sites, `append_record_id` (hunt0109/H7+H9) — a buffer-reusing sibling
+// with the same output, no per-id `String` allocation. `record_id_string`
+// itself survives only as a `#[cfg(test)]` fixture helper now — kept
+// `#[cfg(test)]` rather than deleted since test fixtures across
+// `graph_gen.rs`/`gt.rs` still build expected ids with it.
+#[cfg(test)]
 #[inline]
 pub(crate) fn record_id_string(i: usize) -> String {
     let mut buf = [0u8; RID_LEN];
@@ -174,10 +182,6 @@ pub(crate) fn record_id_string(i: usize) -> String {
     }
     String::from_utf8(buf.to_vec()).expect("record_id_string: buffer is 'R', '-' and ASCII digits")
 }
-
-// Only fixture code (this crate's `#[cfg(test)]` modules) needs a single
-// padded `String`/a `Vec<String>` of record ids any more — real code paths
-// all moved to `record_id_array`/`master_id_array_*` (hunt1808/H1).
 #[cfg(test)]
 #[inline]
 pub(crate) fn pad_string(i: usize) -> String {
@@ -201,7 +205,7 @@ pub(crate) fn record_id_strs(range: std::ops::Range<usize>) -> Vec<String> {
 /// same arithmetic as `record_id_string`/`pad_string`, just writing into a
 /// caller-owned buffer instead of allocating its own.
 #[inline]
-fn write_digits(buf: &mut Vec<u8>, val: u64, width: usize) {
+pub(crate) fn write_digits(buf: &mut Vec<u8>, val: u64, width: usize) {
     let start = buf.len();
     buf.resize(start + width, b'0');
     let mut n = val;
@@ -209,6 +213,18 @@ fn write_digits(buf: &mut Vec<u8>, val: u64, width: usize) {
         buf[start + j] = b'0' + (n % 10) as u8;
         n /= 10;
     }
+}
+
+/// Appends `"R-" + idx` zero-padded to `PAD_LEN` digits onto the end of
+/// `buf` — the exact same bytes `record_id_string(idx)` produces, without
+/// allocating a `String` (perf-hunt hunt0109/H7+H9). Callers writing many
+/// ids in a loop should reuse one `buf` across rows (`buf.clear()` between
+/// calls, same convention as `buf_gen::build_string_array`'s row buffer).
+#[inline]
+pub(crate) fn append_record_id(buf: &mut Vec<u8>, idx: u64) {
+    buf.push(b'R');
+    buf.push(b'-');
+    write_digits(buf, idx, PAD_LEN);
 }
 
 /// Builds a `record_id` `StringArray` for `range` directly (one shared
@@ -806,7 +822,29 @@ fn unchanged_row_mask(
     target_cols: &[String],
 ) -> Result<Vec<bool>, String> {
     let n = orig.num_rows();
-    let mut changed = vec![false; n];
+    unchanged_row_mask_within(orig, noised, target_cols, &vec![true; n])
+}
+
+/// Same as [`unchanged_row_mask`], but only re-tests rows where `only[i]`
+/// is `true` — every other row keeps its input value unconditionally
+/// (perf-hunt hunt0109/H6). Used by `apply_noise_with_retry`'s retry loop:
+/// after a retry, `zip(mask, retried, noisy)` only ever overwrites rows
+/// where `unchanged[i]` was `true` going in, so for any row where it was
+/// `false`, `noisy` coming out of that `zip` is byte-for-byte the same
+/// `noisy` that went in on every target column — re-comparing it to `orig`
+/// is guaranteed to reproduce the same `false` verdict. The previous
+/// implementation re-scanned all `n` rows on every attempt regardless,
+/// including rows already proven changed on attempt 1.
+fn unchanged_row_mask_within(
+    orig: &RecordBatch,
+    noised: &RecordBatch,
+    target_cols: &[String],
+    only: &[bool],
+) -> Result<Vec<bool>, String> {
+    let n = orig.num_rows();
+    // Rows outside `only` are not re-tested: they keep `false` (already
+    // known changed), matching the invariant documented above.
+    let mut changed: Vec<bool> = only.iter().map(|&keep| !keep).collect();
     let schema = orig.schema();
     for col_name in target_cols {
         let Ok(idx) = schema.index_of(col_name) else {
@@ -814,14 +852,17 @@ fn unchanged_row_mask(
         };
         let a = orig.column(idx).as_string::<i32>();
         let b = noised.column(idx).as_string::<i32>();
-        for (i, is_changed) in changed.iter_mut().enumerate() {
-            if *is_changed {
+        // `i` indexes `a`/`b` (Arrow arrays, not iterable by `.iter_mut()`
+        // alongside `changed`) and `changed` in lockstep.
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            if changed[i] {
                 continue;
             }
             let av = (!a.is_null(i)).then(|| a.value(i));
             let bv = (!b.is_null(i)).then(|| b.value(i));
             if av != bv {
-                *is_changed = true;
+                changed[i] = true;
             }
         }
     }
@@ -886,7 +927,11 @@ fn apply_noise_with_retry(
         }
         noisy = RecordBatch::try_new(noisy.schema(), merged_cols)
             .map_err(|e| format!("rebuild retried dup batch: {e}"))?;
-        unchanged = unchanged_row_mask(orig, &noisy, &target_cols)?;
+        // Only re-test rows the zip above could actually have touched
+        // (perf-hunt hunt0109/H6) — every row with `unchanged[i] == false`
+        // is provably still `false` after this merge, see
+        // `unchanged_row_mask_within`'s doc comment.
+        unchanged = unchanged_row_mask_within(orig, &noisy, &target_cols, &unchanged)?;
         attempt += 1;
     }
     Ok((noisy, unchanged, target_cols))
@@ -993,25 +1038,50 @@ fn apply_extra_pass_per_row(
     let mut merged_cols: Vec<ArrayRef> = noisy.columns().to_vec();
     for col_idx in touched_cols {
         let orig_col = noisy.column(col_idx).as_string::<i32>();
-        let mut builder = StringBuilder::with_capacity(n, n * 16);
+        // Capacity sized to the column's actual existing value-buffer width
+        // instead of a flat 16-byte guess (perf-hunt hunt0109/H3, same
+        // motif as `pool_lookup::pool_values`) — `orig_col.value_data()` is
+        // the whole values buffer already sitting in memory for this
+        // column, so its length is an exact, free-to-read bound.
+        let cap_bytes = orig_col.value_data().len().max(n);
+        let mut builder = StringBuilder::with_capacity(n, cap_bytes);
+        // Per-column, not per-row (perf-hunt hunt0109/H5): whether this
+        // group even touches `col_idx`, and which noised `StringArray` to
+        // read from it if so, depends only on `(g, col_idx)` — at most
+        // `all_types.len()` distinct outcomes — but the previous loop
+        // re-evaluated a linear `Vec::contains` scan AND an Arrow
+        // `as_string::<i32>()` downcast (a dynamic type check) on every one
+        // of the `n` rows. Precomputing per group here turns the inner loop
+        // into a plain indexed lookup + branch.
+        let per_group: Vec<Option<&arrow::array::StringArray>> = (0..group_target_idxs.len())
+            .map(|g| {
+                if group_target_idxs[g].contains(&col_idx) {
+                    noised_by_group[g]
+                        .as_ref()
+                        .map(|b| b.column(col_idx).as_string::<i32>())
+                } else {
+                    None
+                }
+            })
+            .collect();
         for i in 0..n {
             let g = row_group[i] as usize;
-            if group_target_idxs[g].contains(&col_idx) {
-                let pos = row_pos[i] as usize;
-                let noised_col = noised_by_group[g]
-                    .as_ref()
-                    .expect("row's group has at least this row, so it was populated above")
-                    .column(col_idx)
-                    .as_string::<i32>();
-                if noised_col.is_null(pos) {
-                    builder.append_null();
-                } else {
-                    builder.append_value(noised_col.value(pos));
+            match per_group[g] {
+                Some(noised_col) => {
+                    let pos = row_pos[i] as usize;
+                    if noised_col.is_null(pos) {
+                        builder.append_null();
+                    } else {
+                        builder.append_value(noised_col.value(pos));
+                    }
                 }
-            } else if orig_col.is_null(i) {
-                builder.append_null();
-            } else {
-                builder.append_value(orig_col.value(i));
+                None => {
+                    if orig_col.is_null(i) {
+                        builder.append_null();
+                    } else {
+                        builder.append_value(orig_col.value(i));
+                    }
+                }
             }
         }
         merged_cols[col_idx] = Arc::new(builder.finish());
@@ -1344,6 +1414,10 @@ pub fn run_pipeline_chunked(
         let fk_targeted = fk_targets.contains(plan.name.as_str());
         let mut fk_builder = arrow::array::StringBuilder::new();
         let mut fk_rid_builder = arrow::array::StringBuilder::new();
+        // Reused across every row of this entity's FK-pool extraction
+        // (perf-hunt hunt0109/H7) instead of one `String` allocation per
+        // row via `record_id_string` — see `append_record_id`.
+        let mut fk_rid_buf: Vec<u8> = Vec::with_capacity(RID_LEN);
         let mut fk_count: usize = 0;
         // Only entities actually referenced by a `hard_neg_types` entry ever
         // have their HN pool read (see `hn_pools.get(&hn_cfg.entity_type)`
@@ -1374,6 +1448,21 @@ pub fn run_pipeline_chunked(
             .noise_types
             .iter()
             .map(|n| distribute_by_weight(n.count, &batch_weights))
+            .collect();
+        // Both invariant per entity, not per batch (perf-hunt hunt0109/H8)
+        // — hoisted out of the "Dups" section below, alongside this
+        // entity's other precomputed invariants (`batch_bounds`,
+        // `per_batch_noise_counts`), instead of being reconstructed inside
+        // `if has_dups { … }` on every batch that has duplicates.
+        let fk_exclude_cols: Vec<String> = plan
+            .fk_remaps
+            .iter()
+            .map(|r| r.source_col.clone())
+            .collect();
+        let all_types: Vec<&str> = plan
+            .noise_types
+            .iter()
+            .map(|n| n.noise_type.as_str())
             .collect();
 
         // Build col_lookup from first batch (it has the entity's schema)
@@ -1447,7 +1536,12 @@ pub fn run_pipeline_chunked(
                     if !s.is_null(i) {
                         fk_builder.append_value(s.value(i));
                         if config.graph_enabled {
-                            fk_rid_builder.append_value(record_id_string(global_rid_offset + i));
+                            fk_rid_buf.clear();
+                            append_record_id(&mut fk_rid_buf, (global_rid_offset + i) as u64);
+                            fk_rid_builder.append_value(
+                                std::str::from_utf8(&fk_rid_buf)
+                                    .expect("append_record_id writes only ASCII digits"),
+                            );
                         }
                         fk_count += 1;
                     }
@@ -1559,13 +1653,6 @@ pub fn run_pipeline_chunked(
                 let mut dup_batches: Vec<RecordBatch> = Vec::new();
                 let mut dup_master_idx_buf: Vec<usize> = Vec::new();
 
-                // Collect FK columns to exclude from noise
-                let fk_exclude_cols: Vec<String> = plan
-                    .fk_remaps
-                    .iter()
-                    .map(|r| r.source_col.clone())
-                    .collect();
-
                 // Pre-generate indices + parallel noise (Phase 13c)
                 let ndata: Vec<(UInt64Array, u64, &str, &[String], usize)> = plan
                     .noise_types
@@ -1590,14 +1677,10 @@ pub fn run_pipeline_chunked(
                     })
                     .collect();
 
-                // Distinct active noise_type names for this entity, used by
-                // additional noise passes (below) to independently draw a type
-                // to apply on top of the first pass's result.
-                let all_types: Vec<&str> = plan
-                    .noise_types
-                    .iter()
-                    .map(|n| n.noise_type.as_str())
-                    .collect();
+                // Distinct active noise_type names for this entity (hoisted
+                // above, see the H8 comment), used by additional noise
+                // passes (below) to independently draw a type to apply on
+                // top of the first pass's result.
                 let all_types_ref = &all_types;
                 let noise_passes = config.noise_passes.max(1);
 
@@ -2541,6 +2624,20 @@ impl DictValues {
     pub(crate) fn finish_keys(&self, keys: arrow::array::Int32Array) -> ArrayRef {
         self.build(keys)
     }
+
+    /// `n` all-null entries sharing this dictionary's `values` (perf-hunt
+    /// hunt0109/H4): used when a batch's own schema is missing a
+    /// dictionary-encoded column entirely (e.g. an HN pattern whose config
+    /// never references it) — `arrow::array::new_null_array` would build a
+    /// *different*, freshly-constructed dictionary values array for that
+    /// batch, which IPC then rejects as "Dictionary replacement detected"
+    /// against every other batch of the same field that uses the real
+    /// shared dictionary. All-null keys map to no value regardless of which
+    /// `values` array they're paired with, so sharing this one costs
+    /// nothing and keeps every batch of the field on the same dictionary.
+    pub(crate) fn null_array(&self, n: usize) -> ArrayRef {
+        self.build(arrow::array::Int32Array::new_null(n))
+    }
 }
 
 /// Full known `subtype` value set for `_edges` output (hunt1808/H11): every
@@ -2597,7 +2694,20 @@ fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>
             if name.is_empty() || field_map.iter().any(|(n, _, _)| n == &name) {
                 continue;
             }
-            let col_type = col_type_from_request(col);
+            // The declared schema type must match what `generate_column`
+            // actually builds (perf-hunt hunt0109/H4), or `RecordBatch::
+            // try_new` below hard-errors on a type mismatch. A handful of
+            // templates produce `Dictionary(Int32, Utf8)` instead of plain
+            // `Utf8` — `resolve_dict_encoded_column` is the single place
+            // that name resolution is written, shared with
+            // `difficulty::estimate_difficulty`'s own model of the same
+            // fact.
+            let is_dict = crate::fast_template::resolve_dict_encoded_column(&name).is_some();
+            let col_type = if is_dict {
+                low_cardinality_dict_type()
+            } else {
+                col_type_from_request(col)
+            };
             field_map.push((name, col_type, true));
         }
     }
@@ -2668,7 +2778,21 @@ pub(crate) fn add_metadata_and_align(
         match maybe_idx {
             Some(idx) => all_arrays.push(rb.column(*idx).clone()),
             None => {
-                let dt = full_arc.field(i + 4).data_type();
+                let field = full_arc.field(i + 4);
+                // A dictionary-encoded column (hunt0109/H4) needs its
+                // dedicated shared dictionary even when null, not the
+                // general `(DataType, n)` cache below: two different
+                // dict-encoded fields (e.g. `suffix` and `grade`) share the
+                // exact same `DataType::Dictionary(Int32, Utf8)`, so
+                // caching by `DataType` alone would hand one field's null
+                // array to the other — wrong dictionary content, same
+                // "Dictionary replacement" IPC error this fallback exists
+                // to avoid in the first place.
+                if let Some(arr) = crate::fast_template::dict_encoded_null_array(field.name(), n) {
+                    all_arrays.push(arr);
+                    continue;
+                }
+                let dt = field.data_type();
                 let arr = null_cache
                     .entry((dt.clone(), n))
                     .or_insert_with(|| arrow::array::new_null_array(dt, n));

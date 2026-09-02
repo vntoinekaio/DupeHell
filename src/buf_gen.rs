@@ -21,7 +21,27 @@ const ALPHA_UPPER: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/// Build a StringArray by appending rows using a closure that writes into &mut Vec<u8>.
+/// Build a StringArray by appending rows using a closure that writes into
+/// &mut Vec<u8>.
+///
+/// # Safety invariant on `build_row`
+/// Every byte `build_row` pushes must come either from an ASCII literal
+/// (`b'-'`, `b"St"`, ...) or from copying a **whole** `&str`/byte slice
+/// (`s.as_bytes()`, never a sub-range that could split a multi-byte code
+/// point) — `u8::to_ascii_lowercase`/`to_ascii_uppercase` are also safe to
+/// apply per-byte, since they're the identity on every byte `>= 0x80`, so a
+/// multi-byte sequence passes through intact either way. Every one of the
+/// ~60 call sites across `fast_template.rs`/`buf_gen.rs` follows this
+/// pattern (mixing crate ASCII literals with untouched slices of
+/// `Context::pool_store` values), so the buffer handed to `from_utf8` below
+/// is valid UTF-8 by construction — checked with `debug_assert!` (so
+/// `cargo test`'s `fast_template::tests::test_all_templates_run`, which
+/// exercises every registered template, catches a future violation) and
+/// then skipped in `--release` via `from_utf8_unchecked` (perf-hunt
+/// hunt0109/H1, measured isolated ~22-29% faster than the checked call —
+/// `examples/profile_utf8_validation.rs` — on the highest-execution-count
+/// path in the crate: once per generated string cell, of every row, of
+/// every batch, of every run).
 pub(crate) fn build_string_array<F>(n: usize, avg_width: usize, mut build_row: F) -> ArrayRef
 where
     F: FnMut(&mut Vec<u8>),
@@ -31,7 +51,14 @@ where
     for _ in 0..n {
         buf.clear();
         build_row(&mut buf);
-        builder.append_value(std::str::from_utf8(&buf).unwrap());
+        debug_assert!(
+            std::str::from_utf8(&buf).is_ok(),
+            "build_string_array: build_row produced invalid UTF-8 — see the safety invariant \
+             on this function's doc comment"
+        );
+        // SAFETY: see the doc comment above.
+        let s = unsafe { std::str::from_utf8_unchecked(&buf) };
+        builder.append_value(s);
     }
     Arc::new(builder.finish())
 }
@@ -71,7 +98,17 @@ pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> Ar
             s[start + 1] = b'0' + ((wm / 10) % 10) as u8;
             s[start + 2] = b'0' + (wm % 10) as u8;
         }
-        builder.append_value(std::str::from_utf8(&s).unwrap());
+        // SAFETY (perf-hunt hunt0109/H1): every byte of `s` is one of
+        // `b'0'..=b'9'` (see the digit-fill loop above), so `s` is valid
+        // ASCII/UTF-8 by construction — `debug_assert!` keeps `cargo test`
+        // catching a future violation, `from_utf8_unchecked` skips the
+        // redundant re-validation in `--release` (same measured gain as
+        // `buf_gen::build_string_array`, see its doc comment).
+        debug_assert!(
+            std::str::from_utf8(&s).is_ok(),
+            "buf_digits: non-digit byte in s"
+        );
+        builder.append_value(unsafe { std::str::from_utf8_unchecked(&s) });
     }
     Arc::new(builder.finish())
 }
@@ -79,6 +116,10 @@ pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> Ar
 // ── bytes_strings: random fixed-length strings from a charset ─────────────
 
 /// Generate random fixed-length strings from a byte character table.
+///
+/// # Safety invariant on `chars`
+/// Every caller passes an ASCII byte table (`ALPHA_UPPER_NO_IOQ`, hex/
+/// base36 digit sets, ...) — see the SAFETY note below.
 pub fn bytes_strings(chars: &[u8], n: usize, length: usize, rng: &mut Rng) -> ArrayRef {
     let mut builder = StringBuilder::with_capacity(n, n * length);
     // SAFETY: the `for b in s.iter_mut()` loop below writes every index
@@ -94,7 +135,15 @@ pub fn bytes_strings(chars: &[u8], n: usize, length: usize, rng: &mut Rng) -> Ar
         for b in s.iter_mut() {
             *b = rand_char(chars, rng);
         }
-        builder.append_value(std::str::from_utf8(&s).unwrap());
+        // SAFETY (perf-hunt hunt0109/H1): every byte of `s` is drawn from
+        // `chars`, which every call site passes as an ASCII table — valid
+        // UTF-8 by construction, checked via `debug_assert!` (skipped in
+        // `--release`, same measured gain as `build_string_array`).
+        debug_assert!(
+            std::str::from_utf8(&s).is_ok(),
+            "bytes_strings: non-ASCII byte in chars"
+        );
+        builder.append_value(unsafe { std::str::from_utf8_unchecked(&s) });
     }
     Arc::new(builder.finish())
 }

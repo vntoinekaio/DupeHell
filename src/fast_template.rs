@@ -3,9 +3,9 @@
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
 // No liability for misuse.
 
-use std::sync::Arc;
+use std::sync::LazyLock;
 
-use arrow::array::{ArrayRef, StringBuilder};
+use arrow::array::{ArrayRef, Int32Array};
 
 use crate::buf_gen::{
     buf_acct_num, buf_booking_reference, buf_branch, buf_digits, buf_email, buf_frequent_flyer,
@@ -13,7 +13,34 @@ use crate::buf_gen::{
     buf_ssn_last4, build_string_array, bytes_strings,
 };
 use crate::context::Context;
+use crate::pipeline::DictValues;
 use crate::rng::Rng;
+
+/// Build a `Dictionary(Int32, Utf8)` array of `n` random draws over a
+/// constant, ≤13-value pool (perf-hunt hunt0109/H4) — unlike
+/// `pool_lookup::pool_values` (a per-locale vocabulary pool of unknown,
+/// often large size, sampled by value), these pools are small literal
+/// arrays hardcoded in this file, identical on every call for the life of
+/// the process. `dict`'s `LazyLock` caches one shared `DictValues` built
+/// once (see its own doc comment for why IPC output requires a *shared*
+/// dictionary `Arc` across every batch of a column, not a fresh one per
+/// call), and `DictValues::new`'s key for value at position `i` of the
+/// input iterator is exactly `i` (enumerated in order), so `rng.
+/// next_usize(pool_len)` can be used directly as the dictionary key — no
+/// per-row string hash needed. Same RNG draw (`next_usize(pool_len)`) and
+/// same row order as the `pool[rng.next_usize(pool.len())]` pattern this
+/// replaces, so only the column's Arrow type changes (`Utf8` ->
+/// `Dictionary(Int32, Utf8)`) — an explicit, non-bit-identical output
+/// change, same trade already accepted for `entity_type`/`match_type`/etc
+/// (hunt1808/H11). Confirmed via `pipeline::noise_type_targets_column`
+/// cross-check (hunt0109.md) that none of the columns converted this way
+/// are ever targeted by a noise category on any of the 40 domain schemas —
+/// `address_type`/`reviewer_notes` were found to collide and were
+/// deliberately left as plain `Utf8`, not converted.
+fn dict_pool_array(n: usize, pool_len: usize, rng: &mut Rng, dict: &DictValues) -> ArrayRef {
+    let keys = Int32Array::from_iter_values((0..n).map(|_| rng.next_usize(pool_len) as i32));
+    dict.finish_keys(keys)
+}
 
 // ── Type alias ────────────────────────────────────────────────────────────
 
@@ -348,16 +375,31 @@ fn gen_reg(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     })
 }
 
+static VARIANT_SIZES: [&str; 5] = ["Small", "Medium", "Large", "XL", "One Size"];
+static VARIANT_COLORS: [&str; 6] = ["Black", "White", "Red", "Blue", "Green", "Gray"];
+// The dictionary is the full `sizes x colors` cross product (30 combined
+// strings, iterated size-major to match the key formula below) — small
+// enough to stay well within `Dictionary(Int32, Utf8)` (perf-hunt
+// hunt0109/H4), unlike the other single-flat-pool columns this hunt
+// converted.
+static VARIANT_DICT: LazyLock<DictValues> = LazyLock::new(|| {
+    DictValues::new(
+        VARIANT_SIZES
+            .iter()
+            .flat_map(|s| VARIANT_COLORS.iter().map(move |c| format!("{s} / {c}"))),
+    )
+});
+
 fn gen_variant(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let sizes = ["Small", "Medium", "Large", "XL", "One Size"];
-    let colors = ["Black", "White", "Red", "Blue", "Green", "Gray"];
-    build_string_array(n, 14, |buf| {
-        let s = sizes[rng.next_usize(sizes.len())];
-        let c = colors[rng.next_usize(colors.len())];
-        buf.extend_from_slice(s.as_bytes());
-        buf.extend_from_slice(b" / ");
-        buf.extend_from_slice(c.as_bytes());
-    })
+    // Same two draws per row, in the same order (`next_usize(sizes.len())`
+    // then `next_usize(colors.len())`), as the previous string-concat
+    // version — only the combined index -> dictionary key mapping is new.
+    let keys = Int32Array::from_iter_values((0..n).map(|_| {
+        let s = rng.next_usize(VARIANT_SIZES.len());
+        let c = rng.next_usize(VARIANT_COLORS.len());
+        (s * VARIANT_COLORS.len() + c) as i32
+    }));
+    VARIANT_DICT.finish_keys(keys)
 }
 
 fn gen_order_num(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
@@ -693,137 +735,155 @@ fn gen_power(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
     })
 }
 
+static SUFFIX_POOL: [&str; 8] = ["Jr.", "Sr.", "III", "II", "IV", "MD", "PhD", "Esq."];
+static SUFFIX_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(SUFFIX_POOL));
+
 fn gen_suffix(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["Jr.", "Sr.", "III", "II", "IV", "MD", "PhD", "Esq."];
-    let mut builder = StringBuilder::with_capacity(n, n * 4);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, SUFFIX_POOL.len(), rng, &SUFFIX_DICT)
 }
+
+static LEAD_SOURCE_POOL: [&str; 8] = [
+    "website",
+    "referral",
+    "event",
+    "cold_call",
+    "email_campaign",
+    "partner",
+    "social_media",
+    "webinar",
+];
+static LEAD_SOURCE_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(LEAD_SOURCE_POOL));
 
 fn gen_lead_source(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = [
-        "website",
-        "referral",
-        "event",
-        "cold_call",
-        "email_campaign",
-        "partner",
-        "social_media",
-        "webinar",
-    ];
-    let mut builder = StringBuilder::with_capacity(n, n * 14);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, LEAD_SOURCE_POOL.len(), rng, &LEAD_SOURCE_DICT)
 }
+
+static SEMESTER_POOL: [&str; 5] = [
+    "Fall 2024",
+    "Spring 2025",
+    "Summer 2025",
+    "Fall 2025",
+    "Spring 2026",
+];
+static SEMESTER_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(SEMESTER_POOL));
 
 fn gen_semester(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = [
-        "Fall 2024",
-        "Spring 2025",
-        "Summer 2025",
-        "Fall 2025",
-        "Spring 2026",
-    ];
-    let mut builder = StringBuilder::with_capacity(n, n * 11);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, SEMESTER_POOL.len(), rng, &SEMESTER_DICT)
 }
+
+static GRADE_POOL: [&str; 13] = [
+    "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F", "W", "I", "P",
+];
+static GRADE_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(GRADE_POOL));
 
 fn gen_grade(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = [
-        "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F", "W", "I", "P",
-    ];
-    let mut builder = StringBuilder::with_capacity(n, n * 2);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, GRADE_POOL.len(), rng, &GRADE_DICT)
 }
+
+static REVENUE_RANGE_POOL: [&str; 7] = [
+    "$0-$1M",
+    "$1M-$10M",
+    "$10M-$50M",
+    "$50M-$100M",
+    "$100M-$500M",
+    "$500M-$1B",
+    "$1B+",
+];
+static REVENUE_RANGE_DICT: LazyLock<DictValues> =
+    LazyLock::new(|| DictValues::new(REVENUE_RANGE_POOL));
 
 fn gen_revenue_range(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = [
-        "$0-$1M",
-        "$1M-$10M",
-        "$10M-$50M",
-        "$50M-$100M",
-        "$100M-$500M",
-        "$500M-$1B",
-        "$1B+",
-    ];
-    let mut builder = StringBuilder::with_capacity(n, n * 12);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, REVENUE_RANGE_POOL.len(), rng, &REVENUE_RANGE_DICT)
 }
+
+static SOURCE_SYSTEM_POOL: [&str; 6] = ["CRM", "ERP", "HRIS", "PORTAL", "LEGACY", "EXTERNAL"];
+static SOURCE_SYSTEM_DICT: LazyLock<DictValues> =
+    LazyLock::new(|| DictValues::new(SOURCE_SYSTEM_POOL));
 
 fn gen_source_system(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["CRM", "ERP", "HRIS", "PORTAL", "LEGACY", "EXTERNAL"];
-    let mut builder = StringBuilder::with_capacity(n, n * 8);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, SOURCE_SYSTEM_POOL.len(), rng, &SOURCE_SYSTEM_DICT)
 }
+
+static OS_VERSION_POOL: [&str; 6] = [
+    "iOS 17.4",
+    "Android 14",
+    "iOS 16.6",
+    "Android 13",
+    "HarmonyOS 4",
+    "iPadOS 17",
+];
+static OS_VERSION_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(OS_VERSION_POOL));
 
 fn gen_os_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = [
-        "iOS 17.4",
-        "Android 14",
-        "iOS 16.6",
-        "Android 13",
-        "HarmonyOS 4",
-        "iPadOS 17",
-    ];
-    let mut builder = StringBuilder::with_capacity(n, n * 11);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, OS_VERSION_POOL.len(), rng, &OS_VERSION_DICT)
 }
+
+// `reviewer_notes` and `address_type` (below) were initially left as plain
+// `Utf8` (hunt0109/H4 cross-check found both actively targeted by a noise
+// category — "note"/"address" fragment collisions in
+// `noise_type_targets_column`, on `hr.performance_review` and
+// `ecommerce.address` respectively). Converting them to `Dictionary`
+// anyway turns out safe without touching the noise matcher at all:
+// `match_noise_columns` filters to `DataType::Utf8 | DataType::LargeUtf8`
+// *before* ever consulting `noise_type_targets_column` — a
+// `Dictionary(Int32, Utf8)` field fails that filter and is never selected
+// as a noise target by ANY code path (every arm of `apply_noise_to_batch`
+// sources its target list from `match_noise_columns`, `plan_cols` being
+// always empty per `schema::build_pipeline_config`). No decode/re-encode
+// needed; the type change alone is what excludes them.
+static REVIEWER_NOTES_POOL: [&str; 10] = [
+    "Good performance this quarter",
+    "Needs improvement in communication",
+    "Exceeds expectations",
+    "Meets all targets",
+    "Strong technical skills",
+    "Leadership potential noted",
+    "Areas for growth identified",
+    "Consistent performer",
+    "Above average contribution",
+    "Shows initiative and drive",
+];
+static REVIEWER_NOTES_DICT: LazyLock<DictValues> =
+    LazyLock::new(|| DictValues::new(REVIEWER_NOTES_POOL));
 
 fn gen_reviewer_notes(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = [
-        "Good performance this quarter",
-        "Needs improvement in communication",
-        "Exceeds expectations",
-        "Meets all targets",
-        "Strong technical skills",
-        "Leadership potential noted",
-        "Areas for growth identified",
-        "Consistent performer",
-        "Above average contribution",
-        "Shows initiative and drive",
-    ];
-    let mut builder = StringBuilder::with_capacity(n, n * 38);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, REVIEWER_NOTES_POOL.len(), rng, &REVIEWER_NOTES_DICT)
 }
+
+static CURRENCY_POOL: [&str; 8] = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "CNY"];
+static CURRENCY_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(CURRENCY_POOL));
 
 fn gen_currency(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "CNY"];
-    let mut builder = StringBuilder::with_capacity(n, n * 3);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, CURRENCY_POOL.len(), rng, &CURRENCY_DICT)
 }
 
+static ADDRESS_TYPE_POOL: [&str; 5] = ["shipping", "billing", "home", "work", "mailing"];
+static ADDRESS_TYPE_DICT: LazyLock<DictValues> =
+    LazyLock::new(|| DictValues::new(ADDRESS_TYPE_POOL));
+
 fn gen_address_type(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
-    let pool = ["shipping", "billing", "home", "work", "mailing"];
-    let mut builder = StringBuilder::with_capacity(n, n * 8);
-    for _ in 0..n {
-        builder.append_value(pool[rng.next_usize(pool.len())]);
-    }
-    Arc::new(builder.finish())
+    dict_pool_array(n, ADDRESS_TYPE_POOL.len(), rng, &ADDRESS_TYPE_DICT)
+}
+
+static OPTION1_POOL: [&str; 5] = ["Small", "Medium", "Large", "XL", "XXL"];
+static OPTION1_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(OPTION1_POOL));
+
+fn gen_option1(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    dict_pool_array(n, OPTION1_POOL.len(), rng, &OPTION1_DICT)
+}
+
+static OPTION2_POOL: [&str; 7] = ["Black", "White", "Red", "Blue", "Green", "Gray", "Navy"];
+static OPTION2_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(OPTION2_POOL));
+
+fn gen_option2(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    dict_pool_array(n, OPTION2_POOL.len(), rng, &OPTION2_DICT)
+}
+
+static OPTION3_POOL: [&str; 5] = ["Cotton", "Polyester", "Wool", "Linen", "Silk"];
+static OPTION3_DICT: LazyLock<DictValues> = LazyLock::new(|| DictValues::new(OPTION3_POOL));
+
+fn gen_option3(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
+    dict_pool_array(n, OPTION3_POOL.len(), rng, &OPTION3_DICT)
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────
@@ -831,6 +891,88 @@ fn gen_address_type(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 /// Get the template generator for a column name, or None.
 pub fn get_template(name: &str) -> Option<TemplateFn> {
     REGISTRY.get(name).copied()
+}
+
+/// Registry keys whose template produces a `Dictionary(Int32, Utf8)` array
+/// instead of plain `Utf8` (perf-hunt hunt0109/H4) — hand-maintained
+/// alongside the `REGISTRY` entries for `gen_suffix`/`gen_lead_source`/
+/// `gen_semester`/`gen_grade`/`gen_revenue_range`/`gen_source_system`/
+/// `gen_os_version`/`gen_currency`/`gen_variant`/`gen_option1`/
+/// `gen_option2`/`gen_option3`/`gen_reviewer_notes`/`gen_address_type`.
+/// `pipeline::build_full_schema` consults this (via
+/// `resolve_dict_encoded_column`) so the declared column type matches what
+/// `generate_column` actually produces — a mismatch is a hard
+/// `RecordBatch` construction error, not silently wrong data.
+pub fn is_dict_encoded_template(name: &str) -> bool {
+    matches!(
+        name,
+        "suffix"
+            | "lead_source"
+            | "semester"
+            | "grade"
+            | "revenue_range"
+            | "source_system"
+            | "os_version"
+            | "currency"
+            | "variant_title"
+            | "option1"
+            | "option2"
+            | "option3"
+            | "reviewer_notes"
+            | "address_type"
+    )
+}
+
+/// Resolves `raw_name` (a column name exactly as declared in the schema
+/// JSON, e.g. `pipeline::build_full_schema`'s `col["name"]`) through the
+/// same Stage 1 (normalized name) / Stage 2 (stripped prefix) precedence as
+/// `column_gen::generate_column`, and returns the matched registry key IFF
+/// it names a dictionary-encoded template (`is_dict_encoded_template`).
+/// Single source of truth shared by `dict_encoded_null_array`,
+/// `pipeline::build_full_schema`, and `difficulty::estimate_difficulty` —
+/// all three need to agree on which columns are dictionary-encoded, and
+/// this is the one place that resolution logic is written.
+pub fn resolve_dict_encoded_column(raw_name: &str) -> Option<String> {
+    let norm_name = raw_name.to_lowercase().replace(' ', "_");
+    if get_template(&norm_name).is_some() {
+        return is_dict_encoded_template(&norm_name).then_some(norm_name);
+    }
+    let stripped = crate::pool_lookup::strip_prefix(raw_name);
+    if stripped != norm_name
+        && get_template(&stripped).is_some()
+        && is_dict_encoded_template(&stripped)
+    {
+        return Some(stripped);
+    }
+    None
+}
+
+/// `n` all-null `Dictionary(Int32, Utf8)` entries sharing the same
+/// dictionary a real call to that column's template would use, or `None`
+/// if `raw_name` doesn't resolve to a dictionary-encoded column (perf-hunt
+/// hunt0109/H4). Used by `pipeline::add_metadata_and_align`'s missing-
+/// column fallback — see `pipeline::DictValues::null_array`'s doc comment
+/// for why this can't just be `arrow::array::new_null_array`.
+pub fn dict_encoded_null_array(raw_name: &str, n: usize) -> Option<ArrayRef> {
+    let resolved = resolve_dict_encoded_column(raw_name)?;
+    let dict = match resolved.as_str() {
+        "suffix" => &*SUFFIX_DICT,
+        "lead_source" => &*LEAD_SOURCE_DICT,
+        "semester" => &*SEMESTER_DICT,
+        "grade" => &*GRADE_DICT,
+        "revenue_range" => &*REVENUE_RANGE_DICT,
+        "source_system" => &*SOURCE_SYSTEM_DICT,
+        "os_version" => &*OS_VERSION_DICT,
+        "currency" => &*CURRENCY_DICT,
+        "variant_title" => &*VARIANT_DICT,
+        "option1" => &*OPTION1_DICT,
+        "option2" => &*OPTION2_DICT,
+        "option3" => &*OPTION3_DICT,
+        "reviewer_notes" => &*REVIEWER_NOTES_DICT,
+        "address_type" => &*ADDRESS_TYPE_DICT,
+        _ => unreachable!("resolve_dict_encoded_column only returns dict-encoded keys"),
+    };
+    Some(dict.null_array(n))
 }
 
 use std::collections::HashMap;
@@ -1132,34 +1274,11 @@ static REGISTRY: LazyLock<HashMap<&'static str, TemplateFn>> = LazyLock::new(|| 
         })
     });
     // Option1, Option2, Option3
-    m.insert("option1", |n, rng, _| {
-        let pool = ["Small", "Medium", "Large", "XL", "XXL"];
-        let mut builder = StringBuilder::with_capacity(n, n * 5);
-        for _ in 0..n {
-            builder.append_value(pool[rng.next_usize(pool.len())]);
-        }
-        Arc::new(builder.finish())
-    });
-    m.insert("option2", |n, rng, _| {
-        let pool = ["Black", "White", "Red", "Blue", "Green", "Gray", "Navy"];
-        let mut builder = StringBuilder::with_capacity(n, n * 5);
-        for _ in 0..n {
-            builder.append_value(pool[rng.next_usize(pool.len())]);
-        }
-        Arc::new(builder.finish())
-    });
-    m.insert("option3", |n, rng, _| {
-        let pool = ["Cotton", "Polyester", "Wool", "Linen", "Silk"];
-        let mut builder = StringBuilder::with_capacity(n, n * 10);
-        for _ in 0..n {
-            builder.append_value(pool[rng.next_usize(pool.len())]);
-        }
-        Arc::new(builder.finish())
-    });
+    m.insert("option1", gen_option1);
+    m.insert("option2", gen_option2);
+    m.insert("option3", gen_option3);
     m
 });
-
-use std::sync::LazyLock;
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
@@ -1193,11 +1312,27 @@ mod tests {
             let template = get_template(name).expect("template not found");
             let arr = template(N, &mut rng, &ctx);
             assert_eq!(arr.len(), N, "template '{name}' produced wrong length");
-            let s = arr.as_string::<i32>();
+            // A handful of templates return `Dictionary(Int32, Utf8)`
+            // instead of plain `Utf8` (perf-hunt hunt0109/H4) — read
+            // through either representation instead of assuming `Utf8`.
             for i in 0..N {
-                let v = s.value(i);
+                let v = template_value_at(&arr, i);
                 assert!(!v.is_empty(), "template '{name}' empty at {i}");
             }
+        }
+    }
+
+    /// Reads row `i` as `&str` from either a plain `StringArray` or a
+    /// `DictionaryArray<Int32Type>` over `Utf8` values — see
+    /// `fast_template::is_dict_encoded_template`.
+    fn template_value_at(arr: &ArrayRef, i: usize) -> &str {
+        use arrow::datatypes::Int32Type;
+        if let Some(dict) = arr.as_dictionary_opt::<Int32Type>() {
+            dict.values()
+                .as_string::<i32>()
+                .value(dict.keys().value(i) as usize)
+        } else {
+            arr.as_string::<i32>().value(i)
         }
     }
 

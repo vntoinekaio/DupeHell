@@ -345,13 +345,36 @@ pub fn estimate_difficulty(
 
         for col in &cols {
             let base_damage = base_noise_damage(&col.name, &col.col_type);
-            let p_single: f64 = plan
-                .noise_types
-                .iter()
-                .filter(|n| crate::pipeline::noise_type_targets_column(&n.noise_type, &col.name))
-                .map(|n| n.count as f64 / n_dup_f)
-                .sum::<f64>()
-                .min(1.0);
+            // A dictionary-encoded column (perf-hunt hunt0109/H4) is never
+            // actually reachable by any noise category, regardless of what
+            // `noise_type_targets_column`'s name-pattern predicate would
+            // say: `pipeline::match_noise_columns` filters candidates to
+            // `DataType::Utf8 | DataType::LargeUtf8` *before* consulting
+            // that predicate, and a `Dictionary(Int32, Utf8)` field fails
+            // it. `col.col_type` here is the schema JSON's `"string"`/etc
+            // string (this model has no notion of Arrow types otherwise),
+            // so this check has to be separate — without it, this model
+            // would silently drift from real generation on exactly the
+            // handful of columns hunt0109/H4 converted (`suffix`,
+            // `currency`, `address_type`, ...), same failure mode the doc
+            // comment above already guards against for the noise-type
+            // predicate itself. `resolve_dict_encoded_column` is the single
+            // place this name resolution is written, shared with
+            // `pipeline::build_full_schema`.
+            let is_dict_encoded =
+                crate::fast_template::resolve_dict_encoded_column(&col.name).is_some();
+            let p_single: f64 = if is_dict_encoded {
+                0.0
+            } else {
+                plan.noise_types
+                    .iter()
+                    .filter(|n| {
+                        crate::pipeline::noise_type_targets_column(&n.noise_type, &col.name)
+                    })
+                    .map(|n| n.count as f64 / n_dup_f)
+                    .sum::<f64>()
+                    .min(1.0)
+            };
             let p_touched = 1.0 - (1.0 - p_single).powi(passes);
             let damage = base_damage * p_touched;
             let util = match_utility(&col.name, &col.col_type);

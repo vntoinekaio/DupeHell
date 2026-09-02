@@ -538,6 +538,18 @@ impl GtAccumulator {
             "unique",
         ]);
         let difficulty_dict = crate::pipeline::DictValues::new([difficulty.to_string()]);
+        // Resolved once, not once per row (perf-hunt hunt0109/H10):
+        // `match_type_dict.key(mt)` hashes `mt` through a `HashMap<String,
+        // i32>` (SipHash), but `mt` is always one of these 5 literals —
+        // every row's classification branch below already knows which one
+        // before it ever calls `.key()`. Resolving the 5 keys up front lets
+        // the branch produce the `i32` directly, at the same place it used
+        // to produce the `&str`.
+        let k_hard_neg = match_type_dict.key("hard_neg");
+        let k_canary = match_type_dict.key("canary");
+        let k_exact_dup = match_type_dict.key("exact_dup");
+        let k_fuzzy_dup = match_type_dict.key("fuzzy_dup");
+        let k_unique = match_type_dict.key("unique");
 
         for batch_result in reader {
             let batch = batch_result.map_err(|e| format!("read gt draft batch: {e}"))?;
@@ -580,24 +592,24 @@ impl GtAccumulator {
                     !ident_col.is_null(i) && ident_col.value(i)
                 };
                 let is_dup_master = master_key.is_some_and(|k| dup_masters.contains(&k));
-                let mt = if is_hn {
+                let mt_key = if is_hn {
                     n_hard_neg += 1;
-                    "hard_neg"
+                    k_hard_neg
                 } else if is_canary {
-                    "canary"
+                    k_canary
                 } else if is_dup_master {
                     if is_identical {
                         n_exact_dup += 1;
-                        "exact_dup"
+                        k_exact_dup
                     } else {
                         n_fuzzy_dup += 1;
-                        "fuzzy_dup"
+                        k_fuzzy_dup
                     }
                 } else {
                     n_unique += 1;
-                    "unique"
+                    k_unique
                 };
-                mt_keys.append_value(match_type_dict.key(mt));
+                mt_keys.append_value(mt_key);
                 // Every row of a duplicated master belongs to its cluster,
                 // tagged with its own identical/fuzzy status. Only tracked
                 // when `--graph` is enabled: `cluster_pairs` is exclusively

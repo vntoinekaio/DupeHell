@@ -254,20 +254,25 @@ pub fn apply_null_rate(arr: &dyn arrow::array::Array, rate: f64, rng: &mut Rng) 
     let n = arr.len();
     let raw_mask = generate_null_mask(n, rate, rng);
     // Ensure first element is not null (Polars schema inference reads row 0).
+    //
+    // Only 2 bits ever change here (row 0 -> false, and one swap_idx row ->
+    // true), but the previous code rebuilt the ENTIRE mask through a fresh
+    // `BooleanArray::builder(n)` + `append_value` per row whenever row 0
+    // happened to draw null (perf-hunt hunt0109/H2) — an O(n) pass +
+    // allocation, at `rate` frequency (up to ~150 nullable columns across
+    // the 40 schemas, median ~30%), just to flip 2 bits. Mutating the
+    // buffer in place reproduces the exact same final bit pattern, `swap_idx
+    // == None` case included (every row null: row 0 still gets forced to
+    // `false` with no compensating swap, same as before).
     let mask = if raw_mask.value(0) {
         let swap_idx = (1..n).find(|&i| !raw_mask.value(i));
-        let mut builder = BooleanArray::builder(n);
-        for i in 0..n {
-            let is_null = if i == 0 {
-                false
-            } else if Some(i) == swap_idx {
-                true
-            } else {
-                raw_mask.value(i)
-            };
-            builder.append_value(is_null);
+        let mut bb: arrow::array::BooleanBufferBuilder = arrow::array::BooleanBufferBuilder::new(n);
+        bb.append_buffer(raw_mask.values());
+        if let Some(idx) = swap_idx {
+            bb.set_bit(idx, true);
         }
-        builder.finish()
+        bb.set_bit(0, false);
+        BooleanArray::new(bb.finish(), None)
     } else {
         raw_mask
     };
