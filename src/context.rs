@@ -103,10 +103,9 @@ impl PoolStore {
         entries.sort_by_key(|e| e.file_name());
 
         // Each file is read + parsed independently of every other
-        // (perf-hunt hunt0109/H12, measured isolated ~2.6-3.4x on the
-        // read+parse portion) — the previous sequential loop paid this
-        // startup cost once per file, one process at a time; a `--force`
-        // rebuild or a `validate_all_domains.py`-style campaign that spawns
+        // (measured in isolation ~2.6-3.4x faster on the read+parse
+        // portion) — the previous sequential loop paid this startup cost
+        // once per file, one process at a time; a scripted campaign that spawns
         // many short-lived processes back to back pays it many times over.
         // `collect::<Result<Vec<_>, _>>()` (not `filter_map`+`ok()`)
         // preserves the previous behavior of propagating the FIRST read/
@@ -131,7 +130,7 @@ impl PoolStore {
 
 /// The engine context holding config and pool data.
 ///
-/// Deliberately not `Clone` (perf-hunt hunt0109/H13): `pool_store` holds
+/// Deliberately not `Clone`: `pool_store` holds
 /// ~2.8 MB across 151 pools, so a `Context::clone()` would be a silent deep
 /// copy of tens of thousands of `String`s. Nothing in the crate ever clones
 /// a `Context` — pass `&Context` (the pattern already used throughout

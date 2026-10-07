@@ -258,7 +258,7 @@ pub fn apply_null_rate(arr: &dyn arrow::array::Array, rate: f64, rng: &mut Rng) 
     // Only 2 bits ever change here (row 0 -> false, and one swap_idx row ->
     // true), but the previous code rebuilt the ENTIRE mask through a fresh
     // `BooleanArray::builder(n)` + `append_value` per row whenever row 0
-    // happened to draw null (perf-hunt hunt0109/H2) — an O(n) pass +
+    // happened to draw null — an O(n) pass +
     // allocation, at `rate` frequency (up to ~150 nullable columns across
     // the 40 schemas, median ~30%), just to flip 2 bits. Mutating the
     // buffer in place reproduces the exact same final bit pattern, `swap_idx
@@ -343,7 +343,7 @@ pub fn generate_column(
                 // comfortably past any `--size` exercised so far (a 100M
                 // real run measured 56M+ truncation warnings at width 7,
                 // since entities routinely exceed 10M rows well before
-                // `--size` reaches 100M — see hunt1808).
+                // `--size` reaches 100M).
                 let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
                 let mut i: usize = row_offset;
                 build_string_array(n, 15, |buf| {

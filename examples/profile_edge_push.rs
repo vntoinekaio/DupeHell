@@ -1,6 +1,6 @@
-// Isolated micro-benchmark for hunt3108_graph/H2: quantifies the cost of
+// Isolated micro-benchmark: quantifies the cost of
 // emitting FK edges via `EdgeWriter::push` in a scalar `for i in 0..batch_n`
-// loop (pipeline.rs:1526-1533, one push() per row per fk_remap) against a
+// loop (the original pipeline.rs pattern, one push() per row per fk_remap) against a
 // vectorized alternative that builds whole edge columns at once instead of
 // appending value-by-value.
 //
@@ -226,8 +226,8 @@ fn main() {
     println!(
         "profile_edge_push: {N_BATCHES} batches x {BATCH_SIZE} rows x {N_REMAPS} fk_remaps \
          (= {} total edge pushes), comparing scalar row-by-row EdgeWriter::push \
-         (current pipeline.rs behavior) vs a vectorized column-batch alternative \
-         (hunt3108_graph/H2)\n",
+         (original pipeline.rs behavior) vs the vectorized column-batch version \
+         now in use\n",
         N_BATCHES * BATCH_SIZE * N_REMAPS
     );
 
@@ -235,7 +235,7 @@ fn main() {
     let vectorized_s = bench_vectorized();
     let speedup = scalar_s / vectorized_s;
 
-    println!("\nscalar (current)   : {scalar_s:7.3}s");
+    println!("\nscalar (original)  : {scalar_s:7.3}s");
     println!("vectorized (batch) : {vectorized_s:7.3}s");
     println!("speedup             : {speedup:.2}x");
 }

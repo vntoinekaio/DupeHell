@@ -16,7 +16,7 @@ pub fn corrupt_email(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // NOTE: kept as an eager precompute, not
     // inline — the `strategy` match arms below (0 and 1) draw extra values
     // from `rng2` mid-loop, so inlining would change the RNG interleaving
     // for later rows (verified: broke an A/B checksum on the same pattern
@@ -90,7 +90,7 @@ pub fn corrupt_phone(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // NOTE: kept as an eager precompute, not
     // inline — the `4..=6` match arm below draws extra values from `rng2`
     // mid-loop (digit corruption), so inlining would change the RNG
     // interleaving for later rows. Same reasoning as `corrupt_email` above.

@@ -105,8 +105,8 @@ fn apply_column_conditions(
         let n = target.len();
 
         for cond in &col.conditions {
-            // Validate the action itself BEFORE building the O(n) mask
-            // (hunt1808/H3): `set_value`/`set_pool` without a usable
+            // Validate the action itself BEFORE building the O(n) mask:
+            // `set_value`/`set_pool` without a usable
             // `action_value` can never do anything — checking that first
             // means an inert condition costs one string compare, not a
             // full mask scan (`Vec<bool>` + n comparisons) that's built
@@ -210,7 +210,7 @@ fn build_condition_mask(dep: &ArrayRef, cond: &ColCondition, n: usize) -> Vec<bo
                 _ => |a, b| a <= b,
             };
             // Single downcast + direct per-element comparison on the typed
-            // Arrow array (hunt1808/H4) instead of materializing a
+            // Arrow array instead of materializing a
             // `Vec<f64>` of the whole column via `array_to_f64s` just to
             // immediately re-read it once per row.
             if let Some(int_arr) = dep.as_any().downcast_ref::<arrow::array::Int64Array>() {
@@ -509,7 +509,7 @@ fn apply_action_set_pool(
         let src = arr.as_string::<i32>();
         // Sized from the existing source column's value buffer, same as
         // `pool_lookup::pool_values`/`pipeline.rs`'s extra-pass scatter
-        // (perf-hunt hunt0109/H3) — an exact, free-to-read bound instead of
+        // — an exact, free-to-read bound instead of
         // a flat 16-byte guess.
         let cap_bytes = src.value_data().len().max(n);
         let mut builder = StringBuilder::with_capacity(n, cap_bytes);
@@ -542,7 +542,7 @@ fn apply_action_set_pool(
 
 /// Generate an entity batch from a JSON request.
 /// Returns a RecordBatch with the generated columns.
-/// Parses a `plan.columns_json` array once — hunt1808/H8: the previous
+/// Parses a `plan.columns_json` array once — the previous
 /// interface reformatted a full JSON request string (columns array
 /// included) and re-parsed it via `generate_entity_batch` on *every batch*
 /// of an entity (up to hundreds per run), a vestige of when
@@ -601,8 +601,7 @@ pub(crate) fn generate_entity_batch_parsed(
         .collect();
 
     // Field type comes from the array `generate_column` actually built,
-    // not a name-independent guess from the JSON `"type"` string (perf-hunt
-    // hunt0109/H4): a handful of string columns route to a template that
+    // not a name-independent guess from the JSON `"type"` string: a handful of string columns route to a template that
     // produces `Dictionary(Int32, Utf8)` instead of plain `Utf8` (see
     // `fast_template::is_dict_encoded_template`), and `col_type_to_arrow`
     // had no way to know that — it always mapped `"string"` to `Utf8`,
@@ -670,7 +669,7 @@ mod tests {
         assert_eq!(schema.field(3).data_type(), &DataType::Int64);
     }
 
-    /// hunt1808/H3 correction: `apply_action_set_null`/`set_value`'s
+    /// Regression: `apply_action_set_null`/`set_value`'s
     /// pass-through branch (`mask[i] == false`) used to do
     /// `builder.append_value(src.value(i))` unconditionally, silently
     /// promoting an existing null to a bogus concrete value (`0`/`""`/

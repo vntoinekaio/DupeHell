@@ -37,8 +37,8 @@ const ALPHA_UPPER: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 /// is valid UTF-8 by construction — checked with `debug_assert!` (so
 /// `cargo test`'s `fast_template::tests::test_all_templates_run`, which
 /// exercises every registered template, catches a future violation) and
-/// then skipped in `--release` via `from_utf8_unchecked` (perf-hunt
-/// hunt0109/H1, measured isolated ~22-29% faster than the checked call —
+/// then skipped in `--release` via `from_utf8_unchecked` (measured
+/// in isolation ~22-29% faster than the checked call —
 /// `examples/profile_utf8_validation.rs` — on the highest-execution-count
 /// path in the crate: once per generated string cell, of every row, of
 /// every batch, of every run).
@@ -98,7 +98,7 @@ pub fn buf_digits(nums: &[u64], width: usize, watermark_mask: Option<u64>) -> Ar
             s[start + 1] = b'0' + ((wm / 10) % 10) as u8;
             s[start + 2] = b'0' + (wm % 10) as u8;
         }
-        // SAFETY (perf-hunt hunt0109/H1): every byte of `s` is one of
+        // SAFETY: every byte of `s` is one of
         // `b'0'..=b'9'` (see the digit-fill loop above), so `s` is valid
         // ASCII/UTF-8 by construction — `debug_assert!` keeps `cargo test`
         // catching a future violation, `from_utf8_unchecked` skips the
@@ -135,7 +135,7 @@ pub fn bytes_strings(chars: &[u8], n: usize, length: usize, rng: &mut Rng) -> Ar
         for b in s.iter_mut() {
             *b = rand_char(chars, rng);
         }
-        // SAFETY (perf-hunt hunt0109/H1): every byte of `s` is drawn from
+        // SAFETY: every byte of `s` is drawn from
         // `chars`, which every call site passes as an ASCII table — valid
         // UTF-8 by construction, checked via `debug_assert!` (skipped in
         // `--release`, same measured gain as `build_string_array`).
@@ -259,7 +259,7 @@ fn ascii_local_into(s: &str, buf: &mut Vec<u8>) {
 /// caused accidental (unlabeled) collisions between unrelated entities once
 /// a dataset's population exceeded that range.
 ///
-/// Audit finding (backlog item #7): only the 3rd layout strategy carried a
+/// Previously, only the 3rd layout strategy carried a
 /// numeric suffix, and a narrow one (100-999, 900 values). The other two
 /// strategies' cardinality was bounded solely by the name pools (~520
 /// first names x ~515 last names per locale, or ~26 x ~515 for the

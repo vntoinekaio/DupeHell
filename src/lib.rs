@@ -87,7 +87,7 @@ impl GenerateResult {
 }
 
 /// The chosen difficulty tier's own singleton-master fraction (0.50/0.30/
-/// 0.20/0.10 for light/medium/hard/hell). Exposed so the Python `generate()`
+/// 0.10 for light/medium/hell). Exposed so the Python `generate()`
 /// wrapper can derive its default from `difficulty` instead of hardcoding a
 /// single fixed value that silently ignores the tier — see
 /// `schema::default_singleton_master_fraction` for the single source of

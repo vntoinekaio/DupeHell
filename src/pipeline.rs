@@ -177,8 +177,8 @@ pub(crate) const RID_LEN: usize = 15; // "R-" + 13 digits
 pub(crate) const PAD_LEN: usize = 13; // 13 digits
 
 // Every real (non-test) code path now uses `record_id_array`/
-// `master_id_array_*` (hunt1808/H1) or, on scalar (one-id-at-a-time) call
-// sites, `append_record_id` (hunt0109/H7+H9) — a buffer-reusing sibling
+// `master_id_array_*` or, on scalar (one-id-at-a-time) call
+// sites, `append_record_id` — a buffer-reusing sibling
 // with the same output, no per-id `String` allocation. `record_id_string`
 // itself survives only as a `#[cfg(test)]` fixture helper now — kept
 // `#[cfg(test)]` rather than deleted since test fixtures across
@@ -231,7 +231,7 @@ pub(crate) fn write_digits(buf: &mut Vec<u8>, val: u64, width: usize) {
 
 /// Appends `"R-" + idx` zero-padded to `PAD_LEN` digits onto the end of
 /// `buf` — the exact same bytes `record_id_string(idx)` produces, without
-/// allocating a `String` (perf-hunt hunt0109/H7+H9). Callers writing many
+/// allocating a `String`. Callers writing many
 /// ids in a loop should reuse one `buf` across rows (`buf.clear()` between
 /// calls, same convention as `buf_gen::build_string_array`'s row buffer).
 #[inline]
@@ -244,7 +244,7 @@ pub(crate) fn append_record_id(buf: &mut Vec<u8>, idx: u64) {
 /// Builds a `record_id` `StringArray` for `range` directly (one shared
 /// buffer via `buf_gen::build_string_array`, no per-row `String`) instead of
 /// collecting `Vec<String>` and recopying through `StringArray::
-/// from_iter_values` — same bytes, same order, see hunt1808/H1.
+/// from_iter_values` — same bytes, same order.
 pub(crate) fn record_id_array(range: std::ops::Range<usize>) -> ArrayRef {
     let n = range.len();
     let mut i = range.start as u64;
@@ -258,7 +258,7 @@ pub(crate) fn record_id_array(range: std::ops::Range<usize>) -> ArrayRef {
 
 /// Builds a `master_id` `StringArray` for the contiguous global-index range
 /// `start..start+n` (base entity batches: every row in the batch gets the
-/// next master index in order) — see hunt1808/H1.
+/// next master index in order).
 fn master_id_array_range(prefix: &str, start: usize, n: usize) -> ArrayRef {
     let width = prefix.len() + 1 + PAD_LEN;
     let mut i = start as u64;
@@ -273,7 +273,7 @@ fn master_id_array_range(prefix: &str, start: usize, n: usize) -> ArrayRef {
 /// Builds a `master_id` `StringArray` from an arbitrary (non-contiguous)
 /// sequence of global indices — duplicate-copy rows, whose master is
 /// whichever base row `indices` sampled, not a running counter. `indices`
-/// must yield exactly `n` values. See hunt1808/H1.
+/// must yield exactly `n` values.
 fn master_id_array_from_indices(
     prefix: &str,
     mut indices: impl Iterator<Item = usize>,
@@ -292,7 +292,7 @@ fn master_id_array_from_indices(
 
 /// Builds an `"HN-{:09}"` `master_id` `StringArray` for `n` rows, counting
 /// up from `start` — mirrors the previous per-row `format!("HN-{:09}", id)`
-/// loop, same values, same order. See hunt1808/H1.
+/// loop, same values, same order.
 fn hn_master_id_array(start: u64, n: usize) -> ArrayRef {
     const HN_WIDTH: usize = 12; // "HN-" + 9 digits
     let mut id = start;
@@ -402,13 +402,13 @@ struct HnPool {
 /// Column-name fragments for columns holding a person's name as free text,
 /// even when the column isn't literally called `*_name` (e.g. `operator`,
 /// `technician`, populated from the `first_name` pool across several
-/// domain schemas — see the 40-domain schema audit in the 2026-07 session).
+/// domain schemas).
 const PERSON_NAME_WORDS: &[&str] = &[
     "name",
     // Not bare "first"/"last": those also matched non-name columns like
     // `first_seen`/`last_active`/`last_login`/`last_updated`, sending them
     // through char-level typo/homoglyph noise and injecting letters into
-    // what are actually timestamps (BUGS.md C13). Every legitimate name
+    // what are actually timestamps. Every legitimate name
     // column across the 40 domain schemas is literally `*first_name*` /
     // `*last_name*` (e.g. `agent_first_name`, `pat_first_name`), so this
     // loses no real coverage.
@@ -431,8 +431,7 @@ const PERSON_NAME_WORDS: &[&str] = &[
 /// Column-name fragments for columns holding a company/organization name,
 /// even when the column isn't literally called `*_name`/`company*` (e.g.
 /// `supplier`, `manufacturer`, populated from the `company` pool across
-/// several domain schemas — see the 40-domain schema audit in the 2026-07
-/// session).
+/// several domain schemas).
 const COMPANY_NAME_WORDS: &[&str] = &[
     "company",
     "legal",
@@ -461,8 +460,7 @@ const COMPANY_NAME_WORDS: &[&str] = &[
 /// Used to keep the `"name"` fragment both lists share (needed to catch
 /// columns like `judge_name`/`director_name` with no more specific word)
 /// from making `given_name`/`company_name` cross-match each other's noise
-/// category — see `is_specifically_company_name` and the `hunt2407.md`
-/// perf-hunt entry this fixes (kyc's `given_name`/`family_name`/
+/// category — see `is_specifically_company_name` (kyc's `given_name`/`family_name`/
 /// `middle_name` were getting `companies` noise — `drop_legal_form` etc —
 /// applied to them, purely because `COMPANY_NAME_WORDS` also contains
 /// `"name"`).
@@ -494,13 +492,13 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             // Skip email-like columns — typo/visual noise destroys '@'.
             // Skip `ip_address` too — it matches the "address" fragment
             // below by name collision, but it isn't a postal address; this
-            // char-level noise injected letters into octets (BUGS.md C20).
+            // char-level noise injected letters into octets.
             if lower.contains("email") || lower.contains("ip_address") {
                 return false;
             }
             // Not "phone": that's digit-formatted data, not free text —
             // char-level typo/homoglyph noise injected letters into phone
-            // numbers (BUGS.md C12). `identifiers`/`corrupt_phone` already
+            // numbers. `identifiers`/`corrupt_phone` already
             // corrupts phone columns digit-aware.
             contains_any(&lower, &["address", "street", "city"])
                 || contains_any(&lower, PERSON_NAME_WORDS)
@@ -515,7 +513,7 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             contains_any(&lower, PERSON_NAME_WORDS) && !is_specifically_company_name(&lower)
         }
         "dates" | "date_error" | "date_chaotic" | "date_format_mix" | "age_impossible" => {
-            // "time"/"since"/"period" added (hunt2808.md): the schema's
+            // "time"/"since"/"period" added: the schema's
             // `date`/`datetime` column type already tells the generator a
             // column is a date, but this predicate only ever looked at the
             // *name* -- `departure_time`/`arrival_time` (aviation, travel),
@@ -574,7 +572,7 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
                 // noise coverage regardless of `passes`, floor-ing hell's
                 // f1_max well above its intended ceiling on that schema.
                 "registration",
-                // "sku"/"barcode"/"imei"/"imsi"/"iccid" added (hunt2808.md):
+                // "sku"/"barcode"/"imei"/"imsi"/"iccid" added:
                 // real sector-specific identifiers this fixed keyword list
                 // didn't recognize -- `sku` (ecommerce/fashion/retail/
                 // supplychain), `barcode`/`package_barcode` (ecommerce/
@@ -597,7 +595,7 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
         | "blocking_fail_partial"
         | "fuzzy_match"
         | "phonetic" => {
-            // Same exclusions as the typo/visual arm above (BUGS.md C12/C20):
+            // Same exclusions as the typo/visual arm above:
             // skip email (destroys '@') and `ip_address` (not a postal
             // address despite the name collision), and don't target `phone`
             // with this char-level noise — `identifiers` already handles it
@@ -605,7 +603,7 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             if lower.contains("email") || lower.contains("ip_address") {
                 return false;
             }
-            // "bio" added (hunt2808.md): free-text fields named `bio`/
+            // "bio" added: free-text fields named `bio`/
             // `biography` (social_media, publishing) are exactly the kind
             // of column this category targets, just not covered by the
             // existing "note"/"comment" keywords.
@@ -626,11 +624,11 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
         "addresses" | "address_scramble" | "postal_corrupt" => {
             // `ip_address` matches "address" by name collision but isn't a
             // postal address — scrambling/postal-corrupting it doesn't make
-            // sense (see the same exclusion on the typo/visual arm above,
-            // BUGS.md C20). `email_address` is the same collision: it
+            // sense (see the same exclusion on the typo/visual arm
+            // above). `email_address` is the same collision: it
             // contains "address" but is an email, not a postal address —
-            // `identifiers`/`corrupt_email` already handles it (perf-hunt
-            // hunt2407.md, confirmed empirically: kyc's `email_address` was
+            // `identifiers`/`corrupt_email` already handles it (confirmed
+            // empirically: kyc's `email_address` was
             // getting postal `address_scramble`/`postal_corrupt` noise).
             //
             // "state"/"country" added: `difficulty::base_noise_damage`
@@ -639,7 +637,7 @@ pub(crate) fn noise_type_targets_column(noise_type: &str, col_name: &str) -> boo
             // actually targeted them -- e.g. kyc's `residential_state` /
             // `residential_country` / `registered_country` had zero real
             // noise coverage regardless of `passes`.
-            // "location" added (hunt2808.md): `social_media::profile`'s
+            // "location" added: `social_media::profile`'s
             // `location` field is semantically an address/place field but
             // wasn't covered by any existing keyword. Checked against all
             // 40 domains for false-positive substring collisions before
@@ -840,8 +838,8 @@ fn unchanged_row_mask(
 }
 
 /// Same as [`unchanged_row_mask`], but only re-tests rows where `only[i]`
-/// is `true` — every other row keeps its input value unconditionally
-/// (perf-hunt hunt0109/H6). Used by `apply_noise_with_retry`'s retry loop:
+/// is `true` — every other row keeps its input value unconditionally.
+/// Used by `apply_noise_with_retry`'s retry loop:
 /// after a retry, `zip(mask, retried, noisy)` only ever overwrites rows
 /// where `unchanged[i]` was `true` going in, so for any row where it was
 /// `false`, `noisy` coming out of that `zip` is byte-for-byte the same
@@ -899,8 +897,8 @@ fn unchanged_row_mask_within(
 /// that doesn't exist; this is a schema/config-level gap, not a per-row
 /// randomness one.
 ///
-/// The retry merge only `zip()`s columns in `target_cols` (perf-hunt H1,
-/// hunt2407.md): `apply_noise_to_batch` already guarantees every other
+/// The retry merge only `zip()`s columns in `target_cols`:
+/// `apply_noise_to_batch` already guarantees every other
 /// column of `retried`/`noisy` is the same `Arc` as `orig`'s (untouched),
 /// so `zip`-ing them is a provably-no-op pass over the full column just to
 /// reconstruct a value that's already sitting there — wasted work that
@@ -942,7 +940,7 @@ fn apply_noise_with_retry(
         noisy = RecordBatch::try_new(noisy.schema(), merged_cols)
             .map_err(|e| format!("rebuild retried dup batch: {e}"))?;
         // Only re-test rows the zip above could actually have touched
-        // (perf-hunt hunt0109/H6) — every row with `unchanged[i] == false`
+        // — every row with `unchanged[i] == false`
         // is provably still `false` after this merge, see
         // `unchanged_row_mask_within`'s doc comment.
         unchanged = unchanged_row_mask_within(orig, &noisy, &target_cols, &unchanged)?;
@@ -990,21 +988,20 @@ fn apply_extra_pass_per_row(
     }
     let per_row_type: Vec<usize> = (0..n).map(|_| rng.next_usize(all_types.len())).collect();
 
-    // Partition rows by assigned type FIRST (perf-hunt H4, hunt2407.md),
+    // Partition rows by assigned type FIRST,
     // same technique as `noise::apply_random_subtype` — each row needs
     // noise from exactly one type, but the previous implementation called
     // `apply_noise_with_retry` on the FULL n-row batch once per active
     // type and threw away the n - |group| rows that mask didn't select:
     // O(len(all_types) * n) noise computation instead of O(n). On a schema
     // where every category has real target columns (e.g. kyc, all 9 hell
-    // categories active — hunt2407.md), that's up to 9x redundant work per
+    // categories active), that's up to 9x redundant work per
     // extra pass. Grouping first means each row's noise is computed once,
     // on a batch sized to just its own group.
     // `row_group`/`row_pos` record, per original row, which type-group it
     // landed in and its position within that group's `idxs` (built in the
     // same pass as `groups`) — same technique as
-    // `noise::apply_random_subtype` (hunt1808/H2, transposing that fix one
-    // level up): every noised value is read straight out of its group's
+    // `noise::apply_random_subtype` (transposed one level up): every noised value is read straight out of its group's
     // Arrow buffer at scatter time below, instead of round-tripping through
     // a `HashMap<String, Vec<Option<String>>>` of owned `String`s that a
     // final `StringArray::from` would then copy AGAIN.
@@ -1053,13 +1050,13 @@ fn apply_extra_pass_per_row(
     for col_idx in touched_cols {
         let orig_col = noisy.column(col_idx).as_string::<i32>();
         // Capacity sized to the column's actual existing value-buffer width
-        // instead of a flat 16-byte guess (perf-hunt hunt0109/H3, same
-        // motif as `pool_lookup::pool_values`) — `orig_col.value_data()` is
+        // instead of a flat 16-byte guess (same motif as
+        // `pool_lookup::pool_values`) — `orig_col.value_data()` is
         // the whole values buffer already sitting in memory for this
         // column, so its length is an exact, free-to-read bound.
         let cap_bytes = orig_col.value_data().len().max(n);
         let mut builder = StringBuilder::with_capacity(n, cap_bytes);
-        // Per-column, not per-row (perf-hunt hunt0109/H5): whether this
+        // Per-column, not per-row: whether this
         // group even touches `col_idx`, and which noised `StringArray` to
         // read from it if so, depends only on `(g, col_idx)` — at most
         // `all_types.len()` distinct outcomes — but the previous loop
@@ -1214,15 +1211,14 @@ impl DatasetWriter {
     }
 }
 
-// ── perf-hunt RSS-by-phase instrumentation (hunt1708.md, RAM pass) ─────────
+// ── RSS-by-phase debug instrumentation ──────────────────────────────────────
 //
-// Temporary, non-invasive: only samples/prints when `RUST_LOG=debug` (or
+// Non-invasive: only samples/prints when `RUST_LOG=debug` (or
 // lower) is enabled -- default runs pay one `log::log_enabled!` check per
 // call site and nothing else. Reuses `sysinfo` (already a normal
 // dependency, already used for the same purpose in `main.rs`'s
-// `warn_if_memory_tight`) instead of adding a new one for a temporary
-// probe. Not a substitute for real allocation-site attribution (no VTune
-// `memory-consumption` support on this machine/CPU, see hunt1708.md) --
+// `warn_if_memory_tight`) instead of adding a new one for a debug
+// probe. Not a substitute for real allocation-site attribution --
 // just phase-boundary RSS deltas to localize which part of the pipeline
 // dominates peak RAM before writing an isolated micro-bench for it.
 fn log_rss(label: &str) {
@@ -1233,7 +1229,7 @@ fn log_rss(label: &str) {
     let mut sys = sysinfo::System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
     if let Some(p) = sys.process(pid) {
-        log::debug!("[hunt_rss] {label}: rss={:.1} Mo", p.memory() as f64 / 1e6);
+        log::debug!("[rss] {label}: rss={:.1} MB", p.memory() as f64 / 1e6);
     }
 }
 
@@ -1297,7 +1293,7 @@ pub fn run_pipeline_chunked(
     // Build the full schema once (union of all entity columns + metadata)
     let full_arc = Arc::new(build_full_schema(config, &metadata));
     // One shared dictionary per low-cardinality column, built from the full
-    // known value set before any batch is written (hunt1808/H11) — every
+    // known value set before any batch is written — every
     // `domain`/`entity_type` array for the rest of this file reuses these
     // same `values`, required for IPC dictionary consistency (see
     // `DictValues`). `entity_type`'s value set is exactly the written
@@ -1424,7 +1420,7 @@ pub fn run_pipeline_chunked(
 
         let prefix = entity_prefix(plan_idx);
         let master_base = offsets.master_base(plan_idx);
-        // Parsed once per entity, not once per batch (hunt1808/H8) — see
+        // Parsed once per entity, not once per batch — see
         // `entity_gen::parse_columns`'s doc comment.
         let parsed_columns = crate::entity_gen::parse_columns(&plan.columns_json)?;
 
@@ -1433,7 +1429,7 @@ pub fn run_pipeline_chunked(
         let mut fk_builder = arrow::array::StringBuilder::new();
         let mut fk_rid_builder = arrow::array::StringBuilder::new();
         // Reused across every row of this entity's FK-pool extraction
-        // (perf-hunt hunt0109/H7) instead of one `String` allocation per
+        // instead of one `String` allocation per
         // row via `record_id_string` — see `append_record_id`.
         let mut fk_rid_buf: Vec<u8> = Vec::with_capacity(RID_LEN);
         let mut fk_count: usize = 0;
@@ -1467,7 +1463,7 @@ pub fn run_pipeline_chunked(
             .iter()
             .map(|n| distribute_by_weight(n.count, &batch_weights))
             .collect();
-        // Both invariant per entity, not per batch (perf-hunt hunt0109/H8)
+        // Both invariant per entity, not per batch
         // — hoisted out of the "Dups" section below, alongside this
         // entity's other precomputed invariants (`batch_bounds`,
         // `per_batch_noise_counts`), instead of being reconstructed inside
@@ -1629,7 +1625,7 @@ pub fn run_pipeline_chunked(
             {
                 nw.write_batch(&base_rb)
                     .map_err(|e| format!("write node: {e}"))?;
-                // hunt3108_graph/H2: `rid_arr` and each remap's `target_rids`
+                // `rid_arr` and each remap's `target_rids`
                 // are already whole `StringArray`s in row order -- push them
                 // as a single batch (one `Arc` clone each) instead of the
                 // previous `for i in 0..batch_n` scalar loop that
@@ -1711,7 +1707,7 @@ pub fn run_pipeline_chunked(
                 // noise-type bucket on Rayon's already-warm global pool
                 // instead of spawning a fresh OS thread per bucket per batch
                 // (the previous `std::thread::scope` pattern) — an isolated
-                // micro-benchmark (hunt3007/H5, `examples/profile_thread_spawn.rs`)
+                // micro-benchmark (`examples/profile_thread_spawn.rs`)
                 // measured raw OS thread spawn/join at 12-19x the cost of the
                 // pooled equivalent at this spawn count/workload shape.
                 // `par_iter` preserves input order in its output (unlike a
@@ -1918,17 +1914,17 @@ pub fn run_pipeline_chunked(
             );
         }
 
-        // Per-entity RSS checkpoint (hunt2808, RAM-first pass): the
+        // Per-entity RSS checkpoint: the
         // aggregate "after entity batches" checkpoint below only samples
         // once for the whole domain, which can't tell apart an entity that
         // dominates RAM from one that's negligible when a domain has
         // several entities. `dup_masters_len`/`masters_with_exact_copy_len`
-        // are read straight off `gt_acc` so H1 (cumulative GT bookkeeping
-        // growing with total duplicated masters seen so far) can be
-        // confirmed/refuted directly instead of inferred from RSS deltas
+        // are read straight off `gt_acc` so cumulative GT bookkeeping
+        // growth (with total duplicated masters seen so far) can be
+        // observed directly instead of inferred from RSS deltas
         // that also include this entity's own transient batch buffers.
         log::debug!(
-            "[hunt_gt_sets] after entity '{}' ({} base rows): dup_masters={} masters_with_exact_copy={}",
+            "[gt_sets] after entity '{}' ({} base rows): dup_masters={} masters_with_exact_copy={}",
             plan.name,
             plan.n_base,
             gt_acc.as_ref().map(|a| a.dup_masters_len()).unwrap_or(0),
@@ -2029,7 +2025,7 @@ pub fn run_pipeline_chunked(
             nw.write_batch(&hn_rb_full)
                 .map_err(|e| format!("write hn node: {e}"))?;
             if let Some((idx_a, pattern)) = hn_src {
-                // hunt3108_graph/H2: gather the target ids with the `take`
+                // Gather the target ids with the `take`
                 // kernel (vectorized) instead of a scalar
                 // `for i in .. { pool_rid_arr.value(idx_a[i]) }` loop, then
                 // push the whole edge batch in one call -- same reasoning as
@@ -2060,7 +2056,7 @@ pub fn run_pipeline_chunked(
     let t2_elapsed = t2.elapsed().as_secs_f64();
     // `hn_pools` is never read again past this point, but its natural scope
     // end is the whole function — dropping it explicitly here frees its RAM
-    // (measured 125.1 Mo on a 50M-record aviation/hell run, hunt1808/H-RAM2)
+    // (measured 125.1 MB on a 50M-record aviation/hell run)
     // as soon as it's actually done being useful instead of letting it sit
     // resident through canary generation, the dataset writer's finish, and
     // GT accumulation.
@@ -2604,9 +2600,8 @@ fn structural_key_columns_note(config: &PipelineConfig) -> String {
 /// Build the union schema from all entity plans (all columns + metadata).
 /// `Dictionary(Int32, Utf8)` for the near-constant-cardinality metadata
 /// columns (`domain`/`entity_type`/`match_type`/`difficulty`/`edge_type`/
-/// `subtype`) — hunt1808/H11, an explicit output-contract change (not
-/// bit-identical: the declared column type changes from `Utf8`), applied
-/// on explicit user request.
+/// `subtype`) — an explicit output-contract change (not bit-identical:
+/// the declared column type changes from `Utf8`).
 pub(crate) fn low_cardinality_dict_type() -> DataType {
     DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
 }
@@ -2683,8 +2678,7 @@ impl DictValues {
         self.build(keys)
     }
 
-    /// `n` all-null entries sharing this dictionary's `values` (perf-hunt
-    /// hunt0109/H4): used when a batch's own schema is missing a
+    /// `n` all-null entries sharing this dictionary's `values`: used when a batch's own schema is missing a
     /// dictionary-encoded column entirely (e.g. an HN pattern whose config
     /// never references it) — `arrow::array::new_null_array` would build a
     /// *different*, freshly-constructed dictionary values array for that
@@ -2698,7 +2692,7 @@ impl DictValues {
     }
 }
 
-/// Full known `subtype` value set for `_edges` output (hunt1808/H11): every
+/// Full known `subtype` value set for `_edges` output: every
 /// FK remap's `source_col` (the `"fk"`-edge subtype, see the `push()` call
 /// in the base-batch FK-edge loop above), every hard-negative pattern kind
 /// actually configured (the `"hard_neg"`-edge subtype — `config_json`'s
@@ -2753,7 +2747,7 @@ fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>
                 continue;
             }
             // The declared schema type must match what `generate_column`
-            // actually builds (perf-hunt hunt0109/H4), or `RecordBatch::
+            // actually builds, or `RecordBatch::
             // try_new` below hard-errors on a type mismatch. A handful of
             // templates produce `Dictionary(Int32, Utf8)` instead of plain
             // `Utf8` — `resolve_dict_encoded_column` is the single place
@@ -2810,7 +2804,7 @@ pub(crate) fn add_metadata_and_align(
     // of rebuilding an n-length array on every call, same idea as
     // `null_cache` above for the always-null columns. Built as
     // `Dictionary(Int32, Utf8)` against the run-wide `domain_dict`/
-    // `entity_type_dict` (hunt1808/H11) — every batch's array reuses the
+    // `entity_type_dict` — every batch's array reuses the
     // exact same dictionary `values`, required for IPC output (see
     // `DictValues`'s doc comment).
     let domain_arr = const_arr_cache
@@ -2837,7 +2831,7 @@ pub(crate) fn add_metadata_and_align(
             Some(idx) => all_arrays.push(rb.column(*idx).clone()),
             None => {
                 let field = full_arc.field(i + 4);
-                // A dictionary-encoded column (hunt0109/H4) needs its
+                // A dictionary-encoded column needs its
                 // dedicated shared dictionary even when null, not the
                 // general `(DataType, n)` cache below: two different
                 // dict-encoded fields (e.g. `suffix` and `grade`) share the
@@ -2879,8 +2873,7 @@ mod tests {
     use super::*;
     use crate::schema::{build_pipeline_config, load_schema};
 
-    /// Diagnostic scan (hunt2808.md, RAM-first pass that turned up a noise
-    /// coverage gap instead): for every entity of every domain schema,
+    /// Diagnostic scan for noise coverage gaps: for every entity of every domain schema,
     /// checks whether AT LEAST ONE of `hell`'s 9 noise categories has any
     /// target column at all. An entity with zero matching columns across
     /// all 9 categories gets `target_cols.is_empty()` on every attempt
@@ -2903,13 +2896,13 @@ mod tests {
     /// not meant to become a permanent dependency.
     ///
     /// This is a report, not an assertion: intentionally does NOT fail the
-    /// suite (a coverage gap is a data-quality finding for the hunt file,
+    /// suite (a coverage gap is a data-quality finding to investigate,
     /// not a regression this specific test should gate) -- run with
-    /// `cargo test --release test_hunt2808_noise_coverage_scan -- --nocapture --ignored`
+    /// `cargo test --release diag_noise_coverage_scan -- --nocapture --ignored`
     /// to see the full per-domain/per-entity table.
     #[test]
-    #[ignore = "hunt2808 diagnostic scan, not a pass/fail regression test -- run explicitly with --ignored --nocapture"]
-    fn test_hunt2808_noise_coverage_scan() {
+    #[ignore = "diagnostic scan, not a pass/fail regression test -- run explicitly with --ignored --nocapture"]
+    fn diag_noise_coverage_scan() {
         const HELL_NOISE_TYPES: &[&str] = &[
             "typo_aggressive",
             "visual",
@@ -2983,19 +2976,19 @@ mod tests {
         }
 
         eprintln!(
-            "\n[hunt2808_coverage] {total_entities} entities scanned across {} domains",
+            "\n[noise_coverage] {total_entities} entities scanned across {} domains",
             schema_files.len()
         );
         eprintln!(
-            "[hunt2808_coverage] {} entities with ZERO matching hell noise category:",
+            "[noise_coverage] {} entities with ZERO matching hell noise category:",
             zero_coverage.len()
         );
         for (domain, entity, ncols) in &zero_coverage {
-            eprintln!("[hunt2808_coverage]   {domain}::{entity} ({ncols} columns)");
+            eprintln!("[noise_coverage]   {domain}::{entity} ({ncols} columns)");
         }
     }
 
-    /// Regression for the perf-hunt cross-contamination bug (hunt2407.md):
+    /// Regression for the noise-category cross-contamination bug:
     /// `COMPANY_NAME_WORDS` and `PERSON_NAME_WORDS` both contain the bare
     /// `"name"` fragment, which used to let `given_name`/`family_name`/
     /// `middle_name` match the `companies` noise category (and would
@@ -3179,7 +3172,7 @@ mod tests {
         for batch in reader {
             let batch = batch.expect("read edges batch");
             // `edge_type`/`subtype` are `Dictionary(Int32, Utf8)`
-            // (hunt1808/H11) — cast back to plain `Utf8` for this test-only
+            // — cast back to plain `Utf8` for this test-only
             // comparison.
             let edge_type_col = arrow::compute::cast(
                 batch.column_by_name("edge_type").expect("edge_type col"),
@@ -3220,8 +3213,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// End-to-end regression for the `ClusterCsr` rewrite of `cluster_map`
-    /// (`project_csr_cluster_map_backlog`): drives the real pipeline
+    /// End-to-end regression for the `ClusterCsr` rewrite of `cluster_map`:
+    /// drives the real pipeline
     /// (`gt::GtAccumulator::finish` -> `ClusterCsr::build` ->
     /// `graph_gen::push_dup_clusters`) instead of testing either module in
     /// isolation, and checks the emitted `exact_dup`/`fuzzy_dup` edges are
@@ -3278,7 +3271,7 @@ mod tests {
                 .as_any()
                 .downcast_ref::<arrow::array::StringArray>()
                 .expect("target_node_id as string");
-            // `edge_type` is `Dictionary(Int32, Utf8)` (hunt1808/H11) —
+            // `edge_type` is `Dictionary(Int32, Utf8)` —
             // cast back to plain `Utf8` for this test-only comparison.
             let edge_type_col = arrow::compute::cast(
                 batch.column_by_name("edge_type").expect("edge_type col"),
@@ -3433,7 +3426,7 @@ mod tests {
         let ds_rid = ds.column_by_name("record_id").unwrap().as_string::<i32>();
         let ds_mid = ds.column_by_name("master_id").unwrap().as_string::<i32>();
         let gt_rid = gt.column_by_name("record_id").unwrap().as_string::<i32>();
-        // `match_type` is `Dictionary(Int32, Utf8)` (hunt1808/H11) — cast
+        // `match_type` is `Dictionary(Int32, Utf8)` — cast
         // back to plain `Utf8` for this test-only comparison.
         let gt_mt_col =
             arrow::compute::cast(gt.column_by_name("match_type").unwrap(), &DataType::Utf8)
@@ -3536,18 +3529,18 @@ mod tests {
         assert_eq!(pack_master_key("CANARY-000-0-abc"), None);
     }
 
-    // ── perf-hunt H1 isolated measurement (hunt2407.md) ─────────────────
+    // ── Isolated measurement: zip cost vs column count ─────────
     //
     // Not a correctness test -- #[ignore]'d so it never runs in normal
     // `cargo test`. Measures whether `apply_noise_with_retry`'s retry-zip
     // loop and `apply_extra_pass_per_row`'s pass-zip loop (both iterate
     // `0..num_columns()`, not just the noise_type's actual target_cols) cost
     // scales with TOTAL column count C, holding the number of noised
-    // columns T=1 constant -- H1's hypothesis. Run with:
-    //   cargo test --release pipeline::tests::hunt_h1_zip_cost_vs_column_count -- --ignored --nocapture
+    // columns T=1 constant. Run with:
+    //   cargo test --release pipeline::tests::bench_zip_cost_vs_column_count -- --ignored --nocapture
     #[test]
     #[ignore]
-    fn hunt_h1_zip_cost_vs_column_count() {
+    fn bench_zip_cost_vs_column_count() {
         use arrow::array::StringArray;
         use arrow::datatypes::{DataType, Field, Schema};
 
@@ -3574,8 +3567,8 @@ mod tests {
         // call pattern in `run_pipeline`'s dup-generation closure.
         const EXTRA_PASSES: usize = 2;
 
-        eprintln!("\n[hunt_h1] N_ROWS={N_ROWS} N_REPS={N_REPS} EXTRA_PASSES={EXTRA_PASSES}");
-        eprintln!("[hunt_h1] C=total columns, T=1 noised column (fixed) -- H1 predicts cost ∝ C");
+        eprintln!("\n[bench_zip] N_ROWS={N_ROWS} N_REPS={N_REPS} EXTRA_PASSES={EXTRA_PASSES}");
+        eprintln!("[bench_zip] C=total columns, T=1 noised column (fixed) -- hypothesis: cost ∝ C");
 
         for &n_cols in &[8usize, 15, 23] {
             let plan_cols = vec!["col0".to_string()];
@@ -3606,7 +3599,7 @@ mod tests {
 
             let avg = total / N_REPS as u32;
             eprintln!(
-                "[hunt_h1] C={n_cols:2}  avg={:>8.3}ms  per_column={:>7.4}ms  per_row_per_column={:>10.6}us",
+                "[bench_zip] C={n_cols:2}  avg={:>8.3}ms  per_column={:>7.4}ms  per_row_per_column={:>10.6}us",
                 avg.as_secs_f64() * 1000.0,
                 avg.as_secs_f64() * 1000.0 / n_cols as f64,
                 avg.as_secs_f64() * 1_000_000.0 / (N_ROWS * n_cols) as f64,
@@ -3614,9 +3607,9 @@ mod tests {
         }
     }
 
-    // ── perf-hunt kyc residual factor (hunt2407.md, corrected) ──────────
+    // ── Isolated measurement: kyc residual factor ───────────────────────
     //
-    // The first `hunt_h1_*` measurement above got two things wrong when
+    // The `bench_zip_cost_*` measurement above got two things wrong when
     // trying to explain kyc/hell's real-world ~4-5x slowdown vs nonprofit:
     // (1) it assumed `noise_passes = 3` at `hell` -- the real value is
     // `DifficultySettings::passes = 8` (schema.rs); (2) it used generic
@@ -3629,10 +3622,10 @@ mod tests {
     // from `schemas/*.json`, hell's real 9-category `noise_types` list, and
     // the real pass count (8) -- reproducing genuine per-category column
     // matching via `noise_type_targets_column`. Run with:
-    //   cargo test --release pipeline::tests::hunt_h1_residual_kyc_vs_nonprofit -- --ignored --nocapture
+    //   cargo test --release pipeline::tests::bench_residual_kyc_vs_nonprofit -- --ignored --nocapture
     #[test]
     #[ignore]
-    fn hunt_h1_residual_kyc_vs_nonprofit() {
+    fn bench_residual_kyc_vs_nonprofit() {
         use arrow::array::StringArray;
         use arrow::datatypes::{DataType, Field, Schema};
 
@@ -3701,7 +3694,7 @@ mod tests {
             "source_system",
         ];
 
-        eprintln!("\n[hunt_h1_residual] N_ROWS={N_ROWS} N_REPS={N_REPS} HELL_PASSES={HELL_PASSES}");
+        eprintln!("\n[bench_residual] N_ROWS={N_ROWS} N_REPS={N_REPS} HELL_PASSES={HELL_PASSES}");
 
         // Per-category breakdown for kyc only (the slow one) -- one rep,
         // timing each of the 9 categories' apply_noise_with_retry call
@@ -3709,14 +3702,14 @@ mod tests {
         // find which category(ies) dominate the 18s total.
         {
             let batch = make_batch(N_ROWS, kyc_cols);
-            eprintln!("[hunt_h1_residual] per-category breakdown on kyc.natural_person:");
+            eprintln!("[bench_residual] per-category breakdown on kyc.natural_person:");
             for &ttype in HELL_TYPES {
                 let mut rng = Rng::new(42);
                 let t0 = std::time::Instant::now();
                 let (_, _, tcols) =
                     apply_noise_with_retry(&batch, ttype, &[], &mut rng, &[]).unwrap();
                 eprintln!(
-                    "[hunt_h1_residual]   {ttype:20} {:>8.3}ms  target_cols={:?}",
+                    "[bench_residual]   {ttype:20} {:>8.3}ms  target_cols={:?}",
                     t0.elapsed().as_secs_f64() * 1000.0,
                     tcols,
                 );
@@ -3757,7 +3750,7 @@ mod tests {
 
             let avg = total / N_REPS as u32;
             eprintln!(
-                "[hunt_h1_residual] {label:20} C={:2}  avg={:>8.3}ms  avg_first_pass_target_cols={:.1}",
+                "[bench_residual] {label:20} C={:2}  avg={:>8.3}ms  avg_first_pass_target_cols={:.1}",
                 col_names.len(),
                 avg.as_secs_f64() * 1000.0,
                 total_target_hits as f64 / N_REPS as f64,

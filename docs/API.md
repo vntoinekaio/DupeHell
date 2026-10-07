@@ -33,7 +33,7 @@ Generate a synthetic dataset for a given domain.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `domain` | `str` | — | Domain name (e.g. `"kyc"`, `"publishing"`). Must match a file in `schemas/`. |
-| `size` | `int` | — | Number of base records (before duplicates & hard negatives). |
+| `size` | `int` | — | Number of base records (before duplicates & hard negatives). Must be in `[10, 1_200_000_000]`. |
 | `seed` | `int` | `42` | PRNG seed for deterministic output. |
 | `difficulty` | `str` | `"medium"` | One of `"light"`, `"medium"`, `"hell"`. Controls duplicate ratios and noise intensity. |
 | `output_dir` | `str` | `"."` | Directory for output `.ipc` / `.parquet` files. |
@@ -50,7 +50,7 @@ Generate a synthetic dataset for a given domain.
 
 **Returns:** [`GenerateResult`](#generateresult)
 
-**Raises:** `PyValueError` (Rust), `ValidationError` (Pydantic) if schema is invalid.
+**Raises:** `ValueError` on an out-of-range `size` or an unsupported `difficulty` / `locale` / `output_format` / `graph_format`; `FileNotFoundError` if the domain schema doesn't exist; `ValidationError` (Pydantic) if the schema is invalid; `PyValueError` (Rust) if generation itself fails.
 
 ---
 
@@ -141,6 +141,7 @@ Load and validate a domain schema file with Pydantic.
 | `name` | `str` | Entity name |
 | `columns` | `list[ColumnDef]` | Column definitions (min 1) |
 | `fk_remaps` | `list[FkRemap]` | Foreign key remapping rules |
+| `weight` | `float` | Relative population size of this entity within the domain (default `1.0`, equal shares) |
 
 #### `ColumnDef`
 
@@ -238,10 +239,10 @@ This lets you check whether your ER pipeline can "leave points on the table" or 
 ```python
 from dupehell import estimate_difficulty
 
-report = estimate_difficulty(domain="kyc", size=1_000_000, difficulty="hell")
-print(f"Max F1: {report.f1_max:.3f}")               # e.g., 0.892
-print(f"Guaranteed FP: {report.guaranteed_fp}")       # e.g. 3200
-print(f"Guaranteed FN: {report.guaranteed_fn}")       # e.g. 5100
+report = estimate_difficulty(domain="publishing", size=1_000_000, difficulty="hell")
+print(f"Max F1: {report.f1_max:.3f}")                     # 0.909
+print(f"Guaranteed FP: {report.total_guaranteed_fp}")      # 5112
+print(f"Guaranteed FN: {report.total_guaranteed_fn}")      # 51745
 
 # Per-entity breakdown (EntityDifficulty has no f1_max — only totals do)
 for ed in report.entities:
@@ -263,7 +264,7 @@ dupehell [OPTIONS]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--domain <DOMAIN>` | `kyc` | Domain schema to use |
-| `--size <SIZE>` | `1000000` | Number of base records |
+| `--size <SIZE>` | `1000000` | Number of base records (10 to 1,200,000,000) |
 | `--seed <SEED>` | `42` | PRNG seed |
 | `--difficulty <LEVEL>` | `medium` | `light`, `medium`, or `hell` |
 | `--estimate` | — | Estimate theoretical max F1 and exit (no data) |
@@ -280,6 +281,7 @@ dupehell [OPTIONS]
 | `--schemas-dir <PATH>` | `schemas` | Schema directory |
 | `--only-entity <NAME>` | — | Generate only this entity (e.g. `--domain aviation --only-entity passenger`); `--size` applies entirely to it |
 | `--chunk-size <N>` | — | Generate internally as sequential, RAM-bounded chunks of this size, assembled into the same single output files; `record_id`/`master_id` stay globally contiguous |
+| `--skip-ground-truth` | off | Skip all ground-truth computation and don't write the `_ground_truth` file — for stress-test runs that only need the dataset. Incompatible with `--graph` (CLI only for now) |
 
 ### Library
 
@@ -291,4 +293,4 @@ The Rust crate exposes:
 | `build_pipeline_config()` | `schema` | Build pipeline configuration |
 | `run_pipeline()` | `pipeline` | Run the generation pipeline |
 | `estimate_difficulty()` | `difficulty` | Estimate theoretical max F1 |
-| `Context` | `context` | Runtime context (pools, watermark)
+| `Context` | `context` | Runtime context (pools, watermark) |

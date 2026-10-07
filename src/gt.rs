@@ -16,8 +16,8 @@ use std::sync::Arc;
 /// record_id, is_identical)` triple belonging to a duplicated master.
 ///
 /// Avoids one `String` allocation per `record_id` and one per distinct
-/// `master_id` (the dominant RAM cost of `cluster_map` at 200M+ records,
-/// see `project_csr_cluster_map_backlog`): `master_id`/`record_id` are
+/// `master_id` (the dominant RAM cost of `cluster_map` at 200M+ records):
+/// `master_id`/`record_id` are
 /// packed into `u64`s (`pipeline::pack_master_key`/`parse_record_idx` —
 /// both are pure functions of the fixed-width ID shapes `pipeline.rs`
 /// already generates, so the packing/unpacking is lossless and exact) and
@@ -33,8 +33,7 @@ use std::sync::Arc;
 /// Bit-packed boolean buffer — 1 bit per entry instead of `Vec<bool>`'s 1
 /// byte, an 8x reduction on `ClusterCsr::is_identical`, which parallels
 /// `records` (potentially tens of millions of entries at 100M+ hell scale
-/// with `--graph`, a low singleton fraction). Found via a triage of
-/// reusable Rust perf patterns (hunt3007/H7).
+/// with `--graph`, a low singleton fraction).
 /// A `BooleanArray` of `n` copies of `value`, built directly from a
 /// `BooleanBuffer` (one bitmap allocation, `n/8` bytes) instead of
 /// `BooleanArray::from(vec![value; n])` (an `n`-byte `Vec<bool>` allocated
@@ -124,7 +123,7 @@ pub struct ClusterCsr {
 /// `record_idx` (from `parse_record_idx`) is bounded by `PAD_LEN` (13)
 /// decimal digits — `< 10^13 ≈ 2^43.2` — so bit 63 is always free to carry
 /// `is_identical` alongside it in one `u64`, the same trick
-/// `pack_master_key` already uses for its own high bits (hunt1808/H-RAM3).
+/// `pack_master_key` already uses for its own high bits.
 /// Packing this into `ClusterCsr::build`'s transient pair list drops it
 /// from `(u64, u64, bool)` (24 bytes/entry — `bool` pads the tuple to the
 /// next 8-byte alignment boundary, measured on this machine) to `(u64,
@@ -235,9 +234,8 @@ pub struct GtResult {
 }
 
 /// `Dictionary(Int32, Utf8)` for `entity_type`/`match_type`/`difficulty` —
-/// hunt1808/H11, an explicit output-contract change (not bit-identical:
-/// the declared column type changes from `Utf8`), applied on explicit user
-/// request. `entity_type` here must match `pipeline::low_cardinality_dict_type`
+/// an explicit output-contract change (not bit-identical: the declared
+/// column type changes from `Utf8`). `entity_type` here must match `pipeline::low_cardinality_dict_type`
 /// exactly — this column's data is `add_metadata_and_align`'s `et_arr`,
 /// pushed straight through by `push_*_batch`, so draft/final schema must
 /// declare the same type it's actually built as.
@@ -313,7 +311,7 @@ pub struct GtAccumulator {
     /// Keyed on `pipeline::pack_master_key(mid)` rather than the raw
     /// `String` — avoids a per-row string hash/allocation on a set queried
     /// 2-3x per duplicated row (`push_dup_batch` + classification in
-    /// `finish`), which VTune hotspots (hunt3007) showed costing ~5% of
+    /// `finish`), which VTune hotspots showed costing ~5% of
     /// total CPU on its own. `push_dup_batch` never receives an
     /// HN-/CANARY- master_id, so every key here is guaranteed
     /// pack_master_key-compatible.
@@ -329,7 +327,7 @@ pub struct GtAccumulator {
 }
 
 impl GtAccumulator {
-    /// Current size of `dup_masters` (hunt2808, RAM-first pass) -- lets
+    /// Current size of `dup_masters` -- lets
     /// call sites log this cumulative-over-the-whole-run set's growth
     /// directly, instead of inferring it from RSS deltas that also include
     /// unrelated per-entity batch buffers.
@@ -337,8 +335,7 @@ impl GtAccumulator {
         self.dup_masters.len()
     }
 
-    /// Current size of `masters_with_exact_copy` (hunt2808, RAM-first
-    /// pass) -- see `dup_masters_len`.
+    /// Current size of `masters_with_exact_copy` -- see `dup_masters_len`.
     pub(crate) fn masters_with_exact_copy_len(&self) -> usize {
         self.masters_with_exact_copy.len()
     }
@@ -526,8 +523,8 @@ impl GtAccumulator {
         // `pipeline.rs`'s `const_arr_cache`).
         let mut diff_arr_cache: Option<(usize, ArrayRef)> = None;
         // Fixed, fully-known value sets — built once, before any batch is
-        // written, and reused for every batch's `DictionaryArray` (hunt1808/
-        // H11; see `pipeline::DictValues`'s doc comment for why a *shared*
+        // written, and reused for every batch's `DictionaryArray` (see
+        // `pipeline::DictValues`'s doc comment for why a *shared*
         // dictionary is required for IPC output, not just a same-content
         // one built fresh per batch).
         let match_type_dict = crate::pipeline::DictValues::new([
@@ -538,7 +535,7 @@ impl GtAccumulator {
             "unique",
         ]);
         let difficulty_dict = crate::pipeline::DictValues::new([difficulty.to_string()]);
-        // Resolved once, not once per row (perf-hunt hunt0109/H10):
+        // Resolved once, not once per row:
         // `match_type_dict.key(mt)` hashes `mt` through a `HashMap<String,
         // i32>` (SipHash), but `mt` is always one of these 5 literals —
         // every row's classification branch below already knows which one
@@ -570,7 +567,7 @@ impl GtAccumulator {
                 let is_hn = mid.starts_with("HN-");
                 let is_canary = !is_hn && mid.starts_with("CANARY-");
                 // `dup_masters`/`masters_with_exact_copy` are keyed on
-                // `pack_master_key`, not the raw string (hunt3007/H3) --
+                // `pack_master_key`, not the raw string --
                 // never `Some` for HN-/CANARY- ids, consistent with
                 // `push_dup_batch` never inserting those.
                 let master_key = if is_hn || is_canary {
@@ -760,14 +757,14 @@ mod tests {
         Arc::new(BooleanArray::from(values))
     }
 
-    /// `entity_type` fixtures (hunt1808/H11): the real column is
+    /// `entity_type` fixtures: the real column is
     /// `Dictionary(Int32, Utf8)`, built from `add_metadata_and_align`'s
     /// `entity_type_dict` — these tests build the draft schema directly,
     /// so they need to hand `push_*_batch` a matching dictionary array
     /// rather than the plain `StringArray` `arr()` builds. `dict` must be
     /// the SAME `DictValues` instance across every `dict_arr` call feeding
     /// one draft file — a fresh dictionary per call is exactly the
-    /// "Dictionary replacement" bug this whole hunt/H11 fixes in the real
+    /// "Dictionary replacement" bug the shared dictionary prevents in the real
     /// pipeline code, and IPC enforces it just as strictly in tests.
     fn dict_arr(dict: &crate::pipeline::DictValues, values: Vec<&str>) -> ArrayRef {
         let keys =
@@ -789,7 +786,7 @@ mod tests {
                 .column_by_name("record_id")
                 .unwrap()
                 .as_string::<i32>();
-            // `match_type` is `Dictionary(Int32, Utf8)` (hunt1808/H11) —
+            // `match_type` is `Dictionary(Int32, Utf8)` —
             // cast back to plain `Utf8` for this test-only comparison.
             let mt_col =
                 arrow::compute::cast(batch.column_by_name("match_type").unwrap(), &DataType::Utf8)
@@ -1054,11 +1051,11 @@ mod tests {
         std::fs::remove_file(&final_path).ok();
     }
 
-    // ── perf-hunt RAM pass (hunt1708.md) ─────────────────────────────────
+    // ── RAM measurement: GT master sets ─────────────────────────
     //
     // Not a correctness test -- #[ignore]'d so it never runs in normal
-    // `cargo test`. Isolated measurement (never a full pipeline run, per
-    // perf-hunt rule 4): compares process RSS growth for two separate
+    // `cargo test`. Isolated measurement (never a full pipeline run):
+    // compares process RSS growth for two separate
     // `FxHashSet<u64>` (`dup_masters` + `masters_with_exact_copy` as they
     // exist today) against one combined `FxHashMap<u64, bool>`, at the
     // cardinality actually observed on a real run (aviation/hell/50M:
@@ -1070,10 +1067,10 @@ mod tests {
     // that row-level fraction suggests, so 70% is a deliberately
     // generous (not cherry-picked-low) estimate for this comparison).
     // Run with:
-    //   cargo test --release gt::tests::hunt_ram_dup_masters_vs_combined_map -- --ignored --nocapture
+    //   cargo test --release gt::tests::bench_ram_dup_masters_vs_combined_map -- --ignored --nocapture
     #[test]
     #[ignore]
-    fn hunt_ram_dup_masters_vs_combined_map() {
+    fn bench_ram_dup_masters_vs_combined_map() {
         fn rss_mb() -> f64 {
             let pid = sysinfo::Pid::from_u32(std::process::id());
             let mut sys = sysinfo::System::new();
@@ -1115,7 +1112,7 @@ mod tests {
         }
         let rss_two_sets = rss_mb();
         println!(
-            "[hunt_ram] two FxHashSet<u64> ({} + {} entries): rss delta = {:.1} Mo (rss0={:.1} -> {:.1})",
+            "[bench_ram] two FxHashSet<u64> ({} + {} entries): rss delta = {:.1} MB (rss0={:.1} -> {:.1})",
             dup_masters.len(),
             masters_with_exact_copy.len(),
             rss_two_sets - rss0,
@@ -1134,7 +1131,7 @@ mod tests {
         }
         let rss_combined = rss_mb();
         println!(
-            "[hunt_ram] one FxHashMap<u64,bool> ({} entries): rss delta = {:.1} Mo (rss1={:.1} -> {:.1})",
+            "[bench_ram] one FxHashMap<u64,bool> ({} entries): rss delta = {:.1} MB (rss1={:.1} -> {:.1})",
             combined.len(),
             rss_combined - rss1,
             rss1,
@@ -1145,7 +1142,7 @@ mod tests {
         let delta_two = rss_two_sets - rss0;
         let delta_one = rss_combined - rss1;
         println!(
-            "[hunt_ram] combined map saves {:.1} Mo ({:.1}%) vs two separate sets, at this cardinality",
+            "[bench_ram] combined map saves {:.1} MB ({:.1}%) vs two separate sets, at this cardinality",
             delta_two - delta_one,
             100.0 * (delta_two - delta_one) / delta_two.max(1.0)
         );

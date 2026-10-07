@@ -31,7 +31,8 @@ class ColumnDef(BaseModel):
 
     Attributes:
         name: Column name (e.g. ``"first_name"``, ``"email"``).
-        type: Data type. One of ``"string"``, ``"int"``, ``"float"``, ``"bool"``, ``"date"``.
+        type: Data type. One of ``"string"``, ``"int"``, ``"float"``, ``"boolean"``,
+            ``"date"``, ``"datetime"``.
         pool_name: Name of a value pool to draw from (shipped in assets/pools/).
         nullable: Whether the column allows null values.
         null_rate_default: Base probability (0-1) of a null value for this column.
@@ -63,10 +64,14 @@ class EntitySchema(BaseModel):
         name: Entity name (e.g. ``"customer"``, ``"patient"``).
         columns: List of column definitions. Must have at least one column.
         fk_remaps: Foreign key remap rules for cross-entity reference integrity.
+        weight: Relative population size of this entity within the domain,
+            used to split ``size`` across entities. Defaults to ``1.0``
+            (equal shares).
     """
     name: str
     columns: list[ColumnDef] = Field(min_length=1)
     fk_remaps: list[FkRemap] = []
+    weight: float = 1.0
 
 
 class HnSchema(BaseModel):

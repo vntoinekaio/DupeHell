@@ -138,7 +138,7 @@ struct Cli {
     #[arg(
         long,
         help = "Generate internally as ceil(size / chunk-size) sequential chunks (each an \
-                independently-seeded run, RAM-bounded like a --size chunk-size run) instead \
+                independently-seeded run, RAM-bounded like a --size <chunk-size> run) instead \
                 of one single run, then assemble the results into the same single dataset/GT/ \
                 graph files a non-chunked run would produce. record_id/master_id stay globally \
                 contiguous across chunks. Use when --size is large enough that a single run \
@@ -161,7 +161,7 @@ struct Cli {
 /// Conservative floor on bytes/record used only to flag genuinely tight
 /// runs, not to project a peak RSS — actual usage depends heavily on
 /// domain/difficulty/--graph and measured peaks stayed well under this
-/// on every scale tried so far (see hunt2808.md). Not meant to be tightened
+/// on every scale tried so far. Not meant to be tightened
 /// into an accurate estimator; it exists purely as a coarse tripwire.
 const BYTES_PER_RECORD_FLOOR: usize = 150;
 
@@ -300,7 +300,7 @@ fn main() {
                 eprintln!(
                     "Warning: --singleton-master-fraction {v} overrides the '{}' tier's \
                      default ({tier_default_singleton}) — duplicate volume will differ from \
-                     what --estimate reports unless it's given the same override.",
+                     what --estimate reports, which always uses the tier default.",
                     cli.difficulty
                 );
             }
@@ -342,10 +342,10 @@ fn main() {
     };
     config.skip_ground_truth = cli.skip_ground_truth;
 
-    // `run_id` is deterministic (BUGS.md C14/C15 fixed it to hash every
-    // parameter that affects the data), so a matching file only exists here
+    // `run_id` is deterministic (it hashes every parameter that
+    // affects the data), so a matching file only exists here
     // if this exact run was already generated before — warn instead of
-    // silently overwriting it (BUGS.md C16). Advisory only: there's no
+    // silently overwriting it. Advisory only: there's no
     // `--force` gate, since deliberately regenerating an identical run is a
     // normal, common thing to want to do.
     let dataset_ext = if effective_format == "parquet" {

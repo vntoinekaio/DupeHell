@@ -17,7 +17,7 @@ pub fn noise_dates(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef {
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    // NOTE (perf-hunt hunt1708, H2): drawing `op` eagerly for every row
+    // NOTE: drawing `op` eagerly for every row
     // BEFORE the loop, rather than inline at the top of the loop body, is
     // load-bearing here, not just a style choice — `fuzz_year` (op==1)
     // consumes extra draws from `rng2` mid-loop. Moving the primary draw
@@ -207,7 +207,7 @@ pub fn apply_age_impossible(arr: &dyn arrow::array::Array, rng: &mut Rng) -> Arr
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // NOTE: kept as an eager precompute, not
     // inline — the `new_year` match arms below draw extra values from
     // `rng2` mid-loop (`0`/`1`/`_` arms), so inlining `strategy`'s draw
     // would change the RNG interleaving for every row after the first one

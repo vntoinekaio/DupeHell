@@ -345,7 +345,7 @@ pub fn estimate_difficulty(
 
         for col in &cols {
             let base_damage = base_noise_damage(&col.name, &col.col_type);
-            // A dictionary-encoded column (perf-hunt hunt0109/H4) is never
+            // A dictionary-encoded column is never
             // actually reachable by any noise category, regardless of what
             // `noise_type_targets_column`'s name-pattern predicate would
             // say: `pipeline::match_noise_columns` filters candidates to
@@ -355,7 +355,7 @@ pub fn estimate_difficulty(
             // string (this model has no notion of Arrow types otherwise),
             // so this check has to be separate — without it, this model
             // would silently drift from real generation on exactly the
-            // handful of columns hunt0109/H4 converted (`suffix`,
+            // handful of dictionary-encoded columns (`suffix`,
             // `currency`, `address_type`, ...), same failure mode the doc
             // comment above already guards against for the noise-type
             // predicate itself. `resolve_dict_encoded_column` is the single

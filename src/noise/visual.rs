@@ -103,7 +103,7 @@ pub fn apply_unicode_pollution(arr: &dyn arrow::array::Array, rng: &mut Rng) -> 
     let mut rng2 = rng.fork();
 
     let n_ops: Vec<usize> = (0..n).map(|_| rng2.next_usize(3) + 1).collect();
-    // perf-hunt hunt1708 H3: was `n * 31` (matching the `% 31` modulus used
+    // Was `n * 31` (matching the `% 31` modulus used
     // below instead of the `.min(3)` cap on how many are ever read per
     // row) -- `apply_homoglyph`/`apply_ocr_errors` size their own
     // `positions` to `n * <their max ops>`, not to their position-index
@@ -178,7 +178,7 @@ pub fn apply_case_swap(arr: &dyn arrow::array::Array, rng: &mut Rng) -> ArrayRef
     let n = src.len();
     let mut rng2 = rng.fork();
 
-    // NOTE (perf-hunt hunt1708, H2): kept as an eager precompute, not
+    // NOTE: kept as an eager precompute, not
     // inline — the `else` branch below draws one extra `rng2.next_usize(2)`
     // per character, so inlining `r`'s draw would change the RNG
     // interleaving for later rows. Same reasoning as `noise/dates.rs`'s

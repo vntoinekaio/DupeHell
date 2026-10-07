@@ -38,8 +38,7 @@ pub fn pool_values(pool_name: &str, n: usize, rng: &mut Rng, ctx: &Context) -> A
         return Arc::new(builder.finish());
     }
     let len = pool.len();
-    // Sized to this pool's actual average value width (perf-hunt
-    // hunt0109/H3), not a flat 16-byte guess: a short pool like
+    // Sized to this pool's actual average value width, not a flat 16-byte guess: a short pool like
     // `gender`/`country_code` used to over-reserve (dead RSS never
     // touched), while a long one like `company`/`job_title` used to
     // under-reserve and pay a `StringBuilder` values-buffer realloc +

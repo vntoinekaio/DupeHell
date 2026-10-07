@@ -1,13 +1,13 @@
-// Isolated micro-benchmark for hunt3108_graph/H1: quantifies the cost of
+// Isolated micro-benchmark: quantifies the cost of
 // writing every dataset batch a second time to the `_nodes` IPC file
 // (`graph_gen::NodeWriter::write_batch`, called right after
-// `writer.write(&base_rb)` in `pipeline.rs`, strictly sequential today), and
+// `writer.write(&base_rb)` in `pipeline.rs`, originally strictly sequential), and
 // checks how much of that cost a background-thread overlap could recover.
 //
 // Doesn't touch crate-private code (`graph_gen` isn't `pub mod`) -- rebuilds
 // the same shape of work directly against `arrow::ipc::writer::FileWriter`,
 // which is exactly what `NodeWriter` is a thin wrapper over. The synthetic
-// schemas below mirror the two real domains measured in the parent hunt:
+// schemas below mirror the two real domains measured end-to-end:
 // `aviation` (narrow, ~9 cols, has fk_remaps) and `kyc` (wide, 23 cols, zero
 // fk_remaps) -- since kyc's measured overhead (+71-98%) already excludes any
 // FK-edge cost, comparing the two isolates the node-duplication cost alone.
@@ -210,10 +210,10 @@ fn main() {
     println!(
         "profile_node_writer: {N_BATCHES} batches x {BATCH_SIZE} rows, \
          comparing dataset-only vs current-sequential-double-write vs \
-         threaded-overlap for the NodeWriter duplication (hunt3108_graph/H1)\n"
+         threaded-overlap for the NodeWriter duplication\n"
     );
     // aviation-like: narrow schema (9 payload cols + record_id = 10 total,
-    // matches aviation's 8-10 cols per entity noted in the hunt).
+    // matches aviation's 8-10 cols per entity).
     run_for("aviation", 9);
     // kyc-like: wide, PII-dense schema (23 cols, matches natural_person).
     run_for("kyc", 23);

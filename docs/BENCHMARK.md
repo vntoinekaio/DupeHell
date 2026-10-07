@@ -65,22 +65,20 @@ between runs). No `--pcore-only`, no `--graph`.
 entity is the widest, most PII-dense schema in the crate, and at `hell`
 all 9 noise categories are simultaneously active on it (vs. often a single
 active category on sparser schemas). This is a confirmed, accepted
-workload difference, not a perf regression — see the `hunt2407` perf pass
-for the fixes already applied on this path.
+workload difference, not a perf regression.
 
 Throughput per domain generally holds flat or dips only slightly from 1M
 to 20M, then drops more noticeably at 50M for the heavier/denser schemas
 (`crm`, `ecommerce`, `insurance`, `technology`, `supplychain`, `telecom`) —
 consistent with the known non-monotonic slowdown at higher record counts
-(I/O/chunking-bound, tracked separately).
+(likely I/O-bound).
 
 50M/40-domain pass was the last full-sweep evaluation tier; future scale
 work will use a narrower domain selection rather than repeating the full
 40-domain matrix at higher sizes.
 
-`--graph`, `--pcore-only`, and other difficulty tiers not covered in this
-pass — see `project_benchmark_difficulty_format_backlog` memory for the
-broader matrix protocol and prior partial results.
+`--graph`, `--pcore-only`, and other difficulty tiers are not covered in this
+pass.
 
 ## IPC vs Parquet (hell), all 40 domains
 

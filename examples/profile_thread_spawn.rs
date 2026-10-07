@@ -1,4 +1,4 @@
-// Isolated micro-benchmark for hunt3007/H5: compares raw OS thread spawn
+// Isolated micro-benchmark: compares raw OS thread spawn
 // (`std::thread::scope` + `s.spawn`, the pattern used in
 // `pipeline.rs::run_pipeline_with_progress` for per-batch parallel noise
 // application) against `rayon::scope` (pooled worker threads) at a spawn

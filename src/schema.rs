@@ -51,7 +51,7 @@ pub struct EntitySchema {
     /// doesn't set it — every schema written before this field existed keeps
     /// behaving exactly as before. Set explicit weights when entities aren't
     /// realistically equal in population (e.g. aviation: far more
-    /// `passenger` identities than `airline` ones) — see `docs/` or ask
+    /// `passenger` identities than `airline` ones) — see `docs/weights.csv`
     /// before picking numbers for a domain you don't know well; a wrong
     /// weight is as misleading as the uniform default, just in the other
     /// direction.
@@ -210,8 +210,8 @@ pub fn chrono_now() -> String {
 /// format (IPC vs Parquet) or how many times it's run — and, just as
 /// important, a *different* filename whenever any of these parameters
 /// differ, since they all affect the generated data. `singleton_master_fraction`
-/// and `locale` were missing from this list until this was flagged as a bug
-/// (BUGS.md C14/C15): two runs differing only in `--singleton-master-fraction`
+/// and `locale` were missing from this list until this was flagged as a bug:
+/// two runs differing only in `--singleton-master-fraction`
 /// or `--locale` produced the exact same filename, so the second run silently
 /// overwrote the first's output.
 #[allow(clippy::too_many_arguments)]
@@ -235,7 +235,7 @@ pub fn deterministic_run_id(
     hard_neg_ratio.to_bits().hash(&mut hasher);
     singleton_master_fraction.to_bits().hash(&mut hasher);
     locale.hash(&mut hasher);
-    // BUGS.md C14/C15: every parameter that changes the output must be
+    // Every parameter that changes the output must be
     // hashed in, or two runs differing only in this one collide on the same
     // filename and silently overwrite each other.
     only_entity.unwrap_or("").hash(&mut hasher);
@@ -762,7 +762,7 @@ mod tests {
         }
     }
 
-    /// No-FK case (BUGS.md-style regression target, kyc's two entities
+    /// No-FK case (kyc's two entities
     /// aren't FK-linked): `only_entity` should produce exactly one entity
     /// plan, sized to the full `size`, with no pool-only entities appended.
     #[test]
@@ -874,7 +874,7 @@ mod tests {
         assert_ne!(a, c);
     }
 
-    /// Regression: BUGS.md C14/C15 — `singleton_master_fraction` and
+    /// Regression: `singleton_master_fraction` and
     /// `locale` weren't hashed into the run ID, so two runs differing only
     /// in one of these parameters (but producing genuinely different data)
     /// got the exact same output filename, silently overwriting each other.
@@ -892,7 +892,8 @@ mod tests {
 
     /// Regression guard for the `only_entity` hash input added alongside
     /// `--only-entity`: two runs differing only in which entity is targeted
-    /// must not collide on the same run id (same class of bug as C14/C15).
+    /// must not collide on the same run id (same class of bug as the
+    /// `singleton_master_fraction`/`locale` collision above).
     #[test]
     fn test_deterministic_run_id_sensitive_to_only_entity() {
         let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, None);
@@ -927,7 +928,7 @@ mod tests {
     /// `--chunk-size`: two runs with the same total size but a different
     /// chunking must not collide on the same run id, since the per-chunk
     /// seed sequence actually used internally differs (same class of bug
-    /// as C14/C15).
+    /// as the `singleton_master_fraction`/`locale` collision above).
     #[test]
     fn test_deterministic_run_id_sensitive_to_chunk_size() {
         let base = deterministic_run_id("kyc", 1000, 42, "medium", 0.1, 0.3, "en", None, None);

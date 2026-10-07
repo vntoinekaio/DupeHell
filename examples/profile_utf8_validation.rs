@@ -1,4 +1,4 @@
-// perf-hunt hunt0109/H1: is `from_utf8().unwrap()` (buf_gen.rs's
+// Isolated micro-benchmark: is `from_utf8().unwrap()` (buf_gen.rs's
 // `build_string_array`, called once per generated string cell across the
 // whole crate) worth replacing with `from_utf8_unchecked` behind a
 // `debug_assert!`? Isolated A/B: same row-building closure (mix of ASCII

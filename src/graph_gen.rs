@@ -37,8 +37,8 @@ impl GraphFormat {
 /// The node schema is the pipeline `full_arc` with column 0 (`record_id`)
 /// renamed `node_id`; all other columns are kept positionally identical.
 ///
-/// The actual IPC encode+write happens on a dedicated background thread
-/// (hunt3108_graph/H1): every batch written to the main dataset file used to
+/// The actual IPC encode+write happens on a dedicated background thread.
+/// Previously, every batch written to the main dataset file used to
 /// also be written here, synchronously, right before the dataset write —
 /// doubling the IPC-encoding cost of every batch (measured ~+95-97%
 /// overhead in isolation, consistent across schema widths). `write_batch`
@@ -67,7 +67,7 @@ pub struct NodeWriter {
 /// An unbounded `mpsc::channel` here would let the queue grow without limit
 /// whenever the writer thread falls behind the rest of the pipeline (real at
 /// high record counts: measured +80% peak RSS at 100M with `--graph`,
-/// vs. +5-7% at 1M-10M, hunt3108_graph/H1 follow-up) -- a small bound caps
+/// vs. +5-7% at 1M-10M) -- a small bound caps
 /// the extra memory to a handful of batches while still letting the node
 /// encode of the previous batch overlap with the caller writing the current
 /// one to the main dataset (the actual gain this thread exists for).
@@ -152,9 +152,9 @@ impl NodeWriter {
     }
 }
 
-/// `Dictionary(Int32, Utf8)` for `edge_type`/`subtype` — hunt1808/H11, an
+/// `Dictionary(Int32, Utf8)` for `edge_type`/`subtype` — an
 /// explicit output-contract change (not bit-identical: the declared column
-/// type changes from `Utf8`), applied on explicit user request.
+/// type changes from `Utf8`).
 fn low_cardinality_dict_type() -> DataType {
     DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
 }
@@ -193,7 +193,7 @@ impl EdgeWriter {
     /// will ever push for this writer — the full known set (FK
     /// `source_col`s + HN pattern kinds + `"complete"`/`"spanning_tree"`,
     /// see the call site in `pipeline.rs`) — built once, before any edge is
-    /// pushed, and shared across every flushed batch (hunt1808/H11; see
+    /// pushed, and shared across every flushed batch (see
     /// `DictValues`'s doc comment for why IPC output requires this).
     /// `edge_type`'s value set is fixed and universal (`"fk"`/`"hard_neg"`/
     /// `"exact_dup"`/`"fuzzy_dup"`, see `pair_edge_key` in
@@ -236,7 +236,7 @@ impl EdgeWriter {
 
     /// Same as [`push`](Self::push), but takes already-resolved
     /// `etype`/`subtype` dictionary keys instead of re-hashing the strings
-    /// through `DictValues::key` on every call (perf-hunt hunt0109/H9(a)):
+    /// through `DictValues::key` on every call:
     /// `push_dup_clusters` calls this per edge, where `etype`/`subtype`
     /// only ever take 2 values each across the whole cluster set — resolved
     /// once by the caller via `etype_key`/`subtype_key`.
@@ -267,7 +267,7 @@ impl EdgeWriter {
     /// `StringArray` via `.value(i)` and re-append it through a
     /// `StringBuilder`, plus one `HashMap` lookup per row for `etype`/
     /// `subtype`, even though `etype`/`subtype`/`weight` are constant for
-    /// the whole call — hunt3108_graph/H2, measured ~12x faster than the
+    /// the whole call — measured ~12x faster than the
     /// scalar loop it replaces). `src`/`tgt` are reused via `Arc` clone —
     /// zero-copy, no re-encoding of already-built strings.
     ///
@@ -350,7 +350,7 @@ pub fn push_dup_clusters(
     clusters: &crate::gt::ClusterCsr,
     max_edges: usize,
 ) -> Result<(), String> {
-    // Resolved once, not once per edge (perf-hunt hunt0109/H9(a)): `etype`
+    // Resolved once, not once per edge: `etype`
     // only ever takes 2 values here (`exact_dup`/`fuzzy_dup`: `exact_dup`
     // only when *both* ends are byte-for-byte identical to the cluster's
     // master — transitively identical to each other too; `fuzzy_dup` as
@@ -367,7 +367,7 @@ pub fn push_dup_clusters(
     let k_spanning = ew.subtype_key("spanning_tree");
     let pair_edge_key = |a: bool, b: bool| if a && b { k_exact } else { k_fuzzy };
 
-    // Reused across every edge endpoint (perf-hunt hunt0109/H9(b)) instead
+    // Reused across every edge endpoint instead
     // of one `String` allocation per endpoint via `record_id_string` — see
     // `pipeline::append_record_id`.
     let mut src_buf: Vec<u8> = Vec::with_capacity(crate::pipeline::RID_LEN);
@@ -436,7 +436,7 @@ mod tests {
             let src = b.column(0).as_string::<i32>();
             let tgt = b.column(1).as_string::<i32>();
             // `edge_type`/`subtype` are `Dictionary(Int32, Utf8)`
-            // (hunt1808/H11) — cast back to plain `Utf8` for this test-only
+            // — cast back to plain `Utf8` for this test-only
             // comparison.
             let et_col = arrow::compute::cast(b.column(2), &DataType::Utf8).unwrap();
             let st_col = arrow::compute::cast(b.column(3), &DataType::Utf8).unwrap();

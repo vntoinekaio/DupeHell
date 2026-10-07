@@ -14,7 +14,7 @@ pip install dupehell
 
 ```bash
 git clone https://github.com/vntoinekaio/DupeHell
-cd dupehell
+cd DupeHell
 cargo build --release
 ./target/release/dupehell --domain kyc --size 1000 --seed 42
 ```
@@ -34,7 +34,7 @@ r = generate(
 )
 print(r.dataset)       # ./data/publishing_<hash>.parquet
 print(r.ground_truth)  # ./data/publishing_<hash>_ground_truth.parquet
-print(r.total_records) # ~10150 (size + dups + hard negatives)
+print(r.total_records) # ~10225 (size + dups + hard negatives)
 ```
 
 ### CLI

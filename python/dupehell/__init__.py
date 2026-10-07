@@ -10,7 +10,7 @@ policy and prohibited uses.
 Quick start::
 
     >>> from dupehell import generate, estimate_difficulty, DOMAINS
-    >>> est = estimate_difficulty("kyc", 10000, difficulty="medium")
+    >>> est = estimate_difficulty("publishing", 10000, difficulty="medium")
     >>> print(f"Estimated F1: {est.f1_max:.3f}")
     >>> result = generate("kyc", 10000, output_format="parquet")
     >>> print(f"Dataset: {result.dataset}")
@@ -188,7 +188,8 @@ def generate(
 
     Raises:
         ValueError: If ``size`` is out of ``[10, 1_200_000_000]``, ``output_format``
-            or ``graph_format`` is not ``"ipc"`` or ``"parquet"``.
+            or ``graph_format`` is not ``"ipc"`` or ``"parquet"``, or ``difficulty``
+            / ``locale`` is not a supported value.
         FileNotFoundError: If the schema file for *domain* is not found.
             Includes a list of available domains.
         ValidationError (pydantic): If the schema JSON is malformed.
@@ -221,8 +222,8 @@ def generate(
         _warnings.warn(
             f"singleton_master_fraction={singleton_master_fraction!r} overrides the "
             f"{difficulty!r} tier's default ({tier_default_singleton}) — duplicate volume "
-            "will differ from what estimate_difficulty() reports for the same difficulty "
-            "unless it's given the same override.",
+            "will differ from what estimate_difficulty() reports, which always uses the "
+            "tier default.",
             UserWarning,
             stacklevel=2,
         )
@@ -289,9 +290,9 @@ def estimate_difficulty(
     Example::
 
         >>> from dupehell import estimate_difficulty
-        >>> est = estimate_difficulty("kyc", 10000, difficulty="hell")
+        >>> est = estimate_difficulty("publishing", 10000, difficulty="hell")
         >>> f"{est.f1_max:.1%}"
-        '83.3%'
+        '90.9%'
     """
     if difficulty not in _VALID_DIFFICULTIES:
         raise ValueError(f"difficulty must be one of {_VALID_DIFFICULTIES}, got {difficulty!r}")

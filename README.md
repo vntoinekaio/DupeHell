@@ -25,7 +25,7 @@ from dupehell import generate
 r = generate(domain="publishing", size=10000, seed=42, difficulty="hell")
 print(r.dataset)       # ./publishing_<hash>.parquet
 print(r.ground_truth)  # ./publishing_<hash>_ground_truth.parquet
-print(r.total_records) # ~10150
+print(r.total_records) # ~10225
 ```
 
 ### CLI (Rust)
@@ -59,6 +59,9 @@ Each run produces:
 | `--output-dir` | `.` | Output directory |
 | `--graph` | off | Also emit a property graph (nodes + edges) |
 | `--graph-format` | `parquet` | `parquet` or `ipc`, only used with `--graph` |
+| `--skip-ground-truth` | off | Skip ground-truth computation and the `_ground_truth` file (faster stress-test runs; incompatible with `--graph`) |
+
+Full option list (`--only-entity`, `--chunk-size`, `--locale`, `--estimate`, …): see [docs/API.md](docs/API.md#cli).
 
 ### Graph generation
 
@@ -85,13 +88,13 @@ cargo run --release -- --domain fintech --size 10000 --seed 42 --graph
 
 - **40 domains** — KYC, publishing, fintech, blockchain, technology, banking,
   healthcare, ecommerce, automotive, cybersecurity, gaming, and 30 more
-- **Multi-entity schemas** — 3–5 entity types per domain (person, account,
-  address, transaction)
+- **Multi-entity schemas** — 2–7 entity types per domain (e.g. person,
+  account, address, transaction), linked by foreign keys
 - **Controlled noise** — typos, OCR errors, homoglyphs, date swaps, phonetic
   variants, Unicode pollution
 - **Hard negatives** — `same_field`, `mix_identifier`, `mix_arrays` primitives
-- **Ground truth** — full match labels (exact_dup, hard_neg, singleton) with
-  cluster statistics
+- **Ground truth** — full match labels (exact_dup, fuzzy_dup, hard_neg,
+  singleton) with cluster statistics
 - **Graph generation** — optional property graph output (nodes, typed edges)
   for graph-based entity resolution and community detection benchmarking
 - **Deterministic** — seeded RNG (`rand_pcg`) for reproducible output
@@ -122,7 +125,7 @@ often a single active category on sparser schemas). Excluding kyc, the 1M
 average is 705,333 rec/s. Throughput drops noticeably at 50M for the
 heavier/denser schemas (`crm`, `ecommerce`, `insurance`, `technology`,
 `supplychain`, `telecom`) — a known non-monotonic slowdown at higher
-record counts, tracked separately.
+record counts.
 
 ### IPC vs Parquet
 
@@ -161,9 +164,9 @@ lib.rs / main.rs → Context (151 pools) → PipelineConfig → run_pipeline()
          └────────────────────────────────────────────────┴────────────────────┘
                                                           ▼
                                                      pipeline.rs
-                                               (merge + GT + IPC write)
+                                               (merge + GT + write)
                                                           ▼
-                                               {domain}.ipc + GT.ipc
+                                   {domain}_{hash}.parquet + _ground_truth.parquet
 ```
 
 ---
@@ -195,7 +198,7 @@ Technology · Telecom · Travel
 ## Development
 
 ```bash
-cargo test        # 113 tests, ~30s
+cargo test        # 164 tests
 cargo build --release
 cargo clippy      # 0 warnings
 cargo fmt --check # all formatted

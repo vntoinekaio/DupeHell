@@ -6,7 +6,7 @@
 
 ```bash
 git clone https://github.com/vntoinekaio/DupeHell
-cd dupehell
+cd DupeHell
 cargo build --release
 cargo test
 ./target/release/dupehell --domain kyc --size 1000 --seed 42
@@ -34,10 +34,13 @@ dupehell/
 │   ├── fk_remap.rs         # Foreign key remapping
 │   ├── hn_common.rs        # Hard negative generation
 │   ├── gt.rs               # Ground truth computation + IPC/Parquet write
+│   ├── graph_gen.rs        # Property-graph output (nodes + typed edges)
+│   ├── canary.rs           # Watermark canary records
+│   ├── cpu_affinity.rs     # --pcore-only (P-core pinning, Windows)
 │   ├── pool_lookup.rs      # Pool asset loading
 │   ├── rng.rs              # PRNG helpers
 │   ├── difficulty.rs       # Theoretical max F1 estimation
-│   └── noise/              # 9 noise modules
+│   └── noise/              # Noise modules (one per category family)
 │       ├── mod.rs
 │       ├── typos.rs
 │       ├── visual.rs
@@ -50,7 +53,7 @@ dupehell/
 ├── pyproject.toml          # Python packaging (maturin)
 ├── schemas/*.json          # 40 domain schemas
 ├── assets/pools/           # 151 pool files (multi-lang)
-├── docs/                  # Documentation
+├── docs/                   # Documentation
 └── CODE_OF_CONDUCT.md      # Contributor Covenant
 ```
 
@@ -59,7 +62,7 @@ dupehell/
 ## Testing
 
 ```bash
-cargo test          # 162 tests, ~30s
+cargo test          # 164 tests
 ```
 
 ---

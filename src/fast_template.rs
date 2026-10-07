@@ -17,7 +17,7 @@ use crate::pipeline::DictValues;
 use crate::rng::Rng;
 
 /// Build a `Dictionary(Int32, Utf8)` array of `n` random draws over a
-/// constant, ≤13-value pool (perf-hunt hunt0109/H4) — unlike
+/// constant, ≤13-value pool — unlike
 /// `pool_lookup::pool_values` (a per-locale vocabulary pool of unknown,
 /// often large size, sampled by value), these pools are small literal
 /// arrays hardcoded in this file, identical on every call for the life of
@@ -31,9 +31,8 @@ use crate::rng::Rng;
 /// same row order as the `pool[rng.next_usize(pool.len())]` pattern this
 /// replaces, so only the column's Arrow type changes (`Utf8` ->
 /// `Dictionary(Int32, Utf8)`) — an explicit, non-bit-identical output
-/// change, same trade already accepted for `entity_type`/`match_type`/etc
-/// (hunt1808/H11). Confirmed via `pipeline::noise_type_targets_column`
-/// cross-check (hunt0109.md) that none of the columns converted this way
+/// change, same trade already accepted for `entity_type`/`match_type`/etc.
+/// Cross-checked against `pipeline::noise_type_targets_column`: none of the columns converted this way
 /// are ever targeted by a noise category on any of the 40 domain schemas —
 /// `address_type`/`reviewer_notes` were found to collide and were
 /// deliberately left as plain `Utf8`, not converted.
@@ -379,9 +378,8 @@ static VARIANT_SIZES: [&str; 5] = ["Small", "Medium", "Large", "XL", "One Size"]
 static VARIANT_COLORS: [&str; 6] = ["Black", "White", "Red", "Blue", "Green", "Gray"];
 // The dictionary is the full `sizes x colors` cross product (30 combined
 // strings, iterated size-major to match the key formula below) — small
-// enough to stay well within `Dictionary(Int32, Utf8)` (perf-hunt
-// hunt0109/H4), unlike the other single-flat-pool columns this hunt
-// converted.
+// enough to stay well within `Dictionary(Int32, Utf8)`, unlike the other single-flat-pool
+// dictionary-encoded columns.
 static VARIANT_DICT: LazyLock<DictValues> = LazyLock::new(|| {
     DictValues::new(
         VARIANT_SIZES
@@ -819,7 +817,7 @@ fn gen_os_version(n: usize, rng: &mut Rng, _ctx: &Context) -> ArrayRef {
 }
 
 // `reviewer_notes` and `address_type` (below) were initially left as plain
-// `Utf8` (hunt0109/H4 cross-check found both actively targeted by a noise
+// `Utf8` (a cross-check found both actively targeted by a noise
 // category — "note"/"address" fragment collisions in
 // `noise_type_targets_column`, on `hr.performance_review` and
 // `ecommerce.address` respectively). Converting them to `Dictionary`
@@ -894,7 +892,7 @@ pub fn get_template(name: &str) -> Option<TemplateFn> {
 }
 
 /// Registry keys whose template produces a `Dictionary(Int32, Utf8)` array
-/// instead of plain `Utf8` (perf-hunt hunt0109/H4) — hand-maintained
+/// instead of plain `Utf8` — hand-maintained
 /// alongside the `REGISTRY` entries for `gen_suffix`/`gen_lead_source`/
 /// `gen_semester`/`gen_grade`/`gen_revenue_range`/`gen_source_system`/
 /// `gen_os_version`/`gen_currency`/`gen_variant`/`gen_option1`/
@@ -949,8 +947,7 @@ pub fn resolve_dict_encoded_column(raw_name: &str) -> Option<String> {
 
 /// `n` all-null `Dictionary(Int32, Utf8)` entries sharing the same
 /// dictionary a real call to that column's template would use, or `None`
-/// if `raw_name` doesn't resolve to a dictionary-encoded column (perf-hunt
-/// hunt0109/H4). Used by `pipeline::add_metadata_and_align`'s missing-
+/// if `raw_name` doesn't resolve to a dictionary-encoded column. Used by `pipeline::add_metadata_and_align`'s missing-
 /// column fallback — see `pipeline::DictValues::null_array`'s doc comment
 /// for why this can't just be `arrow::array::new_null_array`.
 pub fn dict_encoded_null_array(raw_name: &str, n: usize) -> Option<ArrayRef> {
@@ -1313,7 +1310,7 @@ mod tests {
             let arr = template(N, &mut rng, &ctx);
             assert_eq!(arr.len(), N, "template '{name}' produced wrong length");
             // A handful of templates return `Dictionary(Int32, Utf8)`
-            // instead of plain `Utf8` (perf-hunt hunt0109/H4) — read
+            // instead of plain `Utf8` — read
             // through either representation instead of assuming `Utf8`.
             for i in 0..N {
                 let v = template_value_at(&arr, i);

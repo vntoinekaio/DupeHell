@@ -72,7 +72,7 @@ feature-depth = 1
 ignore = [
     # `paste` is unmaintained (archived by its author), pulled in transitively
     # via parquet -> arrow-*; no direct dependency and no safe upgrade exists
-    # upstream yet (rustgod backlog W8-F6/W9-F3, 2026-07-20). Revisit when
+    # upstream yet (as of 2026-07-20). Revisit when
     # parquet/arrow drop it or a maintained fork lands.
     { id = "RUSTSEC-2024-0436", reason = "unmaintained, transitive via parquet/arrow, no upgrade path yet" },
 ]
