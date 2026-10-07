@@ -145,6 +145,17 @@ struct Cli {
                 would exceed available RAM. No effect if omitted or >= --size."
     )]
     chunk_size: Option<usize>,
+
+    #[arg(
+        long,
+        help = "Skip all ground-truth bookkeeping (per-batch dup/base/other \
+                classification, final cluster sort) and don't write the \
+                _ground_truth file. At large scale GT can be a large share of \
+                total runtime — use this for stress-test runs that only need \
+                the dataset itself. Incompatible with --graph, which needs the \
+                post-GT cluster map to emit duplicate-cluster edges."
+    )]
+    skip_ground_truth: bool,
 }
 
 /// Conservative floor on bytes/record used only to flag genuinely tight
@@ -223,13 +234,20 @@ fn main() {
         eprintln!("Error: size must be >= 10, got {}", cli.size);
         std::process::exit(1);
     }
-    const MAX_SIZE: usize = 500_000_000;
+    const MAX_SIZE: usize = 1_200_000_000;
     if cli.size > MAX_SIZE {
         eprintln!(
-            "Error: size must be <= {MAX_SIZE} (500M), got {}. \
+            "Error: size must be <= {MAX_SIZE} (1.2B), got {}. \
              Larger runs risk exhausting memory in a single process; \
              split into multiple runs instead.",
             cli.size
+        );
+        std::process::exit(1);
+    }
+    if cli.skip_ground_truth && cli.graph {
+        eprintln!(
+            "Error: --skip-ground-truth is incompatible with --graph (duplicate-cluster \
+             edges need the ground-truth cluster map)."
         );
         std::process::exit(1);
     }
@@ -302,7 +320,7 @@ fn main() {
         cli.only_entity.as_deref(),
         cli.chunk_size,
     );
-    let config = match build_pipeline_config(
+    let mut config = match build_pipeline_config(
         &cli.domain,
         cli.size,
         cli.seed,
@@ -322,6 +340,7 @@ fn main() {
             std::process::exit(1);
         }
     };
+    config.skip_ground_truth = cli.skip_ground_truth;
 
     // `run_id` is deterministic (BUGS.md C14/C15 fixed it to hash every
     // parameter that affects the data), so a matching file only exists here
@@ -398,6 +417,7 @@ fn main() {
             cli.only_entity.as_deref(),
             &output_dir_str,
             Some(&mut progress_cb),
+            cli.skip_ground_truth,
         ),
         _ => run_pipeline_with_progress(&ctx, &config, &output_dir_str, Some(&mut progress_cb)),
     };
@@ -420,16 +440,22 @@ fn main() {
         n,
         n as f64 / elapsed
     );
-    eprintln!(
-        "  exact_dups={} fuzzy_dups={} hard_negs={} uniques={} masters={}",
-        output.stats.exact_dups,
-        output.stats.fuzzy_dups,
-        output.stats.hard_negs,
-        output.stats.uniques,
-        output.stats.masters
-    );
+    if cli.skip_ground_truth {
+        eprintln!("  ground truth: skipped (--skip-ground-truth)");
+    } else {
+        eprintln!(
+            "  exact_dups={} fuzzy_dups={} hard_negs={} uniques={} masters={}",
+            output.stats.exact_dups,
+            output.stats.fuzzy_dups,
+            output.stats.hard_negs,
+            output.stats.uniques,
+            output.stats.masters
+        );
+    }
     eprintln!("  Dataset: {}", output.output_files[0]);
-    eprintln!("  GT:      {}", output.gt_file);
+    if !cli.skip_ground_truth {
+        eprintln!("  GT:      {}", output.gt_file);
+    }
     if let Some(nodes) = &output.nodes {
         eprintln!("  Nodes:  {nodes}");
     }

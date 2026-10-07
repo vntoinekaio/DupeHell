@@ -196,6 +196,7 @@ fn generate(
                 only_entity,
                 output_dir,
                 None,
+                false, // skip_ground_truth: not yet exposed via the Python binding
             )
             .map_err(PyValueError::new_err)?
         }

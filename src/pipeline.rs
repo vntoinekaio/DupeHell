@@ -42,6 +42,20 @@ pub struct PipelineConfig {
 
     pub graph_enabled: bool,
     pub graph_format: String,
+
+    /// `--skip-ground-truth`: skip all ground-truth bookkeeping (per-batch
+    /// dup/base/other classification plus the final cluster sort) and don't
+    /// write the `_ground_truth` file at all. At very large scale, GT
+    /// bookkeeping can be a large fraction of total runtime (2-3x CPU per
+    /// duplicated row, see `gt::GtAccumulator`, plus a full sort of every
+    /// cluster pair in `finish`) — this exists for stress-test workloads
+    /// that only need the dataset itself. Defaults to `false` (absent from
+    /// the JSON `build_pipeline_config` constructs) so every existing
+    /// caller keeps producing ground truth unchanged. Incompatible with
+    /// `--graph`, which needs the post-GT cluster map to emit duplicate-
+    /// cluster edges — validated in `main.rs`, not here.
+    #[serde(default)]
+    pub skip_ground_truth: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1329,7 +1343,11 @@ pub fn run_pipeline_chunked(
     };
     let gt_path = format!("{}/{}_ground_truth.{}", output_dir, config.run_id, gt_ext);
     let gt_draft_path = format!("{}/{}_gt_draft.ipc", output_dir, config.run_id);
-    let mut gt_acc = crate::gt::GtAccumulator::new(&gt_draft_path)?;
+    let mut gt_acc: Option<crate::gt::GtAccumulator> = if config.skip_ground_truth {
+        None
+    } else {
+        Some(crate::gt::GtAccumulator::new(&gt_draft_path)?)
+    };
 
     let mut global_rid_offset = offsets.rid_offset;
 
@@ -1631,7 +1649,9 @@ pub fn run_pipeline_chunked(
             _write_calls += 1;
 
             // GT collect
-            gt_acc.push_base_batch(base_rb.column(0), base_rb.column(2), base_rb.column(3))?;
+            if let Some(acc) = gt_acc.as_mut() {
+                acc.push_base_batch(base_rb.column(0), base_rb.column(2), base_rb.column(3))?;
+            }
 
             global_rid_offset += batch_n;
             if let Some(cb) = &mut progress {
@@ -1813,14 +1833,16 @@ pub fn run_pipeline_chunked(
                             .map_err(|e| format!("write dup node: {e}"))?;
                     }
 
-                    let is_identical_arr: ArrayRef =
-                        Arc::new(arrow::array::BooleanArray::from(dup_is_identical_buf));
-                    gt_acc.push_dup_batch(
-                        dup_rb_full.column(0),
-                        dup_rb_full.column(2),
-                        dup_rb_full.column(3),
-                        &is_identical_arr,
-                    )?;
+                    if let Some(acc) = gt_acc.as_mut() {
+                        let is_identical_arr: ArrayRef =
+                            Arc::new(arrow::array::BooleanArray::from(dup_is_identical_buf));
+                        acc.push_dup_batch(
+                            dup_rb_full.column(0),
+                            dup_rb_full.column(2),
+                            dup_rb_full.column(3),
+                            &is_identical_arr,
+                        )?;
+                    }
                     global_rid_offset += dup_total;
                 }
             }
@@ -1909,8 +1931,11 @@ pub fn run_pipeline_chunked(
             "[hunt_gt_sets] after entity '{}' ({} base rows): dup_masters={} masters_with_exact_copy={}",
             plan.name,
             plan.n_base,
-            gt_acc.dup_masters_len(),
-            gt_acc.masters_with_exact_copy_len(),
+            gt_acc.as_ref().map(|a| a.dup_masters_len()).unwrap_or(0),
+            gt_acc
+                .as_ref()
+                .map(|a| a.masters_with_exact_copy_len())
+                .unwrap_or(0),
         );
         log_rss(&format!(
             "after entity '{}' ({} base rows)",
@@ -2022,11 +2047,13 @@ pub fn run_pipeline_chunked(
         }
 
         // Phase 13: collect ArrayRefs instead of per-row StringBuilder
-        gt_acc.push_other_batch(
-            hn_rb_full.column(0),
-            hn_rb_full.column(2),
-            hn_rb_full.column(3),
-        )?;
+        if let Some(acc) = gt_acc.as_mut() {
+            acc.push_other_batch(
+                hn_rb_full.column(0),
+                hn_rb_full.column(2),
+                hn_rb_full.column(3),
+            )?;
+        }
 
         global_rid_offset += n_hn;
     }
@@ -2056,7 +2083,7 @@ pub fn run_pipeline_chunked(
             &fk_pools,
             &mut writer,
             &mut node_writer,
-            &mut gt_acc,
+            gt_acc.as_mut(),
         )?;
     }
     log_rss("after canary records");
@@ -2078,13 +2105,28 @@ pub fn run_pipeline_chunked(
         n_unique,
         n_masters,
         cluster_map,
-    } = gt_acc.finish(
-        config.difficulty.as_str(),
-        &config.output_format,
-        &gt_path,
-        &metadata,
-        config.graph_enabled,
-    )?;
+    } = match gt_acc {
+        Some(acc) => acc.finish(
+            config.difficulty.as_str(),
+            &config.output_format,
+            &gt_path,
+            &metadata,
+            config.graph_enabled,
+        )?,
+        // `--skip-ground-truth`: no draft was ever written, nothing to
+        // classify — skip the re-read + sort + `_ground_truth` file
+        // entirely. `--graph` (which needs `cluster_map`) is validated
+        // incompatible with this flag in `main.rs`, so an empty map here
+        // is never actually consumed.
+        None => crate::gt::GtResult {
+            n_exact_dup: 0,
+            n_fuzzy_dup: 0,
+            n_hard_neg: 0,
+            n_unique: 0,
+            n_masters: 0,
+            cluster_map: crate::gt::ClusterCsr::build(Vec::new()),
+        },
+    };
     let _t_gt_compute = 0.0f64;
     let _t_gt_write = t_gt0.elapsed().as_secs_f64();
     let t3b_elapsed = t3b.elapsed().as_secs_f64();
@@ -2171,7 +2213,13 @@ pub fn run_pipeline_chunked(
     Ok((
         PipelineOutput {
             output_files: vec![dataset_path],
-            gt_file: gt_path,
+            // Empty when `--skip-ground-truth` — no `_ground_truth` file was
+            // ever written, so `gt_path` would point to nothing.
+            gt_file: if config.skip_ground_truth {
+                String::new()
+            } else {
+                gt_path
+            },
             stats,
             nodes: graph_nodes_final,
             edges: graph_edges_final,
@@ -2353,9 +2401,10 @@ pub fn run_chunked(
     only_entity: Option<&str>,
     output_dir: &str,
     mut progress: Option<&mut dyn FnMut(usize, usize)>,
+    skip_ground_truth: bool,
 ) -> Result<PipelineOutput, String> {
     if chunk_size == 0 || chunk_size >= total_size {
-        let config = crate::schema::build_pipeline_config(
+        let mut config = crate::schema::build_pipeline_config(
             domain,
             total_size,
             seed,
@@ -2369,6 +2418,7 @@ pub fn run_chunked(
             graph_format,
             only_entity,
         )?;
+        config.skip_ground_truth = skip_ground_truth;
         return run_pipeline_with_progress(ctx, &config, output_dir, progress);
     }
 
@@ -2394,7 +2444,7 @@ pub fn run_chunked(
         let this_size = chunk_size.min(total_size - chunk_idx * chunk_size);
         let chunk_seed = seed.wrapping_add(chunk_idx as u64);
         let chunk_run_id = format!("{final_run_id}__chunk{chunk_idx:04}");
-        let chunk_config = crate::schema::build_pipeline_config(
+        let mut chunk_config = crate::schema::build_pipeline_config(
             domain,
             this_size,
             chunk_seed,
@@ -2408,6 +2458,7 @@ pub fn run_chunked(
             graph_format,
             only_entity,
         )?;
+        chunk_config.skip_ground_truth = skip_ground_truth;
 
         let already_written = agg.total_records;
         let mut chunk_cb = |done: usize, _total: usize| {
@@ -2436,7 +2487,9 @@ pub fn run_chunked(
         agg.masters += out.stats.masters;
 
         dataset_chunks.push(out.output_files[0].clone());
-        gt_chunks.push(out.gt_file.clone());
+        if !skip_ground_truth {
+            gt_chunks.push(out.gt_file.clone());
+        }
         if let Some(n) = out.nodes {
             node_chunks.push(n);
         }
@@ -2453,8 +2506,13 @@ pub fn run_chunked(
     let final_dataset = format!("{output_dir}/{final_run_id}.{dataset_ext}");
     concat_dataset_files(output_format, &dataset_chunks, &final_dataset)?;
 
-    let final_gt = format!("{output_dir}/{final_run_id}_ground_truth.{dataset_ext}");
-    concat_dataset_files(output_format, &gt_chunks, &final_gt)?;
+    let final_gt = if skip_ground_truth {
+        String::new()
+    } else {
+        let p = format!("{output_dir}/{final_run_id}_ground_truth.{dataset_ext}");
+        concat_dataset_files(output_format, &gt_chunks, &p)?;
+        p
+    };
 
     let graph_ext = if graph_format == "parquet" {
         "parquet"

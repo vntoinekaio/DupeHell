@@ -187,7 +187,7 @@ def generate(
         are ``None``.
 
     Raises:
-        ValueError: If ``size`` is out of ``[10, 500_000_000]``, ``output_format``
+        ValueError: If ``size`` is out of ``[10, 1_200_000_000]``, ``output_format``
             or ``graph_format`` is not ``"ipc"`` or ``"parquet"``.
         FileNotFoundError: If the schema file for *domain* is not found.
             Includes a list of available domains.
@@ -203,9 +203,9 @@ def generate(
     """
     if size < 10:
         raise ValueError(f"size must be >= 10, got {size}")
-    if size > 500_000_000:
+    if size > 1_200_000_000:
         raise ValueError(
-            f"size must be <= 500000000 (500M), got {size}. Larger runs risk "
+            f"size must be <= 1200000000 (1.2B), got {size}. Larger runs risk "
             "exhausting memory in a single process; split into multiple runs instead."
         )
     if output_format not in ("ipc", "parquet"):

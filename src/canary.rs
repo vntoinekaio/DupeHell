@@ -50,7 +50,7 @@ pub fn generate_all(
     fk_pools: &HashMap<String, RecordBatch>,
     writer: &mut pipeline::DatasetWriter,
     node_writer: &mut Option<crate::graph_gen::NodeWriter>,
-    gt_acc: &mut crate::gt::GtAccumulator,
+    mut gt_acc: Option<&mut crate::gt::GtAccumulator>,
 ) -> Result<(), String> {
     let sig = compute_sig(&config.domain, config.size, config.seed);
     let canary_seed = u64::from_str_radix(&sig, 16).unwrap();
@@ -168,7 +168,9 @@ pub fn generate_all(
                 .map_err(|e| format!("write canary node: {e}"))?;
         }
 
-        gt_acc.push_other_batch(aligned.column(0), aligned.column(2), aligned.column(3))?;
+        if let Some(acc) = gt_acc.as_deref_mut() {
+            acc.push_other_batch(aligned.column(0), aligned.column(2), aligned.column(3))?;
+        }
 
         *global_rid_offset += n;
     }
