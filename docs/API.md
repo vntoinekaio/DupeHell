@@ -33,7 +33,7 @@ Generate a synthetic dataset for a given domain.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `domain` | `str` | — | Domain name (e.g. `"kyc"`, `"publishing"`). Must match a file in `schemas/`. |
-| `size` | `int` | — | Number of base records (before duplicates & hard negatives). Must be in `[10, 1_200_000_000]`. |
+| `size` | `int` | — | Number of base records (before duplicates & hard negatives). At least 10; see [Limits](#limits) for the upper bounds. |
 | `seed` | `int` | `42` | PRNG seed for deterministic output. |
 | `difficulty` | `str` | `"medium"` | One of `"light"`, `"medium"`, `"hell"`. Controls duplicate ratios and noise intensity. |
 | `output_dir` | `str` | `"."` | Directory for output `.ipc` / `.parquet` files. |
@@ -46,7 +46,7 @@ Generate a synthetic dataset for a given domain.
 | `generate_graph` | `bool` | `False` | Also emit a property graph (nodes + typed edges) alongside the tabular dataset, for graph-based entity resolution / community detection benchmarking. |
 | `graph_format` | `str` | `"parquet"` | `"parquet"` or `"ipc"` — output format for the graph files. Only used when `generate_graph=True`. |
 | `only_entity` | `str \| None` | `None` | If set, generate only this entity (e.g. `domain="aviation"`, `only_entity="passenger"`) instead of the whole domain. `size` applies entirely to this entity. Raises `PyValueError` if not a valid entity name for `domain`. |
-| `chunk_size` | `int \| None` | `None` | If set and less than `size`, generate internally as `ceil(size / chunk_size)` sequential, RAM-bounded chunks, then assemble into the same single dataset/ground-truth/graph files a non-chunked run would produce. `record_id`/`master_id` stay globally contiguous across chunks. Use when `size` is large enough that a single run would exceed available RAM. |
+| `chunk_size` | `int \| None` | `None` | **Deprecated — normally unnecessary**: a single run no longer needs RAM in proportion to `size`. Kept for compatibility (emits a `DeprecationWarning`): if set and less than `size`, generates as `ceil(size / chunk_size)` sequential chunks assembled into the same single output files, needing twice the disk space while it runs. |
 
 **Returns:** [`GenerateResult`](#generateresult)
 
@@ -264,7 +264,7 @@ dupehell [OPTIONS]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--domain <DOMAIN>` | `kyc` | Domain schema to use |
-| `--size <SIZE>` | `1000000` | Number of base records (10 to 1,200,000,000) |
+| `--size <SIZE>` | `1000000` | Number of base records (at least 10; see [Limits](#limits)) |
 | `--seed <SEED>` | `42` | PRNG seed |
 | `--difficulty <LEVEL>` | `medium` | `light`, `medium`, or `hell` |
 | `--estimate` | — | Estimate theoretical max F1 and exit (no data) |
@@ -280,8 +280,24 @@ dupehell [OPTIONS]
 | `--pools-dir <PATH>` | `assets/pools` | Pool data directory |
 | `--schemas-dir <PATH>` | `schemas` | Schema directory |
 | `--only-entity <NAME>` | — | Generate only this entity (e.g. `--domain aviation --only-entity passenger`); `--size` applies entirely to it |
-| `--chunk-size <N>` | — | Generate internally as sequential, RAM-bounded chunks of this size, assembled into the same single output files; `record_id`/`master_id` stay globally contiguous |
+| `--chunk-size <N>` | — | **Deprecated — normally unnecessary** (a single run no longer needs RAM in proportion to `--size`). Kept for compatibility: generates in sequential chunks assembled into the same single output files, needing twice the disk space while it runs |
 | `--skip-ground-truth` | off | Skip all ground-truth computation and don't write the `_ground_truth` file — for stress-test runs that only need the dataset. Incompatible with `--graph` (CLI only for now) |
+
+### Limits
+
+There is no fixed cap on `--size`: generation streams in fixed-size batches,
+so peak RAM barely depends on it (measured 0.49 GB at 2M rows, 0.57 GB at
+20M). A run is refused up front only when it would exceed:
+
+- **Disk space** — the estimated output (dataset + ground truth + graph)
+  must fit in the free space of the output directory's disk; Parquet is
+  6-12x smaller than IPC. The run is also stopped cleanly if free space
+  drops below 2 GB while it runs.
+- **Identifier widths** — at most 10 billion rows for one entity (its
+  `{entity}_id` values are 10 digits) and 1 billion hard negatives.
+- **`--graph`** — at most ~4.29 billion duplicate-cluster rows. `--graph`
+  is also the one mode whose RAM grows with `--size` (~24 bytes per
+  duplicate-cluster row); a warning is printed when it may not fit.
 
 ### Reproducibility
 

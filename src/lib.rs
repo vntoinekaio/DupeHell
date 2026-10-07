@@ -14,6 +14,7 @@ mod column_gen;
 pub mod context;
 pub mod cpu_affinity;
 pub mod difficulty;
+pub mod disk;
 mod entity_gen;
 mod fast_template;
 mod fk_remap;
@@ -176,6 +177,35 @@ fn generate(
         chunk_size,
     );
 
+    let config = build_pipeline_config(
+        domain,
+        size,
+        seed,
+        difficulty,
+        hard_neg_ratio,
+        singleton_master_fraction,
+        &schema,
+        &run_id,
+        output_format,
+        generate_graph,
+        graph_format,
+        only_entity,
+    )
+    .map_err(PyValueError::new_err)?;
+    crate::pipeline::source_date_epoch().map_err(PyValueError::new_err)?;
+    crate::pipeline::check_capacity(&config).map_err(PyValueError::new_err)?;
+    let chunked = matches!(chunk_size, Some(cs) if cs > 0 && cs < size);
+    let needed = crate::pipeline::estimate_output_bytes(&config, chunked);
+    if let Some(free) = crate::disk::available_space(std::path::Path::new(output_dir))
+        && needed > free
+    {
+        return Err(PyValueError::new_err(format!(
+            "this run needs ~{:.1} GB of disk space, but only {:.1} GB is free on the disk              holding {output_dir} — free some space, choose another output_dir, use a              smaller size, or output_format=\"parquet\" (6-12x smaller)",
+            crate::disk::gb(needed),
+            crate::disk::gb(free)
+        )));
+    }
+
     let output = match chunk_size {
         Some(cs) if cs > 0 && cs < size => {
             ctx.enable_watermark(domain, size, seed);
@@ -201,21 +231,6 @@ fn generate(
             .map_err(PyValueError::new_err)?
         }
         _ => {
-            let config = build_pipeline_config(
-                domain,
-                size,
-                seed,
-                difficulty,
-                hard_neg_ratio,
-                singleton_master_fraction,
-                &schema,
-                &run_id,
-                output_format,
-                generate_graph,
-                graph_format,
-                only_entity,
-            )
-            .map_err(PyValueError::new_err)?;
             ctx.enable_watermark(&config.domain, config.size, config.seed);
             run_pipeline(&ctx, &config, output_dir).map_err(PyValueError::new_err)?
         }

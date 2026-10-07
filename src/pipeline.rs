@@ -293,11 +293,10 @@ fn master_id_array_from_indices(
 /// up from `start` — mirrors the previous per-row `format!("HN-{:09}", id)`
 /// loop, same values, same order.
 fn hn_master_id_array(start: u64, n: usize) -> ArrayRef {
-    const HN_WIDTH: usize = 12; // "HN-" + 9 digits
     let mut id = start;
-    crate::buf_gen::build_string_array(n, HN_WIDTH, |buf| {
+    crate::buf_gen::build_string_array(n, 3 + HN_ID_DIGITS, |buf| {
         buf.extend_from_slice(b"HN-");
-        write_digits(buf, id, 9);
+        write_digits(buf, id, HN_ID_DIGITS);
         id += 1;
     })
 }
@@ -1351,6 +1350,11 @@ pub fn run_pipeline_chunked(
 
     let mut global_rid_offset = offsets.rid_offset;
 
+    // Stops the run cleanly if the output volume runs low on space (polled
+    // once per batch, see `disk::DiskGuard`); `None` when the volume can't
+    // be identified.
+    let mut disk_guard = crate::disk::DiskGuard::new(std::path::Path::new(output_dir));
+
     // ── Graph output (opt-in via --graph) ───────────────────────────────
     const GRAPH_MAX_CLUSTER_EDGES: usize = 10_000;
     let graph_fmt = crate::graph_gen::GraphFormat::from_str(&config.graph_format);
@@ -1868,6 +1872,9 @@ pub fn run_pipeline_chunked(
                             first_record_idx: *first_rid as u64,
                         });
                 acc.push_entity_batch(&base, dups.as_ref())?;
+            }
+            if let Some(g) = disk_guard.as_mut() {
+                g.check()?;
             }
         }
 
@@ -2537,6 +2544,161 @@ pub fn run_chunked(
         nodes: final_nodes,
         edges: final_edges,
     })
+}
+
+// ── Capacity limits and output-size estimate ────────────────────────────────
+
+/// Digits of the `HN-` hard-negative `master_id` counter (see
+/// `hn_master_id_array`): a run can number at most 10^9 hard negatives.
+pub(crate) const HN_ID_DIGITS: usize = 9;
+
+/// Rows this plan writes: base rows plus their duplicate copies.
+fn plan_rows(plan: &EntityPlan) -> u64 {
+    plan.n_base as u64 + plan.noise_types.iter().map(|n| n.count as u64).sum::<u64>()
+}
+
+/// Upper bound on the rows `--graph` keeps in the ground-truth cluster map
+/// (every written row of a duplicated master): all base + duplicate rows.
+/// Each costs ~24 bytes of RAM while the map is built (`gt::ClusterCsr`).
+pub fn max_cluster_rows(config: &PipelineConfig) -> u64 {
+    config
+        .entity_plans
+        .iter()
+        .filter(|p| !p.pool_only)
+        .map(plan_rows)
+        .sum()
+}
+
+/// The output format's hard structural limits, checked before a run
+/// instead of discovering them as silent corruption mid-run: fixed-width
+/// identifiers that would wrap around (duplicate ids) and `--graph`'s
+/// 32-bit cluster offsets. Generation itself no longer needs RAM in
+/// proportion to `--size` (ground truth is streamed per batch), so these —
+/// plus disk space, see [`estimate_output_bytes`] — are what bounds a run.
+pub fn check_capacity(config: &PipelineConfig) -> Result<(), String> {
+    let entity_id_limit = 10u64.pow(crate::column_gen::ENTITY_ID_DIGITS as u32);
+    for plan in config.entity_plans.iter().filter(|p| !p.pool_only) {
+        // + canary rows, numbered right after the base rows.
+        if plan.n_base as u64 + 3 >= entity_id_limit {
+            return Err(format!(
+                "entity '{}' would get {} base rows, more than its {}-digit `_id` \
+                 values can number uniquely ({entity_id_limit}) — use a smaller --size",
+                plan.name,
+                plan.n_base,
+                crate::column_gen::ENTITY_ID_DIGITS
+            ));
+        }
+    }
+    let hn_limit = 10u64.pow(HN_ID_DIGITS as u32);
+    let n_hn: u64 = config.hard_neg_types.iter().map(|h| h.count as u64).sum();
+    if n_hn >= hn_limit {
+        return Err(format!(
+            "this run would generate {n_hn} hard negatives, more than their {HN_ID_DIGITS}-digit \
+             master_id can number uniquely ({hn_limit}) — use a smaller --size or --hard-neg-ratio"
+        ));
+    }
+    if config.graph_enabled {
+        // Duplicate-cluster rows are indexed by `u32` offsets in
+        // `gt::ClusterCsr`.
+        let rows = max_cluster_rows(config);
+        if rows > u32::MAX as u64 {
+            return Err(format!(
+                "--graph supports at most {} duplicate-cluster rows; this run could have up \
+                 to {rows} — use a smaller --size, or drop --graph",
+                u32::MAX
+            ));
+        }
+    }
+    Ok(())
+}
+
+// Per-row byte costs of an IPC dataset row, fitted (least squares) on
+// measured runs of 7 schema shapes — aviation, aviation `--only-entity
+// passenger`, ecommerce, fintech, healthcare, kyc, nonprofit (hell, 200K
+// base rows): every estimate within ±2% of the real file size. A row costs
+// a filled or a null string depending on whether the column belongs to its
+// own entity (the dataset is the union of every entity's columns).
+const IPC_FILLED_STR: f64 = 10.8;
+const IPC_NULL_STR: f64 = 5.4;
+const IPC_FIXED_WIDTH: f64 = 8.0;
+const IPC_DICT: f64 = 4.0;
+const IPC_BOOL: f64 = 0.25;
+const IPC_ROW_CONST: f64 = 66.5;
+// Same runs: Parquet (ZSTD(3)) datasets weighed 0.078-0.14x their IPC
+// size; the upper end is used.
+const PARQUET_RATIO: f64 = 0.15;
+// Ground truth: 55.6 B/row (IPC), 3.1-3.4 B/row (Parquet), any domain.
+const GT_IPC_ROW: f64 = 56.0;
+const GT_PARQUET_ROW: f64 = 3.5;
+// `--graph` edges: 87 B per dataset row in IPC on fintech (5 entities,
+// FK-dense) — rounded up.
+const EDGES_IPC_ROW: f64 = 90.0;
+
+/// Estimated peak disk usage of a run, in bytes: dataset + ground truth +
+/// graph (whose IPC files exist even in Parquet mode, until converted),
+/// doubled for `--chunk-size` (chunk files stay on disk until assembled).
+/// Calibrated on real runs (see the constants above); used for the
+/// up-front free-space check, backed by `disk::DiskGuard` during the run.
+pub fn estimate_output_bytes(config: &PipelineConfig, chunked: bool) -> u64 {
+    let schema = build_full_schema(config, &RunMetadata::new());
+    let fields = &schema.fields()[4..]; // after record_id/domain/entity_type/master_id
+    let mut rows_by_entity: HashMap<&str, f64> = config
+        .entity_plans
+        .iter()
+        .filter(|p| !p.pool_only)
+        .map(|p| (p.name.as_str(), plan_rows(p) as f64))
+        .collect();
+    for hn in &config.hard_neg_types {
+        if let Some(r) = rows_by_entity.get_mut(hn.entity_type.as_str()) {
+            *r += hn.count as f64;
+        }
+    }
+
+    let mut dataset_ipc = 0.0;
+    let mut total_rows = 0.0;
+    for plan in config.entity_plans.iter().filter(|p| !p.pool_only) {
+        let rows = rows_by_entity[plan.name.as_str()];
+        let own: std::collections::HashSet<String> =
+            serde_json::from_str::<Vec<serde_json::Value>>(&plan.columns_json)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|c| c["name"].as_str().map(str::to_string))
+                .collect();
+        let row_bytes: f64 = IPC_ROW_CONST
+            + fields
+                .iter()
+                .map(|f| match f.data_type() {
+                    DataType::Utf8 if own.contains(f.name()) => IPC_FILLED_STR,
+                    DataType::Utf8 => IPC_NULL_STR,
+                    DataType::Dictionary(_, _) => IPC_DICT,
+                    DataType::Boolean => IPC_BOOL,
+                    _ => IPC_FIXED_WIDTH,
+                })
+                .sum::<f64>();
+        dataset_ipc += rows * row_bytes;
+        total_rows += rows;
+    }
+
+    let parquet = config.output_format == "parquet";
+    let mut bytes = if parquet {
+        dataset_ipc * PARQUET_RATIO
+    } else {
+        dataset_ipc
+    };
+    if !config.skip_ground_truth {
+        bytes += total_rows * if parquet { GT_PARQUET_ROW } else { GT_IPC_ROW };
+    }
+    if config.graph_enabled {
+        let graph_ipc = dataset_ipc + total_rows * EDGES_IPC_ROW;
+        bytes += graph_ipc;
+        if config.graph_format == "parquet" {
+            bytes += graph_ipc * PARQUET_RATIO;
+        }
+    }
+    if chunked {
+        bytes *= 2.0;
+    }
+    bytes as u64
 }
 
 // ── Metadata injection ──────────────────────────────────────────────────────

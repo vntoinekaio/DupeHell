@@ -13,6 +13,11 @@ use crate::fast_template::{get_template, write_zpad};
 use crate::pool_lookup::{guess_pool_name, pool_values, strip_prefix};
 use crate::rng::Rng;
 
+/// Digits of the `{PREFIX}-{n}` fallback values of `_id` columns: one entity
+/// can number at most 10^10 rows uniquely (`pipeline::check_capacity`
+/// refuses larger runs instead of letting `write_zpad` truncate).
+pub(crate) const ENTITY_ID_DIGITS: usize = 10;
+
 /// Column type for dispatch.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ColType {
@@ -346,10 +351,10 @@ pub fn generate_column(
                 // `--size` reaches 100M).
                 let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
                 let mut i: usize = row_offset;
-                build_string_array(n, 15, |buf| {
+                build_string_array(n, 5 + ENTITY_ID_DIGITS, |buf| {
                     buf.extend_from_slice(prefix.as_bytes());
                     buf.push(b'-');
-                    write_zpad(buf, i, 10);
+                    write_zpad(buf, i, ENTITY_ID_DIGITS);
                     i += 1;
                 })
             } else {

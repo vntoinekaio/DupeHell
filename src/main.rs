@@ -137,12 +137,12 @@ struct Cli {
 
     #[arg(
         long,
-        help = "Generate internally as ceil(size / chunk-size) sequential chunks (each an \
-                independently-seeded run, RAM-bounded like a --size <chunk-size> run) instead \
-                of one single run, then assemble the results into the same single dataset/GT/ \
-                graph files a non-chunked run would produce. record_id/master_id stay globally \
-                contiguous across chunks. Use when --size is large enough that a single run \
-                would exceed available RAM. No effect if omitted or >= --size."
+        help = "DEPRECATED — normally unnecessary: a single run no longer needs RAM in \
+                proportion to --size. Generates internally as ceil(size / chunk-size) \
+                sequential, independently-seeded chunks, then assembles them into the same \
+                single dataset/GT/graph files (record_id/master_id stay globally contiguous), \
+                needing twice the disk space while it runs. Kept for compatibility. No effect \
+                if omitted or >= --size."
     )]
     chunk_size: Option<usize>,
 
@@ -157,36 +157,66 @@ struct Cli {
     skip_ground_truth: bool,
 }
 
-/// Conservative floor on bytes/record used only to flag genuinely tight
-/// runs, not to project a peak RSS — actual usage depends heavily on
-/// domain/difficulty/--graph and measured peaks stayed well under this
-/// on every scale tried so far. Not meant to be tightened
-/// into an accurate estimator; it exists purely as a coarse tripwire.
-const BYTES_PER_RECORD_FLOOR: usize = 150;
+/// RAM per duplicate-cluster row while `--graph` builds its cluster map
+/// (`gt::ClusterCsr`: 16-byte pairs, then an 8-byte record buffer).
+const GRAPH_BYTES_PER_CLUSTER_ROW: u64 = 24;
 
-/// Best-effort warning if the requested `--size` looks likely to be tight on
-/// available system RAM. Deliberately gives no GB projection — past
-/// measurements showed the naive per-record estimate overshoots real usage
-/// by a wide and inconsistent margin, so a numeric prediction here would
-/// just be misleading. Advisory only — if system memory can't be read
-/// (sandboxed/unusual environment), this silently does nothing rather than
-/// block a run on a guess.
-fn warn_if_memory_tight(size: usize) {
+/// Without `--graph`, generation streams in fixed-size batches: peak RAM
+/// barely moves with `--size` (measured 0.49 GB at 2M rows vs 0.57 GB at
+/// 20M, aviation/hell). `--graph` is the exception — its cluster map holds
+/// one entry per duplicate-cluster row until the end of the run — so it's
+/// the only case worth warning about. Advisory only; silent if system
+/// memory can't be read.
+fn warn_if_graph_memory_tight(cluster_rows: u64) {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
     let available = sys.available_memory();
-    if available == 0 {
-        return;
-    }
-    let floor = size as u64 * BYTES_PER_RECORD_FLOOR as u64;
-    if floor > available {
+    let needed = cluster_rows * GRAPH_BYTES_PER_CLUSTER_ROW;
+    if available > 0 && needed > available {
         eprintln!(
-            "Warning: --size {size} may be tight on available RAM (~{:.1} GB free). \
-             If the run is unusually slow, it's likely swapping — consider a smaller \
-             --size or splitting into multiple runs.",
-            available as f64 / 1e9,
+            "Warning: --graph keeps one entry per duplicate-cluster row in RAM (~{:.1} GB \
+             for this run, ~{:.1} GB free) — the run may swap. Consider a smaller --size.",
+            gb(needed),
+            gb(available),
         );
     }
+}
+
+/// Refuses a run whose estimated output doesn't fit on the output volume
+/// (and warns when it would leave it nearly full). The estimate is
+/// calibrated on real runs (`pipeline::estimate_output_bytes`); the run is
+/// additionally stopped mid-way if free space ever drops too low
+/// (`disk::DiskGuard`), in case it's off. Skipped if free space is unknown.
+fn check_disk_space(output_dir: &std::path::Path, needed: u64) {
+    log::debug!("[disk] estimated output: {needed} bytes");
+    let Some(free) = dupehell_core::disk::available_space(output_dir) else {
+        return;
+    };
+    if needed > free {
+        eprintln!(
+            "Error: this run needs ~{:.1} GB of disk space, but only {:.1} GB is free on \
+             the disk holding {}. Free some space, choose another --output-dir, use a \
+             smaller --size, or switch to --output-format parquet (6-12x smaller).",
+            gb(needed),
+            gb(free),
+            output_dir.display()
+        );
+        std::process::exit(1);
+    }
+    if needed > free / 10 * 8 {
+        eprintln!(
+            "Warning: this run needs ~{:.1} GB of disk space, {:.0}% of the {:.1} GB free \
+             on the disk holding {}.",
+            gb(needed),
+            needed as f64 / free as f64 * 100.0,
+            gb(free),
+            output_dir.display()
+        );
+    }
+}
+
+fn gb(bytes: u64) -> f64 {
+    dupehell_core::disk::gb(bytes)
 }
 
 fn main() {
@@ -239,16 +269,6 @@ fn main() {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
-    const MAX_SIZE: usize = 1_200_000_000;
-    if cli.size > MAX_SIZE {
-        eprintln!(
-            "Error: size must be <= {MAX_SIZE} (1.2B), got {}. \
-             Larger runs risk exhausting memory in a single process; \
-             split into multiple runs instead.",
-            cli.size
-        );
-        std::process::exit(1);
-    }
     if cli.skip_ground_truth && cli.graph {
         eprintln!(
             "Error: --skip-ground-truth is incompatible with --graph (duplicate-cluster \
@@ -256,17 +276,21 @@ fn main() {
         );
         std::process::exit(1);
     }
-    if let Some(cs) = cli.chunk_size {
-        if cs == 0 {
-            eprintln!("Error: --chunk-size must be >= 1, got {cs}");
+    let chunked = match cli.chunk_size {
+        Some(0) => {
+            eprintln!("Error: --chunk-size must be >= 1, got 0");
             std::process::exit(1);
         }
-        // RAM is bounded per chunk (each is an independent pipeline run),
-        // not by the total --size — that's the whole point of chunking.
-        warn_if_memory_tight(cs.min(cli.size));
-    } else {
-        warn_if_memory_tight(cli.size);
-    }
+        Some(cs) if cs < cli.size => {
+            eprintln!(
+                "Note: --chunk-size is deprecated and normally unnecessary — a single run \
+                 no longer needs RAM in proportion to --size. It still works, at the cost \
+                 of an extra assembly pass and twice the disk space while it runs."
+            );
+            true
+        }
+        _ => false,
+    };
 
     let mut ctx = match Context::new(&cli.domain, &cli.locale, &cli.pools_dir.to_string_lossy()) {
         Ok(c) => c,
@@ -346,6 +370,24 @@ fn main() {
         }
     };
     config.skip_ground_truth = cli.skip_ground_truth;
+
+    if let Err(e) = dupehell_core::pipeline::check_capacity(&config) {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+    check_disk_space(
+        &cli.output_dir,
+        dupehell_core::pipeline::estimate_output_bytes(&config, chunked),
+    );
+    if cli.graph {
+        // Chunked runs build one cluster map per chunk.
+        let rows = dupehell_core::pipeline::max_cluster_rows(&config);
+        let per_run = match cli.chunk_size {
+            Some(cs) if chunked => rows * cs as u64 / cli.size as u64,
+            _ => rows,
+        };
+        warn_if_graph_memory_tight(per_run);
+    }
 
     // `run_id` is deterministic (it hashes every parameter that
     // affects the data), so a matching file only exists here

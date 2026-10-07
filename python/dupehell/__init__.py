@@ -169,16 +169,18 @@ def generate(
             doesn't reference are skipped. Output schema is narrowed to
             just this entity's own columns. Raises :class:`PyValueError` if
             *only_entity* isn't a valid entity name for *domain*.
-        chunk_size: If set (and less than *size*), generate internally as
+        chunk_size: **Deprecated — normally unnecessary**: a single run no
+            longer needs RAM in proportion to *size*. Kept for compatibility
+            (emits a :class:`DeprecationWarning`). If set (and less than
+            *size*), generate internally as
             ``ceil(size / chunk_size)`` sequential chunks (each an
             independently-seeded run, RAM-bounded like a
             ``size=chunk_size`` run) instead of one single run, then
             assemble the results into the same single dataset/ground-truth/
             graph files a non-chunked run would produce. ``record_id``/
             ``master_id`` stay globally contiguous across chunks — no
-            external retagging or concatenation needed. Use this when
-            ``size`` is large enough that a single run would exceed
-            available RAM.
+            external retagging or concatenation needed. Needs twice the
+            output's disk space while it runs.
 
     Returns:
         GenerateResult with paths and statistics. When ``generate_graph`` is true,
@@ -187,13 +189,16 @@ def generate(
         are ``None``.
 
     Raises:
-        ValueError: If ``size`` is out of ``[10, 1_200_000_000]``, ``output_format``
-            or ``graph_format`` is not ``"ipc"`` or ``"parquet"``, or ``difficulty``
-            / ``locale`` is not a supported value.
+        ValueError: If ``size`` is below 10, ``output_format`` or ``graph_format``
+            is not ``"ipc"`` or ``"parquet"``, or ``difficulty`` / ``locale`` is not
+            a supported value.
         FileNotFoundError: If the schema file for *domain* is not found.
             Includes a list of available domains.
         ValidationError (pydantic): If the schema JSON is malformed.
-        PyValueError: If the generation pipeline fails internally.
+        PyValueError: If the run exceeds a structural limit of the output
+            format (e.g. more than 10 billion rows for one entity), its
+            estimated output doesn't fit in the free disk space of
+            *output_dir*, or the generation pipeline fails internally.
 
     Example::
 
@@ -204,10 +209,13 @@ def generate(
     """
     if size < 10:
         raise ValueError(f"size must be >= 10, got {size}")
-    if size > 1_200_000_000:
-        raise ValueError(
-            f"size must be <= 1200000000 (1.2B), got {size}. Larger runs risk "
-            "exhausting memory in a single process; split into multiple runs instead."
+    if chunk_size is not None and 0 < chunk_size < size:
+        _warnings.warn(
+            "chunk_size is deprecated and normally unnecessary: a single run no longer "
+            "needs RAM in proportion to size. It still works, at the cost of an extra "
+            "assembly pass and twice the disk space while it runs.",
+            DeprecationWarning,
+            stacklevel=2,
         )
     if output_format not in ("ipc", "parquet"):
         raise ValueError(f"output_format must be 'ipc' or 'parquet', got {output_format!r}")

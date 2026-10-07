@@ -122,6 +122,14 @@ pub(crate) fn pack_ridx_identical(record_idx: u64, is_identical: bool) -> u64 {
     record_idx | if is_identical { RIDX_IDENTICAL_BIT } else { 0 }
 }
 
+/// `offsets` are `u32` (half the RAM of `usize` on a structure with one entry
+/// per duplicated master). `pipeline::check_capacity` refuses `--graph` runs
+/// that could exceed it up front; this is the backstop against silently
+/// wrapping around instead.
+fn csr_offset(n: usize) -> u32 {
+    u32::try_from(n).expect("cluster_map exceeds u32::MAX rows (pipeline::check_capacity)")
+}
+
 impl ClusterCsr {
     /// Builds the CSR from an unordered flat list of `(packed_master_key,
     /// packed_ridx_identical)` pairs (see `pack_ridx_identical`). Sorting
@@ -148,13 +156,13 @@ impl ClusterCsr {
 
         for (mk, r) in pairs {
             if last_key != Some(mk) {
-                offsets.push(records.len() as u32);
+                offsets.push(csr_offset(records.len()));
                 last_key = Some(mk);
             }
             records.push(r & RIDX_MASK);
             is_identical.push(r & RIDX_IDENTICAL_BIT != 0);
         }
-        offsets.push(records.len() as u32);
+        offsets.push(csr_offset(records.len()));
 
         Self {
             offsets,
