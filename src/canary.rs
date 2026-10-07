@@ -169,7 +169,7 @@ pub fn generate_all(
         }
 
         if let Some(acc) = gt_acc.as_deref_mut() {
-            acc.push_other_batch(aligned.column(0), aligned.column(2), aligned.column(3))?;
+            acc.push_canary_batch(aligned.column(0), aligned.column(2), aligned.column(3))?;
         }
 
         *global_rid_offset += n;

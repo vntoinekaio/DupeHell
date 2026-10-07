@@ -43,13 +43,12 @@ pub struct PipelineConfig {
     pub graph_enabled: bool,
     pub graph_format: String,
 
-    /// `--skip-ground-truth`: skip all ground-truth bookkeeping (per-batch
-    /// dup/base/other classification plus the final cluster sort) and don't
-    /// write the `_ground_truth` file at all. At very large scale, GT
-    /// bookkeeping can be a large fraction of total runtime (2-3x CPU per
-    /// duplicated row, see `gt::GtAccumulator`, plus a full sort of every
-    /// cluster pair in `finish`) — this exists for stress-test workloads
-    /// that only need the dataset itself. Defaults to `false` (absent from
+    /// `--skip-ground-truth`: skip ground-truth classification entirely and
+    /// don't write the `_ground_truth` file at all (see
+    /// `gt::GtAccumulator`). The GT file is about a third of the dataset's
+    /// size, so skipping it saves that much write I/O plus the per-row
+    /// classification — for stress-test workloads that only need the
+    /// dataset itself. Defaults to `false` (absent from
     /// the JSON `build_pipeline_config` constructs) so every existing
     /// caller keeps producing ground truth unchanged. Incompatible with
     /// `--graph`, which needs the post-GT cluster map to emit duplicate-
@@ -325,9 +324,8 @@ pub(crate) fn parse_record_idx(rid: &str) -> Option<u64> {
 /// zero-padded to a constant width — callers that need the old
 /// `master_ids.sort()` determinism can just sort/compare the packed `u64`.
 /// Returns `None` if `mid` isn't `"E" + 5 digits + "-" + PAD_LEN digits`
-/// (never expected for a genuine duplicated master_id — see
-/// `gt::GtAccumulator::push_dup_batch`, the only source of `cluster_map`
-/// keys, which always writes this exact shape).
+/// (never expected for an entity master_id — HN-/CANARY- ids are the only
+/// other shapes, and they're never part of a duplicate cluster).
 pub(crate) fn pack_master_key(mid: &str) -> Option<u64> {
     let bytes = mid.as_bytes();
     if bytes.len() != 1 + 5 + 1 + PAD_LEN || bytes[0] != b'E' || bytes[6] != b'-' {
@@ -335,7 +333,14 @@ pub(crate) fn pack_master_key(mid: &str) -> Option<u64> {
     }
     let entity_idx: u64 = mid[1..6].parse().ok()?;
     let local_idx: u64 = mid[7..7 + PAD_LEN].parse().ok()?;
-    Some((entity_idx << 44) | local_idx)
+    Some(pack_master_parts(entity_idx, local_idx))
+}
+
+/// Same packing as [`pack_master_key`], straight from the numbers the
+/// pipeline formats into the master_id (`entity_prefix(entity_idx)` +
+/// `pad_string(local_idx)`) — no string parsing.
+pub(crate) fn pack_master_parts(entity_idx: u64, local_idx: u64) -> u64 {
+    (entity_idx << 44) | local_idx
 }
 
 /// Splits `total` proportionally across `weights` (largest-remainder
@@ -1329,20 +1334,25 @@ pub fn run_pipeline_chunked(
     let mut fk_pools: FkPoolMap = HashMap::new();
     let mut hn_pools: HashMap<String, HnPool> = HashMap::new();
 
-    // GT streaming: fed one batch at a time as the dataset is generated
-    // (see `crate::gt::GtAccumulator`) instead of accumulating full-dataset
-    // arrays in RAM.
+    // GT streaming: each entity batch is classified and written to the
+    // ground-truth file as soon as its duplicates are known (see
+    // `crate::gt::GtAccumulator`).
     let gt_ext = if config.output_format == "parquet" {
         "parquet"
     } else {
         "ipc"
     };
     let gt_path = format!("{}/{}_ground_truth.{}", output_dir, config.run_id, gt_ext);
-    let gt_draft_path = format!("{}/{}_gt_draft.ipc", output_dir, config.run_id);
     let mut gt_acc: Option<crate::gt::GtAccumulator> = if config.skip_ground_truth {
         None
     } else {
-        Some(crate::gt::GtAccumulator::new(&gt_draft_path)?)
+        Some(crate::gt::GtAccumulator::new(
+            config.difficulty.as_str(),
+            &config.output_format,
+            &gt_path,
+            &metadata,
+            config.graph_enabled,
+        )?)
     };
 
     let mut global_rid_offset = offsets.rid_offset;
@@ -1644,10 +1654,12 @@ pub fn run_pipeline_chunked(
             _t_write += t_w0.elapsed().as_secs_f64();
             _write_calls += 1;
 
-            // GT collect
-            if let Some(acc) = gt_acc.as_mut() {
-                acc.push_base_batch(base_rb.column(0), base_rb.column(2), base_rb.column(3))?;
-            }
+            // GT for this batch is written once its duplicates (below) are
+            // known — they're drawn from this batch's masters only.
+            let base_first_rid = global_rid_offset;
+            // Duplicate rows of this batch for GT: (rows, global master
+            // index per row, is_identical per row, first record index).
+            let mut dup_gt: Option<(RecordBatch, Vec<usize>, Vec<bool>, usize)> = None;
 
             global_rid_offset += batch_n;
             if let Some(cb) = &mut progress {
@@ -1829,18 +1841,39 @@ pub fn run_pipeline_chunked(
                             .map_err(|e| format!("write dup node: {e}"))?;
                     }
 
-                    if let Some(acc) = gt_acc.as_mut() {
-                        let is_identical_arr: ArrayRef =
-                            Arc::new(arrow::array::BooleanArray::from(dup_is_identical_buf));
-                        acc.push_dup_batch(
-                            dup_rb_full.column(0),
-                            dup_rb_full.column(2),
-                            dup_rb_full.column(3),
-                            &is_identical_arr,
-                        )?;
+                    if gt_acc.is_some() {
+                        dup_gt = Some((
+                            dup_rb_full,
+                            dup_master_idx_buf,
+                            dup_is_identical_buf,
+                            global_rid_offset,
+                        ));
                     }
                     global_rid_offset += dup_total;
                 }
+            }
+
+            if let Some(acc) = gt_acc.as_mut() {
+                let base = crate::gt::BaseRows {
+                    record_ids: base_rb.column(0),
+                    entity_types: base_rb.column(2),
+                    master_ids: base_rb.column(3),
+                    entity_idx: plan_idx as u64,
+                    first_master_idx: (master_base + offset) as u64,
+                    first_record_idx: base_first_rid as u64,
+                };
+                let dups =
+                    dup_gt
+                        .as_ref()
+                        .map(|(rb, master_idx, ident, first_rid)| crate::gt::DupRows {
+                            record_ids: rb.column(0),
+                            entity_types: rb.column(2),
+                            master_ids: rb.column(3),
+                            master_idx,
+                            is_identical: ident,
+                            first_record_idx: *first_rid as u64,
+                        });
+                acc.push_entity_batch(&base, dups.as_ref())?;
             }
         }
 
@@ -1914,25 +1947,10 @@ pub fn run_pipeline_chunked(
             );
         }
 
-        // Per-entity RSS checkpoint: the
-        // aggregate "after entity batches" checkpoint below only samples
-        // once for the whole domain, which can't tell apart an entity that
-        // dominates RAM from one that's negligible when a domain has
-        // several entities. `dup_masters_len`/`masters_with_exact_copy_len`
-        // are read straight off `gt_acc` so cumulative GT bookkeeping
-        // growth (with total duplicated masters seen so far) can be
-        // observed directly instead of inferred from RSS deltas
-        // that also include this entity's own transient batch buffers.
-        log::debug!(
-            "[gt_sets] after entity '{}' ({} base rows): dup_masters={} masters_with_exact_copy={}",
-            plan.name,
-            plan.n_base,
-            gt_acc.as_ref().map(|a| a.dup_masters_len()).unwrap_or(0),
-            gt_acc
-                .as_ref()
-                .map(|a| a.masters_with_exact_copy_len())
-                .unwrap_or(0),
-        );
+        // Per-entity RSS checkpoint: the aggregate "after entity batches"
+        // checkpoint below only samples once for the whole domain, which
+        // can't tell apart an entity that dominates RAM from one that's
+        // negligible when a domain has several entities.
         log_rss(&format!(
             "after entity '{}' ({} base rows)",
             plan.name, plan.n_base
@@ -2042,9 +2060,8 @@ pub fn run_pipeline_chunked(
             }
         }
 
-        // Phase 13: collect ArrayRefs instead of per-row StringBuilder
         if let Some(acc) = gt_acc.as_mut() {
-            acc.push_other_batch(
+            acc.push_hard_neg_batch(
                 hn_rb_full.column(0),
                 hn_rb_full.column(2),
                 hn_rb_full.column(3),
@@ -2102,18 +2119,11 @@ pub fn run_pipeline_chunked(
         n_masters,
         cluster_map,
     } = match gt_acc {
-        Some(acc) => acc.finish(
-            config.difficulty.as_str(),
-            &config.output_format,
-            &gt_path,
-            &metadata,
-            config.graph_enabled,
-        )?,
-        // `--skip-ground-truth`: no draft was ever written, nothing to
-        // classify — skip the re-read + sort + `_ground_truth` file
-        // entirely. `--graph` (which needs `cluster_map`) is validated
-        // incompatible with this flag in `main.rs`, so an empty map here
-        // is never actually consumed.
+        Some(acc) => acc.finish()?,
+        // `--skip-ground-truth`: nothing was classified and no
+        // `_ground_truth` file was written. `--graph` (which needs
+        // `cluster_map`) is validated incompatible with this flag in
+        // `main.rs`, so an empty map here is never actually consumed.
         None => crate::gt::GtResult {
             n_exact_dup: 0,
             n_fuzzy_dup: 0,

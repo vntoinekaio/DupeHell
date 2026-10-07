@@ -148,12 +148,11 @@ struct Cli {
 
     #[arg(
         long,
-        help = "Skip all ground-truth bookkeeping (per-batch dup/base/other \
-                classification, final cluster sort) and don't write the \
-                _ground_truth file. At large scale GT can be a large share of \
-                total runtime — use this for stress-test runs that only need \
-                the dataset itself. Incompatible with --graph, which needs the \
-                post-GT cluster map to emit duplicate-cluster edges."
+        help = "Skip ground-truth classification and don't write the \
+                _ground_truth file (about a third of the dataset's size) — \
+                for stress-test runs that only need the dataset itself. \
+                Incompatible with --graph, which needs the ground-truth \
+                cluster map to emit duplicate-cluster edges."
     )]
     skip_ground_truth: bool,
 }

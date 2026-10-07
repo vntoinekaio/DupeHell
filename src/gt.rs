@@ -3,50 +3,16 @@
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
 // No liability for misuse.
 
-use arrow::array::{Array, ArrayRef, AsArray, BooleanArray};
-use arrow::buffer::BooleanBuffer;
+use arrow::array::{Array, ArrayRef, AsArray, Int32Array, Int32Builder};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Compressed-sparse-row representation of the duplicate-cluster
-/// membership previously held as `HashMap<String, Vec<(String, bool)>>`.
-/// Built once, in `GtAccumulator::finish`, from every `(master_id,
-/// record_id, is_identical)` triple belonging to a duplicated master.
-///
-/// Avoids one `String` allocation per `record_id` and one per distinct
-/// `master_id` (the dominant RAM cost of `cluster_map` at 200M+ records):
-/// `master_id`/`record_id` are
-/// packed into `u64`s (`pipeline::pack_master_key`/`parse_record_idx` —
-/// both are pure functions of the fixed-width ID shapes `pipeline.rs`
-/// already generates, so the packing/unpacking is lossless and exact) and
-/// stored in two flat, contiguous buffers instead of a hash map of
-/// per-cluster `Vec`s.
-///
-/// `master_id` itself is never needed downstream as a string — the only
-/// consumer (`graph_gen::push_dup_clusters`) only ever used it to get a
-/// deterministic cluster iteration order (`master_ids.sort()`), and
-/// numeric comparison of the packed key preserves that exact order (both
-/// segments of the original string are zero-padded to a fixed width, so
-/// lexicographic and numeric order agree).
 /// Bit-packed boolean buffer — 1 bit per entry instead of `Vec<bool>`'s 1
 /// byte, an 8x reduction on `ClusterCsr::is_identical`, which parallels
 /// `records` (potentially tens of millions of entries at 100M+ hell scale
 /// with `--graph`, a low singleton fraction).
-/// A `BooleanArray` of `n` copies of `value`, built directly from a
-/// `BooleanBuffer` (one bitmap allocation, `n/8` bytes) instead of
-/// `BooleanArray::from(vec![value; n])` (an `n`-byte `Vec<bool>` allocated
-/// and memset, then re-packed into a bitmap by `From`).
-fn const_bool_array(n: usize, value: bool) -> ArrayRef {
-    let buf = if value {
-        BooleanBuffer::new_set(n)
-    } else {
-        BooleanBuffer::new_unset(n)
-    };
-    Arc::new(BooleanArray::new(buf, None))
-}
-
 struct Bitset {
     words: Vec<u64>,
     len: usize,
@@ -106,6 +72,21 @@ impl BitspanRef<'_> {
     }
 }
 
+/// Compressed-sparse-row representation of the duplicate-cluster
+/// membership. Built once, in `GtAccumulator::finish`, from every
+/// `(master, record, is_identical)` triple belonging to a duplicated master.
+///
+/// Avoids one `String` allocation per `record_id` and one per distinct
+/// `master_id` (the dominant RAM cost of a string-keyed cluster map at 200M+
+/// records): `master_id`/`record_id` are packed into `u64`s
+/// (`pipeline::pack_master_parts` / the global record index) and stored in
+/// two flat, contiguous buffers instead of a hash map of per-cluster `Vec`s.
+///
+/// `master_id` itself is never needed downstream as a string — the only
+/// consumer (`graph_gen::push_dup_clusters`) only ever used it to get a
+/// deterministic cluster iteration order, and numeric comparison of the
+/// packed key preserves the lexicographic order of the original string
+/// (both segments are zero-padded to a fixed width).
 pub struct ClusterCsr {
     /// `offsets.len() == n_clusters + 1`; cluster `k`'s members are
     /// `records[offsets[k]..offsets[k+1]]` (and the parallel span of
@@ -120,15 +101,14 @@ pub struct ClusterCsr {
     is_identical: Bitset,
 }
 
-/// `record_idx` (from `parse_record_idx`) is bounded by `PAD_LEN` (13)
-/// decimal digits — `< 10^13 ≈ 2^43.2` — so bit 63 is always free to carry
-/// `is_identical` alongside it in one `u64`, the same trick
-/// `pack_master_key` already uses for its own high bits.
-/// Packing this into `ClusterCsr::build`'s transient pair list drops it
-/// from `(u64, u64, bool)` (24 bytes/entry — `bool` pads the tuple to the
-/// next 8-byte alignment boundary, measured on this machine) to `(u64,
-/// u64)` (16 bytes/entry, −33%), at potentially tens of millions of
-/// entries (every row of every duplicated cluster, `--graph` mode).
+/// `record_idx` is bounded by `PAD_LEN` (13) decimal digits — `< 10^13 ≈
+/// 2^43.2` — so bit 63 is always free to carry `is_identical` alongside it
+/// in one `u64`, the same trick `pack_master_parts` already uses for its own
+/// high bits. Packing this into `ClusterCsr::build`'s transient pair list
+/// drops it from `(u64, u64, bool)` (24 bytes/entry — `bool` pads the tuple
+/// to the next 8-byte alignment boundary) to `(u64, u64)` (16 bytes/entry,
+/// −33%), at potentially tens of millions of entries (every row of every
+/// duplicated cluster, `--graph` mode).
 const RIDX_IDENTICAL_BIT: u64 = 1 << 63;
 const RIDX_MASK: u64 = !RIDX_IDENTICAL_BIT;
 
@@ -156,7 +136,7 @@ impl ClusterCsr {
     /// in the run): the sort key `(master_key, record_idx)` is unique per
     /// entry (one record belongs to exactly one cluster, and a
     /// `record_idx` is unique across the whole run), so an unstable
-    /// parallel sort produces the exact same total order as the previous
+    /// parallel sort produces the exact same total order as a
     /// single-threaded one — determinism doesn't depend on stability here.
     pub(crate) fn build(mut pairs: Vec<(u64, u64)>) -> Self {
         use rayon::slice::ParallelSliceMut;
@@ -184,11 +164,10 @@ impl ClusterCsr {
         }
     }
 
-    /// Iterates clusters in ascending packed-master-key order (matches the
-    /// previous `master_ids.sort()` determinism exactly), yielding each
+    /// Iterates clusters in ascending packed-master-key order, yielding each
     /// cluster's `(record_indices, is_identical)` pair. A cluster's
-    /// `record_indices` are already ascending, so callers that used to sort
-    /// members themselves (`push_dup_clusters`) no longer need to.
+    /// `record_indices` are already ascending, so callers
+    /// (`push_dup_clusters`) don't need to sort members themselves.
     pub fn groups(&self) -> impl Iterator<Item = (&[u64], BitspanRef<'_>)> {
         self.offsets.windows(2).map(move |w| {
             let (start, end) = (w[0] as usize, w[1] as usize);
@@ -223,271 +202,137 @@ pub struct GtResult {
     pub n_hard_neg: usize,
     pub n_unique: usize,
     pub n_masters: usize,
-    /// Maps each duplicated `master_id` to the full set of `(record_id,
-    /// is_identical)` pairs in its cluster (base + duplicate copies, exact
-    /// and fuzzy alike) — `is_identical` mirrors that record's own
-    /// `exact_dup`/`fuzzy_dup` classification. Consumed by
+    /// Every duplicated master's full cluster (base + duplicate copies,
+    /// exact and fuzzy alike), each member tagged with its own
+    /// `exact_dup`/`fuzzy_dup` status. Consumed by
     /// `graph_gen::push_dup_clusters` to decide, per edge, whether the pair
     /// it connects is `exact_dup` (both ends byte-identical to the master,
     /// hence to each other) or `fuzzy_dup` (at least one end was noised).
+    /// Only populated when cluster tracking is enabled (`--graph`).
     pub cluster_map: ClusterCsr,
 }
 
 /// `Dictionary(Int32, Utf8)` for `entity_type`/`match_type`/`difficulty` —
 /// an explicit output-contract change (not bit-identical: the declared
-/// column type changes from `Utf8`). `entity_type` here must match `pipeline::low_cardinality_dict_type`
-/// exactly — this column's data is `add_metadata_and_align`'s `et_arr`,
-/// pushed straight through by `push_*_batch`, so draft/final schema must
-/// declare the same type it's actually built as.
+/// column type changes from `Utf8`). `entity_type` here must match
+/// `pipeline::low_cardinality_dict_type` exactly — this column's data is
+/// `add_metadata_and_align`'s `et_arr`, passed straight through, so the
+/// schema must declare the same type it's actually built as.
 fn low_cardinality_dict_type() -> DataType {
     DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
 }
 
-fn draft_schema() -> Arc<Schema> {
-    Arc::new(Schema::new(vec![
-        Field::new("record_id", DataType::Utf8, false),
-        Field::new("master_id", DataType::Utf8, false),
-        Field::new("entity_type", low_cardinality_dict_type(), false),
-        // `true` for duplicate-copy rows whose assigned noise ended up not
-        // changing anything visible; `false` for duplicate copies that were
-        // genuinely altered, and for base/master rows (a base row is never
-        // itself "a copy that happened to match" — see `is_base` below for
-        // how its match_type is actually resolved). Meaningless for
-        // hard_neg/canary rows (classified by master_id prefix regardless).
-        Field::new("is_identical", DataType::Boolean, false),
-        // `true` only for base/master rows (one per entity, written by
-        // `push_base_batch`); `false` for every duplicate copy and for
-        // hard_neg/canary rows. Lets `finish` tell a base row apart from a
-        // genuine fuzzy copy when both carry `is_identical = false` — without
-        // it, a duplicated master's own base row would be misclassified
-        // `exact_dup` unconditionally (it used to hardcode
-        // `is_identical = true` for every base row, regardless of whether
-        // any of its actual duplicate copies were byte-identical to it).
-        Field::new("is_base", DataType::Boolean, false),
-    ]))
+/// One entity batch's base rows: every row introduces a brand-new master.
+/// Masters are contiguous — row `j`'s master is global index
+/// `first_master_idx + j` of entity `entity_idx`, and its record is global
+/// record index `first_record_idx + j` (the same numbers the pipeline
+/// formats into `master_id`/`record_id`).
+pub struct BaseRows<'a> {
+    pub record_ids: &'a ArrayRef,
+    pub entity_types: &'a ArrayRef,
+    pub master_ids: &'a ArrayRef,
+    pub entity_idx: u64,
+    pub first_master_idx: u64,
+    pub first_record_idx: u64,
 }
 
-/// Streaming, two-pass ground-truth builder.
+/// The duplicate copies generated from one [`BaseRows`] batch. Every copy's
+/// master belongs to that same batch (`pipeline.rs` samples a batch's
+/// duplicates exclusively from its own masters), which is what lets the
+/// whole batch be classified as soon as both are known.
+pub struct DupRows<'a> {
+    pub record_ids: &'a ArrayRef,
+    pub entity_types: &'a ArrayRef,
+    pub master_ids: &'a ArrayRef,
+    /// Global master index of each copy, within
+    /// `base.first_master_idx..base.first_master_idx + base.len()`.
+    pub master_idx: &'a [usize],
+    /// `true` when the noise assigned to that copy ended up a no-op (see
+    /// `pipeline::unchanged_row_mask`), `false` when it produced a real,
+    /// visible change.
+    pub is_identical: &'a [bool],
+    pub first_record_idx: u64,
+}
+
+/// Per-batch scratch bitset over a base batch's masters (`0..n` local
+/// indices), reused across batches instead of reallocated.
+#[derive(Default)]
+struct LocalBits {
+    words: Vec<u64>,
+}
+
+impl LocalBits {
+    fn reset(&mut self, n: usize) {
+        self.words.clear();
+        self.words.resize(n.div_ceil(64), 0);
+    }
+
+    fn set(&mut self, i: usize) {
+        self.words[i / 64] |= 1u64 << (i % 64);
+    }
+
+    fn get(&self, i: usize) -> bool {
+        (self.words[i / 64] >> (i % 64)) & 1 != 0
+    }
+}
+
+/// Streaming, single-pass ground-truth builder.
 ///
-/// Duplicate detection needs a genuinely global view of which masters are
-/// duplicated (a master can be duplicated anywhere in the record stream),
-/// but that's the *only* thing that needs to be global — everything else
-/// can be processed one batch at a time. Previously the whole run
-/// accumulated three full-dataset `Vec<ArrayRef>` (record_id/entity_type/
-/// master_id) in RAM to concat and classify at the very end; at 200M+
-/// records that's multiple GB held for the entire run just for GT
-/// bookkeeping.
+/// `pipeline.rs` draws every duplicate copy of a batch exclusively from that
+/// same batch's masters, and writes the copies right after the batch. So at
+/// the end of each batch, whether each of its masters is duplicated — and
+/// whether at least one copy is byte-identical to it — is already final: no
+/// later batch can add a copy of it. Each batch is therefore classified and
+/// streamed straight to the final ground-truth file (IPC or Parquet) as soon
+/// as its duplicates are known, with only two per-batch scratch bitsets as
+/// state. Hard negatives (`HN-…`) and canaries (`CANARY-…`) are never
+/// duplicated and are classified by kind.
 ///
-/// This accumulator instead:
-/// 1. streams each batch straight to a small "draft" IPC file as it's
-///    generated. The pipeline already knows, at the point each batch is
-///    produced, whether its rows introduce brand-new masters
-///    (`push_base_batch`) or are duplicate copies of masters seen earlier
-///    (`push_dup_batch`) — that's how `pipeline::run_pipeline` builds
-///    `dup_mids_buf` today. So instead of *discovering* duplication by
-///    folding occurrence counts over every master ever seen (O(n_base) —
-///    one entry per base record, duplicated or not), this only records the
-///    (much smaller) set of masters that are *actually* duplicated —
-///    O(n_dup_masters), a fraction of the dataset determined by the
-///    doublet/triplet ratios, not the full base population. HN/CANARY rows
-///    (`push_other_batch`) need no bookkeeping at all: their prefix alone
-///    determines their classification.
-/// 2. on `finish`, re-reads that draft file batch by batch — now that the
-///    full duplicated-master set is known — to classify each row and
-///    stream the definitive ground-truth file (IPC or Parquet), same
-///    batch-by-batch pattern already used elsewhere in this codebase for
-///    the IPC→Parquet dataset conversion (see `pipeline::run_pipeline`).
-///
-/// Duplicate detection is keyed on the **full** master_id (entity prefix
-/// included, via `pipeline::pack_master_key` into a `u64`), not just a
-/// numeric suffix: master_ids are assigned per-entity-plan starting from
-/// index 0, so two unrelated entities of different types can share the
-/// same numeric suffix. Keying on the full identity avoids counting those
-/// as duplicates of each other.
+/// This replaces an earlier two-pass design (draft file of every row +
+/// global duplicated-master hash sets + full re-read and reclassification
+/// at the end), which an isolated benchmark measured at ~4x the cost
+/// (`examples/profile_gt_single_pass.rs`, byte-identical output).
 pub struct GtAccumulator {
-    draft_path: String,
-    writer: arrow::ipc::writer::FileWriter<std::fs::File>,
+    sink: GtSink,
     schema: Arc<Schema>,
-    /// Keyed on `pipeline::pack_master_key(mid)` rather than the raw
-    /// `String` — avoids a per-row string hash/allocation on a set queried
-    /// 2-3x per duplicated row (`push_dup_batch` + classification in
-    /// `finish`), which VTune hotspots showed costing ~5% of
-    /// total CPU on its own. `push_dup_batch` never receives an
-    /// HN-/CANARY- master_id, so every key here is guaranteed
-    /// pack_master_key-compatible.
-    dup_masters: rustc_hash::FxHashSet<u64>,
-    /// Masters that have at least one duplicate copy whose assigned noise
-    /// ended up a genuine no-op (byte-identical to the base) — as opposed to
-    /// `dup_masters`, which just means "has any duplicate copy at all,
-    /// exact or fuzzy". Used at `finish` so a base row can tell whether it
-    /// actually has an identical twin instead of unconditionally claiming
-    /// one.
-    masters_with_exact_copy: rustc_hash::FxHashSet<u64>,
-    n_base_masters: usize,
+    match_type_dict: crate::pipeline::DictValues,
+    difficulty_dict: crate::pipeline::DictValues,
+    difficulty: String,
+    // `match_type` dictionary keys, resolved once instead of hashing the
+    // value string for every row.
+    k_hard_neg: i32,
+    k_canary: i32,
+    k_exact_dup: i32,
+    k_fuzzy_dup: i32,
+    k_unique: i32,
+    /// `difficulty` is constant for the whole run and batch sizes only take
+    /// a handful of values — cache the built column by length instead of
+    /// rebuilding it every batch.
+    diff_arr_cache: Option<(usize, ArrayRef)>,
+    n_exact_dup: usize,
+    n_fuzzy_dup: usize,
+    n_hard_neg: usize,
+    n_unique: usize,
+    n_masters: usize,
+    /// Cluster membership for duplicated masters, only built when `--graph`
+    /// needs it (`graph_gen::push_dup_clusters` is its sole consumer) —
+    /// one entry per duplicate-cluster row, the majority of the dataset at
+    /// hell's low singleton fraction, so it's pure wasted RAM otherwise.
+    track_clusters: bool,
+    cluster_pairs: Vec<(u64, u64)>,
+    is_dup: LocalBits,
+    has_exact_copy: LocalBits,
 }
 
 impl GtAccumulator {
-    /// Current size of `dup_masters` -- lets
-    /// call sites log this cumulative-over-the-whole-run set's growth
-    /// directly, instead of inferring it from RSS deltas that also include
-    /// unrelated per-entity batch buffers.
-    pub(crate) fn dup_masters_len(&self) -> usize {
-        self.dup_masters.len()
-    }
-
-    /// Current size of `masters_with_exact_copy` -- see `dup_masters_len`.
-    pub(crate) fn masters_with_exact_copy_len(&self) -> usize {
-        self.masters_with_exact_copy.len()
-    }
-
-    pub fn new(draft_path: &str) -> Result<Self, String> {
-        let schema = draft_schema();
-        let file = std::fs::File::create(draft_path)
-            .map_err(|e| format!("create gt draft {draft_path}: {e}"))?;
-        let writer = arrow::ipc::writer::FileWriter::try_new(file, &schema)
-            .map_err(|e| format!("gt draft writer: {e}"))?;
-        Ok(Self {
-            draft_path: draft_path.to_string(),
-            writer,
-            schema,
-            dup_masters: rustc_hash::FxHashSet::default(),
-            masters_with_exact_copy: rustc_hash::FxHashSet::default(),
-            n_base_masters: 0,
-        })
-    }
-
-    fn write_draft(
-        &mut self,
-        record_ids: &ArrayRef,
-        entity_types: &ArrayRef,
-        master_ids: &ArrayRef,
-        is_identical: &ArrayRef,
-        is_base: &ArrayRef,
-    ) -> Result<(), String> {
-        let batch = RecordBatch::try_new(
-            self.schema.clone(),
-            vec![
-                record_ids.clone(),
-                master_ids.clone(),
-                entity_types.clone(),
-                is_identical.clone(),
-                is_base.clone(),
-            ],
-        )
-        .map_err(|e| format!("build gt draft batch: {e}"))?;
-        self.writer
-            .write(&batch)
-            .map_err(|e| format!("write gt draft: {e}"))
-    }
-
-    /// Feed a batch of rows that each introduce a brand-new, not-yet-seen
-    /// master (base records — one master per row, never a duplicate copy).
-    pub fn push_base_batch(
-        &mut self,
-        record_ids: &ArrayRef,
-        entity_types: &ArrayRef,
-        master_ids: &ArrayRef,
-    ) -> Result<(), String> {
-        let mids = master_ids.as_string::<i32>();
-        self.n_base_masters += mids.len() - mids.null_count();
-        // `is_identical = false`: a base row is not itself a "copy that
-        // happened to match" — whether it should read as `exact_dup` is
-        // resolved at `finish` from `masters_with_exact_copy`, not hardcoded
-        // here (this used to be `true` unconditionally, which mislabeled
-        // every duplicated master's base row `exact_dup` even when all of
-        // its actual duplicate copies were fuzzy — none byte-identical).
-        let all_false = const_bool_array(mids.len(), false);
-        let all_true = const_bool_array(mids.len(), true);
-        self.write_draft(record_ids, entity_types, master_ids, &all_false, &all_true)
-    }
-
-    /// Feed a batch of duplicate-copy rows (each `master_id` matches an
-    /// existing base record already fed via `push_base_batch`). Records the
-    /// *set* of duplicated masters — every row sharing one of these
-    /// master_ids (the original base row included) belongs to a duplicated
-    /// cluster at `finish`, classified `exact_dup` or `fuzzy_dup` per-row
-    /// based on `is_identical` (`true` when the noise assigned to this copy
-    /// ended up a no-op — see `pipeline::unchanged_row_mask` — `false` when
-    /// it produced a real, visible change). Also records which masters have
-    /// at least one genuinely identical copy, for the base row's own
-    /// classification at `finish`.
-    pub fn push_dup_batch(
-        &mut self,
-        record_ids: &ArrayRef,
-        entity_types: &ArrayRef,
-        master_ids: &ArrayRef,
-        is_identical: &ArrayRef,
-    ) -> Result<(), String> {
-        let mids = master_ids.as_string::<i32>();
-        let idents = is_identical.as_boolean();
-        for i in 0..mids.len() {
-            if !mids.is_null(i) {
-                let mid = mids.value(i);
-                let key = crate::pipeline::pack_master_key(mid).unwrap_or_else(|| {
-                    panic!(
-                        "push_dup_batch: master_id {mid:?} isn't the fixed \
-                         \"{{entity_prefix}}-{{pad_string}}\" shape -- \
-                         push_dup_batch never receives an HN-/CANARY- master_id"
-                    )
-                });
-                self.dup_masters.insert(key);
-                if !idents.is_null(i) && idents.value(i) {
-                    self.masters_with_exact_copy.insert(key);
-                }
-            }
-        }
-        let all_false = const_bool_array(mids.len(), false);
-        self.write_draft(
-            record_ids,
-            entity_types,
-            master_ids,
-            is_identical,
-            &all_false,
-        )
-    }
-
-    /// Feed a batch of rows whose classification is fully determined by
-    /// their `master_id` prefix (hard negatives `HN-...`, canaries
-    /// `CANARY-...`) — no bookkeeping needed beyond streaming to the draft.
-    pub fn push_other_batch(
-        &mut self,
-        record_ids: &ArrayRef,
-        entity_types: &ArrayRef,
-        master_ids: &ArrayRef,
-    ) -> Result<(), String> {
-        // `is_identical`/`is_base` are meaningless for hard_neg/canary rows
-        // (classified by master_id prefix regardless), so the values don't
-        // matter.
-        let all_false = const_bool_array(record_ids.len(), false);
-        self.write_draft(record_ids, entity_types, master_ids, &all_false, &all_false)
-    }
-
-    /// Consumes the accumulator: closes the draft, re-reads it batch by
-    /// batch to classify each row now that the full duplicated-master set
-    /// is known, and streams the definitive ground-truth file (IPC or
-    /// Parquet). Returns a [`GtResult`].
-    pub fn finish(
-        self,
+    pub fn new(
         difficulty: &str,
         output_format: &str,
         final_path: &str,
         metadata: &HashMap<String, String>,
         track_clusters: bool,
-    ) -> Result<GtResult, String> {
-        let GtAccumulator {
-            draft_path,
-            mut writer,
-            dup_masters,
-            masters_with_exact_copy,
-            n_base_masters,
-            ..
-        } = self;
-        writer
-            .finish()
-            .map_err(|e| format!("finish gt draft: {e}"))?;
-        drop(writer);
-
-        let final_schema = Arc::new(
+    ) -> Result<Self, String> {
+        let schema = Arc::new(
             Schema::new(vec![
                 Field::new("record_id", DataType::Utf8, false),
                 Field::new("master_id", DataType::Utf8, false),
@@ -497,36 +342,10 @@ impl GtAccumulator {
             ])
             .with_metadata(metadata.clone()),
         );
-
-        let draft_file = std::fs::File::open(&draft_path)
-            .map_err(|e| format!("reopen gt draft {draft_path}: {e}"))?;
-        let reader = arrow::ipc::reader::FileReader::try_new(draft_file, None)
-            .map_err(|e| format!("gt draft reader: {e}"))?;
-
-        let mut sink = GtSink::new(output_format, final_path, &final_schema, metadata)?;
-
-        let mut n_exact_dup = 0usize;
-        let mut n_fuzzy_dup = 0usize;
-        let mut n_hard_neg = 0usize;
-        let mut n_unique = 0usize;
-        // Cluster membership for duplicated masters (base + duplicate copies,
-        // exact and fuzzy alike), for emitting duplicate-cluster edges after
-        // this pass. Accumulated as a flat `Vec` of packed triples (see
-        // `ClusterCsr`) instead of a `HashMap<String, Vec<...>>` -- avoids a
-        // `String` allocation per record_id/master_id, the dominant RAM cost
-        // of this bookkeeping at 200M+ records.
-        let mut cluster_pairs: Vec<(u64, u64)> = Vec::new();
-        // `difficulty` is constant for the whole run and `n` only ever takes
-        // two values across all batches (the draft's batch size, and the
-        // final remainder) — cache the built column by `n` instead of
-        // reallocating+refilling it every batch (same pattern as
-        // `pipeline.rs`'s `const_arr_cache`).
-        let mut diff_arr_cache: Option<(usize, ArrayRef)> = None;
-        // Fixed, fully-known value sets — built once, before any batch is
-        // written, and reused for every batch's `DictionaryArray` (see
-        // `pipeline::DictValues`'s doc comment for why a *shared*
-        // dictionary is required for IPC output, not just a same-content
-        // one built fresh per batch).
+        let sink = GtSink::new(output_format, final_path, &schema, metadata)?;
+        // Fixed, fully-known value sets — built once and reused for every
+        // batch's `DictionaryArray` (see `pipeline::DictValues`'s doc comment
+        // for why a *shared* dictionary is required for IPC output).
         let match_type_dict = crate::pipeline::DictValues::new([
             "hard_neg",
             "canary",
@@ -535,137 +354,257 @@ impl GtAccumulator {
             "unique",
         ]);
         let difficulty_dict = crate::pipeline::DictValues::new([difficulty.to_string()]);
-        // Resolved once, not once per row:
-        // `match_type_dict.key(mt)` hashes `mt` through a `HashMap<String,
-        // i32>` (SipHash), but `mt` is always one of these 5 literals —
-        // every row's classification branch below already knows which one
-        // before it ever calls `.key()`. Resolving the 5 keys up front lets
-        // the branch produce the `i32` directly, at the same place it used
-        // to produce the `&str`.
-        let k_hard_neg = match_type_dict.key("hard_neg");
-        let k_canary = match_type_dict.key("canary");
-        let k_exact_dup = match_type_dict.key("exact_dup");
-        let k_fuzzy_dup = match_type_dict.key("fuzzy_dup");
-        let k_unique = match_type_dict.key("unique");
+        Ok(Self {
+            sink,
+            schema,
+            k_hard_neg: match_type_dict.key("hard_neg"),
+            k_canary: match_type_dict.key("canary"),
+            k_exact_dup: match_type_dict.key("exact_dup"),
+            k_fuzzy_dup: match_type_dict.key("fuzzy_dup"),
+            k_unique: match_type_dict.key("unique"),
+            match_type_dict,
+            difficulty_dict,
+            difficulty: difficulty.to_string(),
+            diff_arr_cache: None,
+            n_exact_dup: 0,
+            n_fuzzy_dup: 0,
+            n_hard_neg: 0,
+            n_unique: 0,
+            n_masters: 0,
+            track_clusters,
+            cluster_pairs: Vec::new(),
+            is_dup: LocalBits::default(),
+            has_exact_copy: LocalBits::default(),
+        })
+    }
 
-        for batch_result in reader {
-            let batch = batch_result.map_err(|e| format!("read gt draft batch: {e}"))?;
-            let n = batch.num_rows();
-            let mid_col = batch.column(1).as_string::<i32>();
-            let rid_col = batch.column(0).as_string::<i32>();
-            let ident_col = batch.column(3).as_boolean();
-            let base_col = batch.column(4).as_boolean();
+    fn write(
+        &mut self,
+        record_ids: &ArrayRef,
+        master_ids: &ArrayRef,
+        entity_types: &ArrayRef,
+        match_type_keys: Int32Array,
+    ) -> Result<(), String> {
+        let n = record_ids.len();
+        let diff_arr = match &self.diff_arr_cache {
+            Some((cached_n, arr)) if *cached_n == n => arr.clone(),
+            _ => {
+                let arr = self.difficulty_dict.const_array(&self.difficulty, n);
+                self.diff_arr_cache = Some((n, arr.clone()));
+                arr
+            }
+        };
+        let batch = RecordBatch::try_new(
+            self.schema.clone(),
+            vec![
+                record_ids.clone(),
+                master_ids.clone(),
+                entity_types.clone(),
+                self.match_type_dict.finish_keys(match_type_keys),
+                diff_arr,
+            ],
+        )
+        .map_err(|e| format!("build gt batch: {e}"))?;
+        self.sink.write(&batch)
+    }
 
-            let mut mt_keys = arrow::array::Int32Builder::with_capacity(n);
-            for i in 0..n {
-                let mid = if mid_col.is_null(i) {
-                    ""
-                } else {
-                    mid_col.value(i)
-                };
-                let is_base = !base_col.is_null(i) && base_col.value(i);
-                let is_hn = mid.starts_with("HN-");
-                let is_canary = !is_hn && mid.starts_with("CANARY-");
-                // `dup_masters`/`masters_with_exact_copy` are keyed on
-                // `pack_master_key`, not the raw string --
-                // never `Some` for HN-/CANARY- ids, consistent with
-                // `push_dup_batch` never inserting those.
-                let master_key = if is_hn || is_canary {
-                    None
-                } else {
-                    crate::pipeline::pack_master_key(mid)
-                };
-                // Per-row, not per-cluster: a cluster can mix a base row, a
-                // copy the noise happened not to change, and a copy that's
-                // genuinely different. A base row has no noise of its own —
-                // it reads `exact_dup` only if the cluster actually contains
-                // a byte-identical copy (`masters_with_exact_copy`), never
-                // unconditionally (that used to mislabel every duplicated
-                // master's base row `exact_dup` even when all of its copies
-                // were fuzzy).
-                let is_identical = if is_base {
-                    master_key.is_some_and(|k| masters_with_exact_copy.contains(&k))
-                } else {
-                    !ident_col.is_null(i) && ident_col.value(i)
-                };
-                let is_dup_master = master_key.is_some_and(|k| dup_masters.contains(&k));
-                let mt_key = if is_hn {
-                    n_hard_neg += 1;
-                    k_hard_neg
-                } else if is_canary {
-                    k_canary
-                } else if is_dup_master {
-                    if is_identical {
-                        n_exact_dup += 1;
-                        k_exact_dup
-                    } else {
-                        n_fuzzy_dup += 1;
-                        k_fuzzy_dup
-                    }
-                } else {
-                    n_unique += 1;
-                    k_unique
-                };
-                mt_keys.append_value(mt_key);
-                // Every row of a duplicated master belongs to its cluster,
-                // tagged with its own identical/fuzzy status. Only tracked
-                // when `--graph` is enabled: `cluster_pairs` is exclusively
-                // consumed by `graph_gen::push_dup_clusters` to emit
-                // exact_dup/fuzzy_dup edges, so building it when there's no
-                // graph output to write is pure wasted RAM -- one entry per
-                // duplicate-cluster row (base + every copy), which at
-                // 100M+ records with a low singleton fraction (hell tier)
-                // can be the majority of the dataset.
-                if track_clusters && is_dup_master {
-                    let master_key = master_key.expect("is_dup_master implies master_key is Some");
-                    let record_idx = crate::pipeline::parse_record_idx(rid_col.value(i))
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "cluster_map: record_id {:?} isn't the fixed \
-                                 \"R-\" + 13-digit shape produced by \
-                                 `record_id_string`",
-                                rid_col.value(i)
-                            )
-                        });
-                    cluster_pairs.push((master_key, pack_ridx_identical(record_idx, is_identical)));
+    /// Classifies and writes one entity batch: its base rows first, then its
+    /// duplicate copies (`dups`, `None` when the batch has none) — the same
+    /// order they appear in the dataset.
+    ///
+    /// - A base row is `unique` if no copy of its master exists, otherwise
+    ///   `exact_dup` if at least one copy is byte-identical to it (a base row
+    ///   has no noise of its own: it reads as an exact duplicate only if the
+    ///   cluster genuinely contains an identical twin), else `fuzzy_dup`.
+    /// - A copy is `exact_dup` if its noise was a no-op, else `fuzzy_dup`.
+    pub fn push_entity_batch(
+        &mut self,
+        base: &BaseRows,
+        dups: Option<&DupRows>,
+    ) -> Result<(), String> {
+        let n = base.record_ids.len();
+        debug_assert_ids(
+            base.master_ids,
+            base.record_ids,
+            base.entity_idx,
+            base.first_master_idx,
+            base.first_record_idx,
+        );
+        self.n_masters += n;
+        self.is_dup.reset(n);
+        self.has_exact_copy.reset(n);
+        if let Some(d) = dups {
+            if d.master_idx.len() != d.record_ids.len()
+                || d.is_identical.len() != d.record_ids.len()
+            {
+                return Err(format!(
+                    "gt: duplicate batch length mismatch (rows={}, master_idx={}, is_identical={})",
+                    d.record_ids.len(),
+                    d.master_idx.len(),
+                    d.is_identical.len()
+                ));
+            }
+            for (i, (&g, &ident)) in d.master_idx.iter().zip(d.is_identical).enumerate() {
+                let local = (g as u64)
+                    .checked_sub(base.first_master_idx)
+                    .filter(|&l| l < n as u64)
+                    .ok_or_else(|| {
+                        format!(
+                            "gt: duplicate row {i} references master {g}, outside its base \
+                             batch [{}, {}) — duplicates must come from their own batch",
+                            base.first_master_idx,
+                            base.first_master_idx + n as u64
+                        )
+                    })? as usize;
+                self.is_dup.set(local);
+                if ident {
+                    self.has_exact_copy.set(local);
                 }
             }
-            let mt_arr = match_type_dict.finish_keys(mt_keys.finish());
-            let diff_arr = match &diff_arr_cache {
-                Some((cached_n, arr)) if *cached_n == n => arr.clone(),
-                _ => {
-                    let arr = difficulty_dict.const_array(difficulty, n);
-                    diff_arr_cache = Some((n, arr.clone()));
-                    arr
-                }
-            };
-
-            let final_batch = RecordBatch::try_new(
-                final_schema.clone(),
-                vec![
-                    batch.column(0).clone(),
-                    batch.column(1).clone(),
-                    batch.column(2).clone(),
-                    mt_arr,
-                    diff_arr,
-                ],
-            )
-            .map_err(|e| format!("build final gt batch: {e}"))?;
-
-            sink.write(&final_batch)?;
         }
 
-        sink.finish()?;
-        std::fs::remove_file(&draft_path).ok();
+        let mut keys = Int32Builder::with_capacity(n);
+        for j in 0..n {
+            let key = if !self.is_dup.get(j) {
+                self.n_unique += 1;
+                self.k_unique
+            } else {
+                let ident = self.has_exact_copy.get(j);
+                if self.track_clusters {
+                    self.cluster_pairs.push((
+                        crate::pipeline::pack_master_parts(
+                            base.entity_idx,
+                            base.first_master_idx + j as u64,
+                        ),
+                        pack_ridx_identical(base.first_record_idx + j as u64, ident),
+                    ));
+                }
+                if ident {
+                    self.n_exact_dup += 1;
+                    self.k_exact_dup
+                } else {
+                    self.n_fuzzy_dup += 1;
+                    self.k_fuzzy_dup
+                }
+            };
+            keys.append_value(key);
+        }
+        self.write(
+            base.record_ids,
+            base.master_ids,
+            base.entity_types,
+            keys.finish(),
+        )?;
 
+        if let Some(d) = dups {
+            let nd = d.record_ids.len();
+            if nd > 0 {
+                debug_assert_ids(
+                    d.master_ids,
+                    d.record_ids,
+                    base.entity_idx,
+                    d.master_idx[0] as u64,
+                    d.first_record_idx,
+                );
+            }
+            let mut keys = Int32Builder::with_capacity(nd);
+            for (i, (&g, &ident)) in d.master_idx.iter().zip(d.is_identical).enumerate() {
+                if self.track_clusters {
+                    self.cluster_pairs.push((
+                        crate::pipeline::pack_master_parts(base.entity_idx, g as u64),
+                        pack_ridx_identical(d.first_record_idx + i as u64, ident),
+                    ));
+                }
+                keys.append_value(if ident {
+                    self.n_exact_dup += 1;
+                    self.k_exact_dup
+                } else {
+                    self.n_fuzzy_dup += 1;
+                    self.k_fuzzy_dup
+                });
+            }
+            self.write(d.record_ids, d.master_ids, d.entity_types, keys.finish())?;
+        }
+        Ok(())
+    }
+
+    /// Writes a batch of hard-negative rows (`HN-…` masters): always
+    /// `hard_neg`, never part of a duplicate cluster.
+    pub fn push_hard_neg_batch(
+        &mut self,
+        record_ids: &ArrayRef,
+        entity_types: &ArrayRef,
+        master_ids: &ArrayRef,
+    ) -> Result<(), String> {
+        debug_assert_prefix(master_ids, "HN-");
+        let n = record_ids.len();
+        self.n_hard_neg += n;
+        let keys = Int32Array::from(vec![self.k_hard_neg; n]);
+        self.write(record_ids, master_ids, entity_types, keys)
+    }
+
+    /// Writes a batch of canary rows (`CANARY-…` masters, see `canary.rs`):
+    /// always `canary`, not counted in any statistic.
+    pub fn push_canary_batch(
+        &mut self,
+        record_ids: &ArrayRef,
+        entity_types: &ArrayRef,
+        master_ids: &ArrayRef,
+    ) -> Result<(), String> {
+        debug_assert_prefix(master_ids, "CANARY-");
+        let keys = Int32Array::from(vec![self.k_canary; record_ids.len()]);
+        self.write(record_ids, master_ids, entity_types, keys)
+    }
+
+    /// Closes the ground-truth file and returns the run's statistics (plus
+    /// the duplicate-cluster map, when tracked).
+    pub fn finish(self) -> Result<GtResult, String> {
+        self.sink.finish()?;
         Ok(GtResult {
-            n_exact_dup,
-            n_fuzzy_dup,
-            n_hard_neg,
-            n_unique,
-            n_masters: n_base_masters,
-            cluster_map: ClusterCsr::build(cluster_pairs),
+            n_exact_dup: self.n_exact_dup,
+            n_fuzzy_dup: self.n_fuzzy_dup,
+            n_hard_neg: self.n_hard_neg,
+            n_unique: self.n_unique,
+            n_masters: self.n_masters,
+            cluster_map: ClusterCsr::build(self.cluster_pairs),
         })
+    }
+}
+
+/// Debug-only guard that the numeric ids handed to `push_entity_batch` are
+/// the ones actually formatted into the first row's `master_id`/`record_id`
+/// strings — the classification and `cluster_map` keys rely on that
+/// correspondence instead of re-parsing every string.
+fn debug_assert_ids(
+    master_ids: &ArrayRef,
+    record_ids: &ArrayRef,
+    entity_idx: u64,
+    master_idx: u64,
+    record_idx: u64,
+) {
+    if cfg!(debug_assertions) && !master_ids.is_empty() {
+        let mid = master_ids.as_string::<i32>().value(0);
+        let rid = record_ids.as_string::<i32>().value(0);
+        assert_eq!(
+            crate::pipeline::pack_master_key(mid),
+            Some(crate::pipeline::pack_master_parts(entity_idx, master_idx)),
+            "gt: master_id {mid:?} doesn't match entity {entity_idx} / master {master_idx}"
+        );
+        assert_eq!(
+            crate::pipeline::parse_record_idx(rid),
+            Some(record_idx),
+            "gt: record_id {rid:?} doesn't match record index {record_idx}"
+        );
+    }
+}
+
+fn debug_assert_prefix(master_ids: &ArrayRef, prefix: &str) {
+    if cfg!(debug_assertions) && !master_ids.is_empty() {
+        let mid = master_ids.as_string::<i32>().value(0);
+        assert!(
+            mid.starts_with(prefix),
+            "gt: master_id {mid:?} should start with {prefix:?}"
+        );
     }
 }
 
@@ -740,42 +679,20 @@ mod tests {
         p.to_string_lossy().into_owned()
     }
 
-    fn arr(values: Vec<&str>) -> ArrayRef {
-        Arc::new(StringArray::from(values))
-    }
-
-    /// Same as `arr`, but for computed (owned) strings -- used to build
-    /// `record_id`/`master_id` fixtures matching the exact fixed-width shape
-    /// `ClusterCsr`'s packing relies on (`pipeline::record_id_string`/
-    /// `entity_prefix`/`pad_string`), which a bare string literal like
-    /// `"R2"` doesn't.
     fn arr_owned(values: Vec<String>) -> ArrayRef {
         Arc::new(StringArray::from(values))
     }
 
-    fn barr(values: Vec<bool>) -> ArrayRef {
-        Arc::new(BooleanArray::from(values))
+    /// `entity_type` fixtures: the real column is `Dictionary(Int32, Utf8)`,
+    /// built from `add_metadata_and_align`'s `entity_type_dict`. `dict` must
+    /// be the SAME `DictValues` instance across every `dict_arr` call feeding
+    /// one file — a fresh dictionary per call is exactly the "Dictionary
+    /// replacement" error IPC raises in the real pipeline too.
+    fn dict_arr(dict: &crate::pipeline::DictValues, value: &str, n: usize) -> ArrayRef {
+        dict.const_array(value, n)
     }
 
-    /// `entity_type` fixtures: the real column is
-    /// `Dictionary(Int32, Utf8)`, built from `add_metadata_and_align`'s
-    /// `entity_type_dict` — these tests build the draft schema directly,
-    /// so they need to hand `push_*_batch` a matching dictionary array
-    /// rather than the plain `StringArray` `arr()` builds. `dict` must be
-    /// the SAME `DictValues` instance across every `dict_arr` call feeding
-    /// one draft file — a fresh dictionary per call is exactly the
-    /// "Dictionary replacement" bug the shared dictionary prevents in the real
-    /// pipeline code, and IPC enforces it just as strictly in tests.
-    fn dict_arr(dict: &crate::pipeline::DictValues, values: Vec<&str>) -> ArrayRef {
-        let keys =
-            arrow::array::Int32Array::from(values.iter().map(|v| dict.key(v)).collect::<Vec<_>>());
-        dict.finish_keys(keys)
-    }
-
-    /// Reads the final GT file into a `record_id -> match_type` map. A map
-    /// (rather than a positional `Vec`) keeps the assertions independent of
-    /// draft row order, which is caller-determined (base/dup/other batches
-    /// are pushed as separate, non-interleaved groups in the real pipeline).
+    /// Reads the GT file into a `record_id -> match_type` map.
     fn read_match_types(final_path: &str) -> HashMap<String, String> {
         let file = std::fs::File::open(final_path).unwrap();
         let reader = arrow::ipc::reader::FileReader::try_new(file, None).unwrap();
@@ -786,8 +703,8 @@ mod tests {
                 .column_by_name("record_id")
                 .unwrap()
                 .as_string::<i32>();
-            // `match_type` is `Dictionary(Int32, Utf8)` —
-            // cast back to plain `Utf8` for this test-only comparison.
+            // `match_type` is `Dictionary(Int32, Utf8)` — cast back to plain
+            // `Utf8` for this test-only comparison.
             let mt_col =
                 arrow::compute::cast(batch.column_by_name("match_type").unwrap(), &DataType::Utf8)
                     .unwrap();
@@ -799,352 +716,294 @@ mod tests {
         out
     }
 
-    /// Builds the fixed-width `"{entity_prefix}-{pad_string}"` master_id
-    /// shape `ClusterCsr`'s packing relies on -- all these fixture-building
-    /// tests use a single entity index (0).
-    fn mid(n: usize) -> String {
+    /// Fixed-width master_id of `entity`'s global master `n`, as the
+    /// pipeline formats it.
+    fn mid(entity: usize, n: usize) -> String {
         format!(
             "{}-{}",
-            crate::pipeline::entity_prefix(0),
+            crate::pipeline::entity_prefix(entity),
             crate::pipeline::pad_string(n)
         )
     }
 
-    /// Alias for `pipeline::record_id_string`, for brevity in fixtures.
     fn rid(i: usize) -> String {
         crate::pipeline::record_id_string(i)
     }
 
+    /// Contiguous base batch fixture: masters `first_master..first_master+n`
+    /// of `entity`, records `first_rid..first_rid+n`.
+    struct Base {
+        rids: ArrayRef,
+        ets: ArrayRef,
+        mids: ArrayRef,
+        entity: u64,
+        first_master: u64,
+        first_rid: u64,
+    }
+
+    impl Base {
+        fn new(
+            et: &crate::pipeline::DictValues,
+            name: &str,
+            entity: usize,
+            first_master: usize,
+            first_rid: usize,
+            n: usize,
+        ) -> Self {
+            Self {
+                rids: arr_owned((first_rid..first_rid + n).map(rid).collect()),
+                ets: dict_arr(et, name, n),
+                mids: arr_owned(
+                    (first_master..first_master + n)
+                        .map(|m| mid(entity, m))
+                        .collect(),
+                ),
+                entity: entity as u64,
+                first_master: first_master as u64,
+                first_rid: first_rid as u64,
+            }
+        }
+
+        fn rows(&self) -> BaseRows<'_> {
+            BaseRows {
+                record_ids: &self.rids,
+                entity_types: &self.ets,
+                master_ids: &self.mids,
+                entity_idx: self.entity,
+                first_master_idx: self.first_master,
+                first_record_idx: self.first_rid,
+            }
+        }
+    }
+
+    /// Duplicate-copies fixture: one copy per `(master, is_identical)`,
+    /// records contiguous from `first_rid`.
+    struct Dups {
+        rids: ArrayRef,
+        ets: ArrayRef,
+        mids: ArrayRef,
+        master_idx: Vec<usize>,
+        ident: Vec<bool>,
+        first_rid: u64,
+    }
+
+    impl Dups {
+        fn new(
+            et: &crate::pipeline::DictValues,
+            name: &str,
+            entity: usize,
+            first_rid: usize,
+            copies: &[(usize, bool)],
+        ) -> Self {
+            let n = copies.len();
+            Self {
+                rids: arr_owned((first_rid..first_rid + n).map(rid).collect()),
+                ets: dict_arr(et, name, n),
+                mids: arr_owned(copies.iter().map(|&(m, _)| mid(entity, m)).collect()),
+                master_idx: copies.iter().map(|&(m, _)| m).collect(),
+                ident: copies.iter().map(|&(_, i)| i).collect(),
+                first_rid: first_rid as u64,
+            }
+        }
+
+        fn rows(&self) -> DupRows<'_> {
+            DupRows {
+                record_ids: &self.rids,
+                entity_types: &self.ets,
+                master_ids: &self.mids,
+                master_idx: &self.master_idx,
+                is_identical: &self.ident,
+                first_record_idx: self.first_rid,
+            }
+        }
+    }
+
+    fn hn(et: &crate::pipeline::DictValues, first_rid: usize, n: usize) -> [ArrayRef; 3] {
+        [
+            arr_owned((first_rid..first_rid + n).map(rid).collect()),
+            dict_arr(et, "person", n),
+            arr_owned((0..n).map(|i| format!("HN-{i:09}")).collect()),
+        ]
+    }
+
+    fn acc(path: &str, track_clusters: bool) -> GtAccumulator {
+        GtAccumulator::new("medium", "ipc", path, &HashMap::new(), track_clusters).unwrap()
+    }
+
     #[test]
     fn test_gt_accumulator_basic() {
-        let draft = tmp_path("basic_draft");
-        let final_path = tmp_path("basic_final");
-
-        let mut acc = GtAccumulator::new(&draft).unwrap();
-        let et_dict = crate::pipeline::DictValues::new(["person"]);
-        // Base rows: rid(1) (master mid(1), later duplicated), rid(3)
-        // (singleton mid(2)), rid(6) (singleton mid(5)).
-        acc.push_base_batch(
-            &arr_owned(vec![rid(1), rid(3), rid(6)]),
-            &dict_arr(&et_dict, vec!["person", "person", "person"]),
-            &arr_owned(vec![mid(1), mid(2), mid(5)]),
-        )
-        .unwrap();
-        // Dup row: rid(2) duplicates mid(1), unchanged by its noise pass.
-        acc.push_dup_batch(
-            &arr_owned(vec![rid(2)]),
-            &dict_arr(&et_dict, vec!["person"]),
-            &arr_owned(vec![mid(1)]),
-            &barr(vec![true]),
-        )
-        .unwrap();
-        // Hard negatives: rid(4), rid(5).
-        acc.push_other_batch(
-            &arr_owned(vec![rid(4), rid(5)]),
-            &dict_arr(&et_dict, vec!["person", "person"]),
-            &arr(vec!["HN-0000003", "HN-0000004"]),
-        )
-        .unwrap();
-
-        let GtResult {
-            n_exact_dup: ed,
-            n_hard_neg: hn,
-            n_unique: un,
-            n_masters: masters,
-            ..
-        } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
+        let path = tmp_path("basic");
+        let et = crate::pipeline::DictValues::new(["person"]);
+        let mut acc = acc(&path, false);
+        // Masters 0..3 (records 0..3); master 0 gets one unchanged copy
+        // (record 3); then 2 hard negatives (records 4, 5).
+        let base = Base::new(&et, "person", 0, 0, 0, 3);
+        let dups = Dups::new(&et, "person", 0, 3, &[(0, true)]);
+        acc.push_entity_batch(&base.rows(), Some(&dups.rows()))
             .unwrap();
-        assert_eq!(ed, 2);
-        assert_eq!(hn, 2);
-        assert_eq!(un, 2);
-        assert_eq!(masters, 3); // mid(1), mid(2), mid(5)
+        let [r, e, m] = hn(&et, 4, 2);
+        acc.push_hard_neg_batch(&r, &e, &m).unwrap();
 
-        let match_types = read_match_types(&final_path);
-        assert_eq!(match_types[&rid(1)], "exact_dup");
-        assert_eq!(match_types[&rid(2)], "exact_dup");
-        assert_eq!(match_types[&rid(3)], "unique");
-        assert_eq!(match_types[&rid(4)], "hard_neg");
-        assert_eq!(match_types[&rid(5)], "hard_neg");
-        assert_eq!(match_types[&rid(6)], "unique");
+        let res = acc.finish().unwrap();
+        assert_eq!(res.n_exact_dup, 2);
+        assert_eq!(res.n_fuzzy_dup, 0);
+        assert_eq!(res.n_hard_neg, 2);
+        assert_eq!(res.n_unique, 2);
+        assert_eq!(res.n_masters, 3);
 
-        std::fs::remove_file(&final_path).ok();
+        let mt = read_match_types(&path);
+        assert_eq!(mt[&rid(0)], "exact_dup");
+        assert_eq!(mt[&rid(1)], "unique");
+        assert_eq!(mt[&rid(2)], "unique");
+        assert_eq!(mt[&rid(3)], "exact_dup");
+        assert_eq!(mt[&rid(4)], "hard_neg");
+        assert_eq!(mt[&rid(5)], "hard_neg");
+        std::fs::remove_file(&path).ok();
     }
 
-    /// A duplicate copy whose noise pass actually changed something
-    /// (`is_identical = false`) must be classified `fuzzy_dup`, not
-    /// `exact_dup` — the master itself, and any sibling copy that was left
-    /// unchanged, keep `exact_dup` independently, per row.
+    /// A copy whose noise actually changed something is `fuzzy_dup`; the
+    /// master and an unchanged sibling copy stay `exact_dup`, per row.
     #[test]
     fn test_gt_accumulator_fuzzy_dup() {
-        let draft = tmp_path("fuzzy_draft");
-        let final_path = tmp_path("fuzzy_final");
-
-        let mut acc = GtAccumulator::new(&draft).unwrap();
-        let et_dict = crate::pipeline::DictValues::new(["person"]);
-        // Triplet: rid(1) is the master, rid(2) was left unchanged by its
-        // noise pass, rid(3) was genuinely altered.
-        acc.push_base_batch(
-            &arr_owned(vec![rid(1)]),
-            &dict_arr(&et_dict, vec!["person"]),
-            &arr_owned(vec![mid(1)]),
-        )
-        .unwrap();
-        acc.push_dup_batch(
-            &arr_owned(vec![rid(2), rid(3)]),
-            &dict_arr(&et_dict, vec!["person", "person"]),
-            &arr_owned(vec![mid(1), mid(1)]),
-            &barr(vec![true, false]),
-        )
-        .unwrap();
-
-        let GtResult {
-            n_exact_dup: ed,
-            n_fuzzy_dup: fd,
-            n_unique: un,
-            n_masters: masters,
-            ..
-        } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
+        let path = tmp_path("fuzzy");
+        let et = crate::pipeline::DictValues::new(["person"]);
+        let mut acc = acc(&path, false);
+        let base = Base::new(&et, "person", 0, 0, 0, 1);
+        let dups = Dups::new(&et, "person", 0, 1, &[(0, true), (0, false)]);
+        acc.push_entity_batch(&base.rows(), Some(&dups.rows()))
             .unwrap();
-        assert_eq!(ed, 2); // rid(1) (master) + rid(2) (unchanged copy)
-        assert_eq!(fd, 1); // rid(3) (genuinely noised copy)
-        assert_eq!(un, 0);
-        assert_eq!(masters, 1);
 
-        let match_types = read_match_types(&final_path);
-        assert_eq!(match_types[&rid(1)], "exact_dup");
-        assert_eq!(match_types[&rid(2)], "exact_dup");
-        assert_eq!(match_types[&rid(3)], "fuzzy_dup");
+        let res = acc.finish().unwrap();
+        assert_eq!(res.n_exact_dup, 2); // master + unchanged copy
+        assert_eq!(res.n_fuzzy_dup, 1); // genuinely noised copy
+        assert_eq!(res.n_unique, 0);
+        assert_eq!(res.n_masters, 1);
 
-        std::fs::remove_file(&final_path).ok();
+        let mt = read_match_types(&path);
+        assert_eq!(mt[&rid(0)], "exact_dup");
+        assert_eq!(mt[&rid(1)], "exact_dup");
+        assert_eq!(mt[&rid(2)], "fuzzy_dup");
+        std::fs::remove_file(&path).ok();
     }
 
+    /// A master whose only copies were all genuinely noised has no
+    /// byte-identical twin: its base row is `fuzzy_dup`, not `exact_dup`.
+    #[test]
+    fn test_base_row_without_identical_copy_is_fuzzy() {
+        let path = tmp_path("base_fuzzy");
+        let et = crate::pipeline::DictValues::new(["person"]);
+        let mut acc = acc(&path, false);
+        let base = Base::new(&et, "person", 0, 0, 0, 1);
+        let dups = Dups::new(&et, "person", 0, 1, &[(0, false), (0, false)]);
+        acc.push_entity_batch(&base.rows(), Some(&dups.rows()))
+            .unwrap();
+
+        let res = acc.finish().unwrap();
+        assert_eq!(res.n_exact_dup, 0);
+        assert_eq!(res.n_fuzzy_dup, 3);
+        assert_eq!(read_match_types(&path)[&rid(0)], "fuzzy_dup");
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Several batches, offset masters/records, some without any duplicate:
+    /// classification only depends on each batch's own copies.
     #[test]
     fn test_gt_accumulator_multi_batch() {
-        let draft = tmp_path("multi_draft");
-        let final_path = tmp_path("multi_final");
+        let path = tmp_path("multi");
+        let et = crate::pipeline::DictValues::new(["person"]);
+        let mut acc = acc(&path, false);
+        // Batch 1: masters 0..2 (records 0..2), master 1 copied (record 2).
+        let b1 = Base::new(&et, "person", 0, 0, 0, 2);
+        let d1 = Dups::new(&et, "person", 0, 2, &[(1, false)]);
+        acc.push_entity_batch(&b1.rows(), Some(&d1.rows())).unwrap();
+        // Batch 2: masters 2..4 (records 3..5), no duplicates at all.
+        let b2 = Base::new(&et, "person", 0, 2, 3, 2);
+        acc.push_entity_batch(&b2.rows(), None).unwrap();
 
-        let mut acc = GtAccumulator::new(&draft).unwrap();
-        let et_dict = crate::pipeline::DictValues::new(["person"]);
-        // Base batch: two masters, one of which (mid(1)) is duplicated in a
-        // later, separate dup batch — simulating a master's duplicate
-        // landing in a different batch than its base row.
-        acc.push_base_batch(
-            &arr_owned(vec![rid(1), rid(3)]),
-            &dict_arr(&et_dict, vec!["person", "person"]),
-            &arr_owned(vec![mid(1), mid(2)]),
-        )
-        .unwrap();
-        acc.push_dup_batch(
-            &arr_owned(vec![rid(2)]),
-            &dict_arr(&et_dict, vec!["person"]),
-            &arr_owned(vec![mid(1)]),
-            &barr(vec![true]),
-        )
-        .unwrap();
-
-        let GtResult {
-            n_exact_dup: ed,
-            n_hard_neg: hn,
-            n_unique: un,
-            n_masters: masters,
-            ..
-        } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
-            .unwrap();
-        assert_eq!(ed, 2); // both rows of M-0000001
-        assert_eq!(hn, 0);
-        assert_eq!(un, 1);
-        assert_eq!(masters, 2);
-
-        std::fs::remove_file(&final_path).ok();
+        let res = acc.finish().unwrap();
+        assert_eq!(res.n_masters, 4);
+        assert_eq!(res.n_unique, 3);
+        assert_eq!(res.n_fuzzy_dup, 2);
+        let mt = read_match_types(&path);
+        assert_eq!(mt[&rid(0)], "unique");
+        assert_eq!(mt[&rid(1)], "fuzzy_dup");
+        assert_eq!(mt[&rid(2)], "fuzzy_dup");
+        assert_eq!(mt[&rid(3)], "unique");
+        assert_eq!(mt[&rid(4)], "unique");
+        std::fs::remove_file(&path).ok();
     }
 
-    /// Regression: two different entity types can produce master_ids that
-    /// share the same numeric suffix (each entity's index restarts at 0),
-    /// but must not be counted as duplicates of each other.
+    /// Two entities share the same local master index (each restarts at
+    /// 0): duplicating one must not mark the other as duplicated, and their
+    /// clusters must stay separate.
     #[test]
     fn test_no_cross_entity_suffix_collision() {
-        let draft = tmp_path("suffix_draft");
-        let final_path = tmp_path("suffix_final");
-
-        let mut acc = GtAccumulator::new(&draft).unwrap();
-        let et_dict = crate::pipeline::DictValues::new(["person", "account"]);
-        acc.push_base_batch(
-            &arr(vec!["R1", "R2"]),
-            &dict_arr(&et_dict, vec!["person", "account"]),
-            &arr(vec!["PERSON-0000001", "ACCOUNT-0000001"]),
-        )
-        .unwrap();
-
-        let GtResult {
-            n_exact_dup: ed,
-            n_unique: un,
-            n_masters: masters,
-            ..
-        } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new(), false)
+        let path = tmp_path("suffix");
+        let et = crate::pipeline::DictValues::new(["person", "account"]);
+        let mut acc = acc(&path, true);
+        let person = Base::new(&et, "person", 0, 0, 0, 1);
+        let person_dups = Dups::new(&et, "person", 0, 1, &[(0, true)]);
+        acc.push_entity_batch(&person.rows(), Some(&person_dups.rows()))
             .unwrap();
-        assert_eq!(ed, 0);
-        assert_eq!(un, 2);
-        assert_eq!(masters, 2);
+        let account = Base::new(&et, "account", 1, 0, 2, 1);
+        acc.push_entity_batch(&account.rows(), None).unwrap();
 
-        std::fs::remove_file(&final_path).ok();
+        let res = acc.finish().unwrap();
+        assert_eq!(res.n_exact_dup, 2);
+        assert_eq!(res.n_unique, 1);
+        assert_eq!(res.n_masters, 2);
+        assert_eq!(res.cluster_map.n_clusters(), 1);
+        assert_eq!(read_match_types(&path)[&rid(2)], "unique");
+        std::fs::remove_file(&path).ok();
     }
 
-    /// `finish()` returns a `cluster_map` mapping each duplicated master_id
-    /// to the full set of `(record_id, is_identical)` pairs in its cluster
-    /// (base + duplicate copies). This is the structure consumed by
-    /// `push_dup_clusters` to decide, per edge, `exact_dup` vs `fuzzy_dup`.
+    /// A duplicate referencing a master outside its own base batch breaks
+    /// the single-pass invariant — rejected loudly instead of misclassified.
+    #[test]
+    fn test_duplicate_outside_its_batch_is_rejected() {
+        let path = tmp_path("outside");
+        let et = crate::pipeline::DictValues::new(["person"]);
+        let mut acc = acc(&path, false);
+        let base = Base::new(&et, "person", 0, 10, 0, 2);
+        let mut dups = Dups::new(&et, "person", 0, 2, &[(10, true)]);
+        dups.master_idx = vec![12]; // batch covers masters 10..12
+        let err = acc
+            .push_entity_batch(&base.rows(), Some(&dups.rows()))
+            .unwrap_err();
+        assert!(err.contains("outside its base batch"), "{err}");
+        drop(acc);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// `cluster_map` holds every duplicated master's members (base + copies)
+    /// with their own identical/fuzzy status, in ascending master order;
+    /// singletons and hard negatives don't appear.
     #[test]
     fn test_cluster_map_contents() {
-        let draft = tmp_path("cm_draft");
-        let final_path = tmp_path("cm_final");
-
-        let mut acc = GtAccumulator::new(&draft).unwrap();
-        let et_dict = crate::pipeline::DictValues::new(["person"]);
-        acc.push_base_batch(
-            &arr_owned(vec![rid(1), rid(3), rid(6)]),
-            &dict_arr(&et_dict, vec!["person", "person", "person"]),
-            &arr_owned(vec![mid(1), mid(2), mid(5)]),
-        )
-        .unwrap();
-        // rid(2) (mid(1)) stayed identical; rid(7) (mid(5)) was genuinely noised.
-        acc.push_dup_batch(
-            &arr_owned(vec![rid(2), rid(7)]),
-            &dict_arr(&et_dict, vec!["person", "person"]),
-            &arr_owned(vec![mid(1), mid(5)]),
-            &barr(vec![true, false]),
-        )
-        .unwrap();
-        acc.push_other_batch(
-            &arr_owned(vec![rid(4), rid(5)]),
-            &dict_arr(&et_dict, vec!["person", "person"]),
-            &arr(vec!["HN-0000003", "HN-0000004"]),
-        )
-        .unwrap();
-
-        let GtResult {
-            cluster_map: cm, ..
-        } = acc
-            .finish("medium", "ipc", &final_path, &HashMap::new(), true)
+        let path = tmp_path("cm");
+        let et = crate::pipeline::DictValues::new(["person"]);
+        let mut acc = acc(&path, true);
+        // Masters 0..3 (records 0..3). Master 0: one unchanged copy (record
+        // 3). Master 2: one genuinely noised copy (record 4).
+        let base = Base::new(&et, "person", 0, 0, 0, 3);
+        let dups = Dups::new(&et, "person", 0, 3, &[(2, false), (0, true)]);
+        acc.push_entity_batch(&base.rows(), Some(&dups.rows()))
             .unwrap();
+        let [r, e, m] = hn(&et, 5, 2);
+        acc.push_hard_neg_batch(&r, &e, &m).unwrap();
 
-        // Only duplicated masters appear; singletons (mid(2)) do not. Groups
-        // come out in ascending packed-master-key order, i.e. mid(1) (local
-        // index 1) before mid(5) (local index 5).
+        let cm = acc.finish().unwrap().cluster_map;
         assert_eq!(cm.n_clusters(), 2);
         let mut groups = cm.groups();
-        let (records1, idents1) = groups.next().unwrap();
-        assert_eq!(records1, &[1, 2]);
-        assert_eq!(idents1.to_vec(), vec![true, true]);
-        // rid(6) is the base of mid(5); its only copy (rid(7)) was genuinely
-        // noised, so the cluster has no byte-identical pair at all — rid(6)
-        // must NOT read as identical just because it's the base (that was
-        // the bug: base rows used to hardcode `is_identical = true`).
-        let (records5, idents5) = groups.next().unwrap();
-        assert_eq!(records5, &[6, 7]);
-        assert_eq!(idents5.to_vec(), vec![false, false]);
+        let (records0, idents0) = groups.next().unwrap();
+        assert_eq!(records0, &[0, 4]);
+        assert_eq!(idents0.to_vec(), vec![true, true]);
+        // Master 2's only copy was noised: no byte-identical pair, so its
+        // base row must not read as identical either.
+        let (records2, idents2) = groups.next().unwrap();
+        assert_eq!(records2, &[2, 3]);
+        assert_eq!(idents2.to_vec(), vec![false, false]);
         assert!(groups.next().is_none());
-
-        std::fs::remove_file(&final_path).ok();
-    }
-
-    // ── RAM measurement: GT master sets ─────────────────────────
-    //
-    // Not a correctness test -- #[ignore]'d so it never runs in normal
-    // `cargo test`. Isolated measurement (never a full pipeline run):
-    // compares process RSS growth for two separate
-    // `FxHashSet<u64>` (`dup_masters` + `masters_with_exact_copy` as they
-    // exist today) against one combined `FxHashMap<u64, bool>`, at the
-    // cardinality actually observed on a real run (aviation/hell/50M:
-    // masters=21,666,666, uniques=5,855,236 -> dup_masters.len() ~=
-    // 15,811,430; masters_with_exact_copy is a subset, sized here at 70%
-    // of that as a representative estimate -- exact_dups=23,237,057 of
-    // fuzzy+exact=44,144,764 total duplicate rows is ~53% at the row
-    // level, but a master with ANY identical copy is more common than
-    // that row-level fraction suggests, so 70% is a deliberately
-    // generous (not cherry-picked-low) estimate for this comparison).
-    // Run with:
-    //   cargo test --release gt::tests::bench_ram_dup_masters_vs_combined_map -- --ignored --nocapture
-    #[test]
-    #[ignore]
-    fn bench_ram_dup_masters_vs_combined_map() {
-        fn rss_mb() -> f64 {
-            let pid = sysinfo::Pid::from_u32(std::process::id());
-            let mut sys = sysinfo::System::new();
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-            sys.process(pid)
-                .map(|p| p.memory() as f64 / 1e6)
-                .unwrap_or(0.0)
-        }
-
-        const N_DUP_MASTERS: usize = 15_811_430;
-        const N_EXACT_COPY: usize = (N_DUP_MASTERS as f64 * 0.70) as usize;
-
-        // Deterministic, well-spread u64 keys (not sequential -- sequential
-        // keys would let the hash table's bucket layout be unrealistically
-        // cache-friendly compared to the real `pack_master_key` output,
-        // which mixes an entity_idx high-bit prefix with a local counter).
-        // A cheap SplitMix64-style mix is enough to spread bits without
-        // pulling in a new dependency for a throwaway measurement.
-        fn mix(i: u64) -> u64 {
-            let mut z = i.wrapping_add(0x9E3779B97F4A7C15);
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-            z ^ (z >> 31)
-        }
-
-        // ── Scenario A: two separate FxHashSet<u64> (today's shape) ────────
-        let rss0 = rss_mb();
-        let mut dup_masters: rustc_hash::FxHashSet<u64> =
-            rustc_hash::FxHashSet::with_capacity_and_hasher(N_DUP_MASTERS, Default::default());
-        for i in 0..N_DUP_MASTERS as u64 {
-            dup_masters.insert(mix(i));
-        }
-        let mut masters_with_exact_copy: rustc_hash::FxHashSet<u64> =
-            rustc_hash::FxHashSet::with_capacity_and_hasher(N_EXACT_COPY, Default::default());
-        for i in 0..N_EXACT_COPY as u64 {
-            // Subset of the same key space as dup_masters (every master
-            // with an exact copy is also in dup_masters), same mix.
-            masters_with_exact_copy.insert(mix(i));
-        }
-        let rss_two_sets = rss_mb();
-        println!(
-            "[bench_ram] two FxHashSet<u64> ({} + {} entries): rss delta = {:.1} MB (rss0={:.1} -> {:.1})",
-            dup_masters.len(),
-            masters_with_exact_copy.len(),
-            rss_two_sets - rss0,
-            rss0,
-            rss_two_sets
-        );
-        drop(dup_masters);
-        drop(masters_with_exact_copy);
-
-        // ── Scenario B: one combined FxHashMap<u64, bool> ──────────────────
-        let rss1 = rss_mb();
-        let mut combined: rustc_hash::FxHashMap<u64, bool> =
-            rustc_hash::FxHashMap::with_capacity_and_hasher(N_DUP_MASTERS, Default::default());
-        for i in 0..N_DUP_MASTERS as u64 {
-            combined.insert(mix(i), i < N_EXACT_COPY as u64);
-        }
-        let rss_combined = rss_mb();
-        println!(
-            "[bench_ram] one FxHashMap<u64,bool> ({} entries): rss delta = {:.1} MB (rss1={:.1} -> {:.1})",
-            combined.len(),
-            rss_combined - rss1,
-            rss1,
-            rss_combined
-        );
-        drop(combined);
-
-        let delta_two = rss_two_sets - rss0;
-        let delta_one = rss_combined - rss1;
-        println!(
-            "[bench_ram] combined map saves {:.1} MB ({:.1}%) vs two separate sets, at this cardinality",
-            delta_two - delta_one,
-            100.0 * (delta_two - delta_one) / delta_two.max(1.0)
-        );
+        std::fs::remove_file(&path).ok();
     }
 }
