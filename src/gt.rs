@@ -6,7 +6,6 @@
 use arrow::array::{Array, ArrayRef, AsArray, Int32Array, Int32Builder};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Bit-packed boolean buffer — 1 bit per entry instead of `Vec<bool>`'s 1
@@ -329,7 +328,7 @@ impl GtAccumulator {
         difficulty: &str,
         output_format: &str,
         final_path: &str,
-        metadata: &HashMap<String, String>,
+        metadata: &crate::pipeline::RunMetadata,
         track_clusters: bool,
     ) -> Result<Self, String> {
         let schema = Arc::new(
@@ -340,7 +339,7 @@ impl GtAccumulator {
                 Field::new("match_type", low_cardinality_dict_type(), false),
                 Field::new("difficulty", low_cardinality_dict_type(), false),
             ])
-            .with_metadata(metadata.clone()),
+            .with_metadata(crate::pipeline::arrow_metadata(metadata)),
         );
         let sink = GtSink::new(output_format, final_path, &schema, metadata)?;
         // Fixed, fully-known value sets — built once and reused for every
@@ -618,20 +617,14 @@ impl GtSink {
         output_format: &str,
         path: &str,
         schema: &Arc<Schema>,
-        metadata: &HashMap<String, String>,
+        metadata: &crate::pipeline::RunMetadata,
     ) -> Result<Self, String> {
         let file = std::fs::File::create(path).map_err(|e| format!("create {path}: {e}"))?;
         if output_format == "parquet" {
             use parquet::basic::{Compression, ZstdLevel};
             use parquet::file::properties::WriterProperties;
             let zstd = ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
-            let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata
-                .iter()
-                .map(|(k, v)| parquet::file::metadata::KeyValue {
-                    key: k.clone(),
-                    value: Some(v.clone()),
-                })
-                .collect();
+            let meta_kv = crate::pipeline::parquet_kv(metadata);
             let props = WriterProperties::builder()
                 .set_compression(Compression::ZSTD(zstd))
                 .set_data_page_size_limit(1_048_576)
@@ -669,6 +662,7 @@ impl GtSink {
 mod tests {
     use super::*;
     use arrow::array::StringArray;
+    use std::collections::HashMap;
 
     fn tmp_path(name: &str) -> String {
         let mut p = std::env::temp_dir();
@@ -827,7 +821,14 @@ mod tests {
     }
 
     fn acc(path: &str, track_clusters: bool) -> GtAccumulator {
-        GtAccumulator::new("medium", "ipc", path, &HashMap::new(), track_clusters).unwrap()
+        GtAccumulator::new(
+            "medium",
+            "ipc",
+            path,
+            &crate::pipeline::RunMetadata::new(),
+            track_clusters,
+        )
+        .unwrap()
     }
 
     #[test]

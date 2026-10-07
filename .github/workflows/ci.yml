@@ -24,6 +24,86 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: cargo build --release --lib --features python
 
+  # Same command on all 3 OSes must produce byte-identical output files —
+  # data and metadata alike, with the only time-dependent field
+  # (`dupehell.timestamp`) pinned via SOURCE_DATE_EPOCH. Each OS publishes
+  # the SHA-256 of every file it generated; `reproducibility-compare` fails
+  # if any OS disagrees.
+  reproducibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo build --release
+      - name: Generate reference runs
+        shell: bash
+        env:
+          SOURCE_DATE_EPOCH: "1767225600"
+        run: |
+          set -euo pipefail
+          gen() {
+            name=$1; shift
+            mkdir -p "repro/$name"
+            ./target/release/dupehell --seed 42 --output-dir "repro/$name" "$@"
+          }
+          # Multi-batch (> 500K base rows), IPC
+          gen aviation_passenger_ipc --domain aviation --only-entity passenger --size 1300000 --difficulty hell --output-format ipc
+          # Parquet (ZSTD) dataset + ground truth
+          gen kyc_medium_parquet --domain kyc --size 100000 --difficulty medium
+          # Property graph (nodes + edges, Parquet)
+          gen fintech_graph --domain fintech --size 100000 --difficulty hell --graph
+          # Chunked run, multi-entity domain
+          gen aviation_chunked_ipc --domain aviation --size 600000 --difficulty light --output-format ipc --chunk-size 250000
+      - name: Hash outputs
+        shell: bash
+        run: |
+          # First interpreter that actually runs (Windows may expose a
+          # non-functional `python3` Store alias).
+          for PY in python3 python; do "$PY" -c "" 2>/dev/null && break; done
+          "$PY" - <<'EOF' > "hashes-${{ matrix.os }}.txt"
+          import hashlib, os, sys
+          sys.stdout.reconfigure(newline="\n")  # no CRLF on Windows
+          for root, _, files in sorted(os.walk("repro")):
+              for f in sorted(files):
+                  p = os.path.join(root, f)
+                  with open(p, "rb") as fh:
+                      digest = hashlib.sha256(fh.read()).hexdigest()
+                  print(digest, os.path.relpath(p, "repro").replace(os.sep, "/"))
+          EOF
+          cat "hashes-${{ matrix.os }}.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hashes-${{ matrix.os }}
+          path: hashes-${{ matrix.os }}.txt
+
+  reproducibility-compare:
+    needs: reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: hashes-*
+          merge-multiple: true
+      - name: Compare hashes across OSes
+        run: |
+          set -euo pipefail
+          ls hashes-*.txt
+          test "$(wc -l < hashes-ubuntu-latest.txt)" -gt 0
+          status=0
+          for f in hashes-windows-latest.txt hashes-macos-latest.txt; do
+            if ! diff -u hashes-ubuntu-latest.txt "$f"; then
+              echo "::error::$f differs from ubuntu-latest — output is not byte-reproducible across OSes"
+              status=1
+            fi
+          done
+          exit $status
+
   deny:
     runs-on: ubuntu-latest
     steps:

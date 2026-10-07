@@ -233,6 +233,12 @@ fn main() {
         eprintln!("Error: size must be >= 10, got {}", cli.size);
         std::process::exit(1);
     }
+    // A typo here must not silently fall back to the wall clock — the whole
+    // point of setting it is a byte-reproducible output.
+    if let Err(e) = dupehell_core::pipeline::source_date_epoch() {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
     const MAX_SIZE: usize = 1_200_000_000;
     if cli.size > MAX_SIZE {
         eprintln!(

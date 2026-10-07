@@ -1166,20 +1166,14 @@ impl DatasetWriter {
         output_format: &str,
         path: &str,
         schema: &Arc<Schema>,
-        metadata: &HashMap<String, String>,
+        metadata: &RunMetadata,
     ) -> Result<Self, String> {
         let file = std::fs::File::create(path).map_err(|e| format!("create {path}: {e}"))?;
         if output_format == "parquet" {
             use parquet::basic::{Compression, ZstdLevel};
             use parquet::file::properties::WriterProperties;
             let zstd = ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
-            let meta_kv: Vec<parquet::file::metadata::KeyValue> = metadata
-                .iter()
-                .map(|(k, v)| parquet::file::metadata::KeyValue {
-                    key: k.clone(),
-                    value: Some(v.clone()),
-                })
-                .collect();
+            let meta_kv = parquet_kv(metadata);
             let props = WriterProperties::builder()
                 .set_compression(Compression::ZSTD(zstd))
                 // 1M rows/group (parquet-rs' own default) bounds the
@@ -2249,14 +2243,8 @@ fn convert_ipc_to_parquet(ipc_path: &str, parquet_path: &str) -> Result<(), Stri
     let parquet_file =
         std::fs::File::create(parquet_path).map_err(|e| format!("create {parquet_path}: {e}"))?;
     let zstd_level = parquet::basic::ZstdLevel::try_new(3).map_err(|e| format!("zstd: {e}"))?;
-    let meta_kv: Vec<parquet::file::metadata::KeyValue> = schema
-        .metadata()
-        .iter()
-        .map(|(k, v)| parquet::file::metadata::KeyValue {
-            key: k.clone(),
-            value: Some(v.clone()),
-        })
-        .collect();
+    // Sorted: `schema.metadata()` is a `HashMap` (see `RunMetadata`).
+    let meta_kv = parquet_kv(&schema.metadata().clone().into_iter().collect());
     let props = parquet::file::properties::WriterProperties::builder()
         .set_compression(parquet::basic::Compression::ZSTD(zstd_level))
         .set_max_row_group_row_count(Some(1_000_000))
@@ -2553,12 +2541,58 @@ pub fn run_chunked(
 
 // ── Metadata injection ──────────────────────────────────────────────────────
 
-fn build_metadata_map(config: &PipelineConfig) -> HashMap<String, String> {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs().to_string())
-        .unwrap_or_else(|_| "unknown".into());
-    HashMap::from([
+/// Run-level `dupehell.*` metadata embedded in every output file. A
+/// `BTreeMap`, not a `HashMap`: writers that copy it entry by entry (Parquet
+/// key/value metadata) then emit it in a stable, sorted key order — a
+/// `HashMap`'s iteration order is randomized per process, which made two
+/// otherwise identical Parquet files differ byte-wise.
+pub(crate) type RunMetadata = std::collections::BTreeMap<String, String>;
+
+/// `RunMetadata` as the `HashMap` Arrow's `Schema::with_metadata` takes
+/// (Arrow's IPC writer sorts the keys itself on serialization).
+pub(crate) fn arrow_metadata(metadata: &RunMetadata) -> HashMap<String, String> {
+    metadata
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
+/// Parquet key/value metadata, in sorted key order.
+pub(crate) fn parquet_kv(metadata: &RunMetadata) -> Vec<parquet::file::metadata::KeyValue> {
+    metadata
+        .iter()
+        .map(|(k, v)| parquet::file::metadata::KeyValue {
+            key: k.clone(),
+            value: Some(v.clone()),
+        })
+        .collect()
+}
+
+/// `SOURCE_DATE_EPOCH` (the reproducible-builds convention): when set to a
+/// Unix timestamp, `dupehell.timestamp` uses it instead of the wall clock,
+/// so two identical runs produce byte-identical files — that timestamp is
+/// the only part of the output that otherwise depends on when it was
+/// generated. `Ok(None)` when unset, `Err` when set to something that isn't
+/// a non-negative integer (the CLI rejects that up front rather than
+/// silently falling back to the clock).
+pub fn source_date_epoch() -> Result<Option<u64>, String> {
+    match std::env::var("SOURCE_DATE_EPOCH") {
+        Err(_) => Ok(None),
+        Ok(s) => s.trim().parse::<u64>().map(Some).map_err(|_| {
+            format!("SOURCE_DATE_EPOCH must be a Unix timestamp (non-negative integer), got {s:?}")
+        }),
+    }
+}
+
+fn build_metadata_map(config: &PipelineConfig) -> RunMetadata {
+    let ts = match source_date_epoch() {
+        Ok(Some(epoch)) => epoch.to_string(),
+        _ => std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "unknown".into()),
+    };
+    RunMetadata::from([
         (
             "dupehell.generator".into(),
             format!("DupeHell v{}", env!("CARGO_PKG_VERSION")),
@@ -2730,7 +2764,7 @@ fn subtype_dict(config: &PipelineConfig) -> DictValues {
     DictValues::new(values)
 }
 
-fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>) -> Schema {
+fn build_full_schema(config: &PipelineConfig, metadata: &RunMetadata) -> Schema {
     let mut field_map: Vec<(String, DataType, bool)> = vec![
         ("record_id".to_string(), DataType::Utf8, false),
         ("domain".to_string(), low_cardinality_dict_type(), false),
@@ -2777,7 +2811,7 @@ fn build_full_schema(config: &PipelineConfig, metadata: &HashMap<String, String>
         .into_iter()
         .map(|(n, dt, nullable)| Field::new(&n, dt, nullable))
         .collect();
-    Schema::new(fields).with_metadata(metadata.clone())
+    Schema::new(fields).with_metadata(arrow_metadata(metadata))
 }
 
 /// Map a column's JSON type string to Arrow DataType.

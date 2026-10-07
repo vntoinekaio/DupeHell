@@ -3,7 +3,6 @@
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
 // No liability for misuse.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -80,7 +79,7 @@ impl NodeWriter {
     pub fn new(
         path: &str,
         full_schema: &Schema,
-        metadata: &HashMap<String, String>,
+        metadata: &crate::pipeline::RunMetadata,
     ) -> Result<Self, String> {
         let fields: Vec<Field> = full_schema
             .fields()
@@ -95,7 +94,8 @@ impl NodeWriter {
                 }
             })
             .collect();
-        let schema = Arc::new(Schema::new(fields).with_metadata(metadata.clone()));
+        let schema =
+            Arc::new(Schema::new(fields).with_metadata(crate::pipeline::arrow_metadata(metadata)));
 
         let file = File::create(path).map_err(|e| format!("create node file {path}: {e}"))?;
         let mut writer = FileWriter::try_new(file, &schema)
@@ -159,7 +159,7 @@ fn low_cardinality_dict_type() -> DataType {
     DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
 }
 
-fn edge_schema(metadata: &HashMap<String, String>) -> Arc<Schema> {
+fn edge_schema(metadata: &crate::pipeline::RunMetadata) -> Arc<Schema> {
     Arc::new(
         Schema::new(vec![
             Field::new("source_node_id", DataType::Utf8, false),
@@ -168,7 +168,7 @@ fn edge_schema(metadata: &HashMap<String, String>) -> Arc<Schema> {
             Field::new("subtype", low_cardinality_dict_type(), false),
             Field::new("weight", DataType::Float64, false),
         ])
-        .with_metadata(metadata.clone()),
+        .with_metadata(crate::pipeline::arrow_metadata(metadata)),
     )
 }
 
@@ -202,7 +202,7 @@ impl EdgeWriter {
     /// every caller.
     pub fn new(
         path: &str,
-        metadata: &HashMap<String, String>,
+        metadata: &crate::pipeline::RunMetadata,
         subtype_dict: DictValues,
     ) -> Result<Self, String> {
         let schema = edge_schema(metadata);
@@ -425,6 +425,7 @@ pub fn push_dup_clusters(
 mod tests {
     use super::*;
     use arrow::array::AsArray;
+    use std::collections::HashMap;
     use std::collections::HashSet;
 
     fn read_edges(path: &str) -> Vec<(String, String, String, String, f64)> {
@@ -495,7 +496,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(
             &path,
-            &HashMap::new(),
+            &crate::pipeline::RunMetadata::new(),
             DictValues::new(["complete", "spanning_tree"]),
         )
         .unwrap();
@@ -520,7 +521,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(
             &path,
-            &HashMap::new(),
+            &crate::pipeline::RunMetadata::new(),
             DictValues::new(["complete", "spanning_tree"]),
         )
         .unwrap();
@@ -547,7 +548,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(
             &path,
-            &HashMap::new(),
+            &crate::pipeline::RunMetadata::new(),
             DictValues::new(["complete", "spanning_tree"]),
         )
         .unwrap();
@@ -583,7 +584,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let mut ew = EdgeWriter::new(
             &path,
-            &HashMap::new(),
+            &crate::pipeline::RunMetadata::new(),
             DictValues::new(["complete", "spanning_tree"]),
         )
         .unwrap();

@@ -283,6 +283,24 @@ dupehell [OPTIONS]
 | `--chunk-size <N>` | — | Generate internally as sequential, RAM-bounded chunks of this size, assembled into the same single output files; `record_id`/`master_id` stay globally contiguous |
 | `--skip-ground-truth` | off | Skip all ground-truth computation and don't write the `_ground_truth` file — for stress-test runs that only need the dataset. Incompatible with `--graph` (CLI only for now) |
 
+### Reproducibility
+
+The generated **data** depends only on the dupehell version and the
+generation parameters (`domain`, `size`, `seed`, `difficulty`,
+`hard_neg_ratio`, `singleton_master_fraction`, `locale`, `only_entity`,
+`chunk_size`) — not on the machine, OS, or CPU core count. The only
+time-dependent part of an output file is the `dupehell.timestamp`
+metadata field. To make files **byte-identical** across runs and machines,
+pin it with the standard `SOURCE_DATE_EPOCH` environment variable (a Unix
+timestamp); this applies to both the CLI and the Python API:
+
+```bash
+SOURCE_DATE_EPOCH=1767225600 dupehell --domain aviation --size 1000000 --seed 42
+```
+
+CI checks this on every push: the same runs on Linux, Windows and macOS
+must produce identical SHA-256 hashes.
+
 ### Library
 
 The Rust crate exposes:
