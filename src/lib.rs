@@ -37,10 +37,10 @@ pub use schema::{
 };
 
 // `GenerateResult` is only ever constructed in Rust and returned to Python
-// (never passed back in as an argument), so it doesn't need the
-// `FromPyObject` impl pyo3 0.29 now makes opt-in for `Clone` pyclasses.
+// (never passed back in as an argument). Since pyo3 0.30, `Clone` pyclasses
+// no longer get a `FromPyObject` impl by default, which is what we want here.
 #[cfg(feature = "python")]
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Clone)]
 pub struct GenerateResult {
     #[pyo3(get)]
