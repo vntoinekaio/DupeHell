@@ -17,7 +17,7 @@ use crate::context::Context;
 use crate::entity_gen;
 use crate::pipeline::{self, PipelineConfig};
 
-const CANARY_COUNT: usize = 3;
+pub(crate) const CANARY_COUNT: usize = 3;
 const CANARY_SECRET: &str = "DupeHell-CANARY-v0.4-educational-use-only-2026";
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -48,6 +48,7 @@ pub fn generate_all(
     const_arr_cache: &mut FxHashMap<(String, usize), ArrayRef>,
     global_rid_offset: &mut usize,
     fk_pools: &HashMap<String, RecordBatch>,
+    offsets: &pipeline::ChunkOffsets,
     writer: &mut pipeline::DatasetWriter,
     node_writer: &mut Option<crate::graph_gen::NodeWriter>,
     mut gt_acc: Option<&mut crate::gt::GtAccumulator>,
@@ -77,7 +78,11 @@ pub fn generate_all(
         // passenger sharing the same passenger_id).
         let request_json = format!(
             r#"{{"entity_name":"{}","n":{},"seed":{},"columns":{},"row_offset":{}}}"#,
-            plan.name, n, batch_seed, plan.columns_json, plan.n_base,
+            plan.name,
+            n,
+            batch_seed,
+            plan.columns_json,
+            offsets.id_base(ent_idx) + plan.n_base,
         );
         let mut rb = entity_gen::generate_entity_batch(ctx, &request_json)?;
 

@@ -226,28 +226,32 @@ pub fn deterministic_run_id(
     only_entity: Option<&str>,
     chunk_size: Option<usize>,
 ) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    domain.hash(&mut hasher);
-    size.hash(&mut hasher);
-    seed.hash(&mut hasher);
-    difficulty.hash(&mut hasher);
-    hard_neg_ratio.to_bits().hash(&mut hasher);
-    singleton_master_fraction.to_bits().hash(&mut hasher);
-    locale.hash(&mut hasher);
-    // Every parameter that changes the output must be
-    // hashed in, or two runs differing only in this one collide on the same
-    // filename and silently overwrite each other.
-    only_entity.unwrap_or("").hash(&mut hasher);
-    // `--chunk-size` doesn't change the final dataset's *content* (chunked
-    // and non-chunked runs of the same total size are meant to be
-    // equivalent data, modulo per-chunk RNG independence) but it DOES
-    // change the sequence of per-chunk seeds actually used internally
-    // (`seed + chunk_idx` per chunk vs a single unbroken `seed`), so two
-    // runs with the same total size/seed but a different chunking must
-    // never collide on the same output filename.
-    chunk_size.unwrap_or(0).hash(&mut hasher);
-    format!("{}_{:x}", domain, hasher.finish())
+    // SHA-256 over a fixed encoding, not `DefaultHasher`: std documents
+    // that hasher's algorithm as unspecified and free to change between
+    // Rust releases, which would silently rename every output file after a
+    // toolchain update. Each field is length- or width-delimited so no two
+    // parameter sets share an encoding. `--chunk-size` is part of it: it
+    // doesn't change what the dataset *is* but does change the per-chunk
+    // seeds actually used, so different chunkings must not collide on one
+    // filename.
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    let put_str = |h: &mut Sha256, s: &str| {
+        h.update((s.len() as u64).to_le_bytes());
+        h.update(s.as_bytes());
+    };
+    put_str(&mut h, domain);
+    h.update((size as u64).to_le_bytes());
+    h.update(seed.to_le_bytes());
+    put_str(&mut h, difficulty);
+    h.update(hard_neg_ratio.to_bits().to_le_bytes());
+    h.update(singleton_master_fraction.to_bits().to_le_bytes());
+    put_str(&mut h, locale);
+    put_str(&mut h, only_entity.unwrap_or(""));
+    h.update((chunk_size.unwrap_or(0) as u64).to_le_bytes());
+    let digest = h.finalize();
+    let id = u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 digest is 32 bytes"));
+    format!("{domain}_{id:016x}")
 }
 
 /// Load and parse a domain schema JSON file.
