@@ -2374,8 +2374,8 @@ fn concat_parquet_files(in_paths: &[String], out_path: &str) -> Result<(), Strin
 }
 
 /// Generates `total_size` records by internally looping over
-/// `ceil(total_size / chunk_size)` sequential, independently-seeded chunk
-/// runs (`seed + chunk_idx`), keeping `record_id`/`master_id` globally
+/// sequential, independently-seeded chunk runs (see [`chunk_sizes`]),
+/// keeping `record_id`/`master_id` globally
 /// contiguous across chunks (see `ChunkOffsets`) instead of the shard-tag
 /// hack an external concat script would need, then assembling the chunk
 /// outputs into one final dataset/GT/graph file via `concat_dataset_files`.
@@ -2386,6 +2386,34 @@ fn concat_parquet_files(in_paths: &[String], out_path: &str) -> Result<(), Strin
 /// If `chunk_size == 0` or `chunk_size >= total_size`, this is exactly one
 /// chunk — delegates straight to `run_pipeline_with_progress`, byte-for-byte
 /// identical to calling it directly (no `--chunk-size` given).
+/// Smallest `--size` a single pipeline run accepts (see
+/// `schema::build_pipeline_config`) — and so the smallest chunk.
+pub const MIN_RUN_SIZE: usize = 10;
+
+/// Sizes of the chunks `run_chunked` splits `total` into: `chunk_size`
+/// each, except that a trailing remainder smaller than [`MIN_RUN_SIZE`] is
+/// folded into the last full chunk instead of becoming a chunk of its own
+/// (which `build_pipeline_config` would reject, after every previous chunk
+/// had already been generated). Requires `chunk_size >= MIN_RUN_SIZE`.
+pub fn chunk_sizes(total: usize, chunk_size: usize) -> Vec<usize> {
+    let mut sizes = vec![chunk_size; total / chunk_size];
+    let rem = total % chunk_size;
+    match sizes.last_mut() {
+        Some(last) if rem < MIN_RUN_SIZE => *last += rem,
+        _ if rem > 0 => sizes.push(rem),
+        _ => {}
+    }
+    sizes
+}
+
+struct RemoveDirOnDrop<'a>(&'a str);
+
+impl Drop for RemoveDirOnDrop<'_> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_chunked(
     ctx: &Context,
@@ -2425,9 +2453,17 @@ pub fn run_chunked(
         return run_pipeline_with_progress(ctx, &config, output_dir, progress);
     }
 
-    let n_chunks = total_size.div_ceil(chunk_size);
+    if chunk_size < MIN_RUN_SIZE {
+        return Err(format!(
+            "--chunk-size must be >= {MIN_RUN_SIZE} (each chunk is a full run), got {chunk_size}"
+        ));
+    }
+    let sizes = chunk_sizes(total_size, chunk_size);
     let tmp_dir = format!("{output_dir}/.dupehell_chunks_{final_run_id}");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("create {tmp_dir:?}: {e}"))?;
+    // Removes the per-chunk files on every exit path, including a chunk
+    // failing midway — not only after a successful assembly.
+    let _tmp_guard = RemoveDirOnDrop(&tmp_dir);
 
     let mut offsets = ChunkOffsets::default();
     let mut dataset_chunks: Vec<String> = Vec::new();
@@ -2443,8 +2479,7 @@ pub fn run_chunked(
         masters: 0,
     };
 
-    for chunk_idx in 0..n_chunks {
-        let this_size = chunk_size.min(total_size - chunk_idx * chunk_size);
+    for (chunk_idx, &this_size) in sizes.iter().enumerate() {
         let chunk_seed = seed.wrapping_add(chunk_idx as u64);
         let chunk_run_id = format!("{final_run_id}__chunk{chunk_idx:04}");
         let mut chunk_config = crate::schema::build_pipeline_config(
@@ -2536,8 +2571,6 @@ pub fn run_chunked(
     } else {
         None
     };
-
-    std::fs::remove_dir_all(&tmp_dir).ok();
 
     Ok(PipelineOutput {
         output_files: vec![final_dataset],
@@ -3963,6 +3996,19 @@ mod tests {
                 avg.as_secs_f64() * 1000.0,
                 total_target_hits as f64 / N_REPS as f64,
             );
+        }
+    }
+
+    #[test]
+    fn test_chunk_sizes_fold_small_remainder() {
+        assert_eq!(chunk_sizes(1000, 500), vec![500, 500]);
+        assert_eq!(chunk_sizes(1005, 500), vec![500, 505]);
+        assert_eq!(chunk_sizes(1010, 500), vec![500, 500, 10]);
+        assert_eq!(chunk_sizes(1234, 400), vec![400, 400, 400, 34]);
+        for (total, cs) in [(1005, 500), (99, 10), (10_009, 1000), (25, 12)] {
+            let sizes = chunk_sizes(total, cs);
+            assert_eq!(sizes.iter().sum::<usize>(), total);
+            assert!(sizes.iter().all(|&s| s >= MIN_RUN_SIZE), "{sizes:?}");
         }
     }
 }

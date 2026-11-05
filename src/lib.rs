@@ -156,6 +156,14 @@ fn generate(
             "invalid output format '{output_format}'; expected 'ipc' or 'parquet'"
         )));
     }
+    // Pool files key their data by these exact lowercase codes; anything
+    // else (e.g. "FR") would silently fall back to "en" in `Context::new`.
+    if !crate::context::LOCALES.contains(&locale) {
+        return Err(PyValueError::new_err(format!(
+            "invalid locale '{locale}'; expected one of {:?}",
+            crate::context::LOCALES
+        )));
+    }
     if !schema::valid_difficulty_names().contains(&difficulty) {
         return Err(PyValueError::new_err(format!(
             "invalid difficulty '{difficulty}'; expected one of {:?}",
@@ -200,7 +208,9 @@ fn generate(
         && needed > free
     {
         return Err(PyValueError::new_err(format!(
-            "this run needs ~{:.1} GB of disk space, but only {:.1} GB is free on the disk              holding {output_dir} — free some space, choose another output_dir, use a              smaller size, or output_format=\"parquet\" (6-12x smaller)",
+            "this run needs ~{:.1} GB of disk space, but only {:.1} GB is free on the disk \
+             holding {output_dir} — free some space, choose another output_dir, use a \
+             smaller size, or output_format=\"parquet\" (6-12x smaller)",
             crate::disk::gb(needed),
             crate::disk::gb(free)
         )));

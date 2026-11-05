@@ -147,7 +147,8 @@ def generate(
         output_format: Output file format. ``"parquet"`` (default, ZSTD compressed)
             or ``"ipc"`` (Arrow IPC).
         singleton_master_fraction: Fraction of masters with only one record
-            (0.0 to 1.0). If None (default), uses the chosen ``difficulty``
+            (at most 0.70/0.60/0.80 for light/medium/hell, to leave room for
+            the tier's doublet share). If None (default), uses the chosen ``difficulty``
             tier's own value (0.50/0.30/0.10 for light/medium/hell).
             Pass an explicit value only to override that tier default — doing
             so emits a :class:`UserWarning` since it makes the actual
@@ -237,6 +238,9 @@ def generate(
         )
     if locale.lower() not in _VALID_LOCALES:
         raise ValueError(f"locale must be one of {_VALID_LOCALES}, got {locale!r}")
+    # Pool files are keyed by lowercase codes: "FR" must select the French
+    # data, not silently fall back to English.
+    locale = locale.lower()
     if hard_neg_ratio < 0.0:
         raise ValueError(f"hard_neg_ratio must be >= 0.0, got {hard_neg_ratio}")
     if schemas_dir is None:
