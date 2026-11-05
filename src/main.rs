@@ -168,7 +168,9 @@ const GRAPH_BYTES_PER_CLUSTER_ROW: u64 = 24;
 /// the only case worth warning about. Advisory only; silent if system
 /// memory can't be read.
 fn warn_if_graph_memory_tight(cluster_rows: u64) {
-    let mut sys = sysinfo::System::new();
+    let Ok(mut sys) = sysinfo::System::new() else {
+        return;
+    };
     sys.refresh_memory();
     let available = sys.available_memory();
     let needed = cluster_rows * GRAPH_BYTES_PER_CLUSTER_ROW;

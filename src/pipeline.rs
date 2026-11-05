@@ -1224,7 +1224,9 @@ fn log_rss(label: &str) {
         return;
     }
     let pid = sysinfo::Pid::from_u32(std::process::id());
-    let mut sys = sysinfo::System::new();
+    let Ok(mut sys) = sysinfo::System::new() else {
+        return;
+    };
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
     if let Some(p) = sys.process(pid) {
         log::debug!("[rss] {label}: rss={:.1} MB", p.memory() as f64 / 1e6);
