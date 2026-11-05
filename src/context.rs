@@ -18,7 +18,7 @@ pub struct PoolStore {
 }
 
 /// Known locale codes supported by pool files.
-const LOCALES: &[&str] = &["en", "fr", "de", "es", "it", "pt"];
+pub const LOCALES: &[&str] = &["en", "fr", "de", "es", "it", "pt"];
 
 fn is_locale_key(key: &str) -> bool {
     LOCALES.contains(&key)

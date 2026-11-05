@@ -226,28 +226,32 @@ pub fn deterministic_run_id(
     only_entity: Option<&str>,
     chunk_size: Option<usize>,
 ) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    domain.hash(&mut hasher);
-    size.hash(&mut hasher);
-    seed.hash(&mut hasher);
-    difficulty.hash(&mut hasher);
-    hard_neg_ratio.to_bits().hash(&mut hasher);
-    singleton_master_fraction.to_bits().hash(&mut hasher);
-    locale.hash(&mut hasher);
-    // Every parameter that changes the output must be
-    // hashed in, or two runs differing only in this one collide on the same
-    // filename and silently overwrite each other.
-    only_entity.unwrap_or("").hash(&mut hasher);
-    // `--chunk-size` doesn't change the final dataset's *content* (chunked
-    // and non-chunked runs of the same total size are meant to be
-    // equivalent data, modulo per-chunk RNG independence) but it DOES
-    // change the sequence of per-chunk seeds actually used internally
-    // (`seed + chunk_idx` per chunk vs a single unbroken `seed`), so two
-    // runs with the same total size/seed but a different chunking must
-    // never collide on the same output filename.
-    chunk_size.unwrap_or(0).hash(&mut hasher);
-    format!("{}_{:x}", domain, hasher.finish())
+    // SHA-256 over a fixed encoding, not `DefaultHasher`: std documents
+    // that hasher's algorithm as unspecified and free to change between
+    // Rust releases, which would silently rename every output file after a
+    // toolchain update. Each field is length- or width-delimited so no two
+    // parameter sets share an encoding. `--chunk-size` is part of it: it
+    // doesn't change what the dataset *is* but does change the per-chunk
+    // seeds actually used, so different chunkings must not collide on one
+    // filename.
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    let put_str = |h: &mut Sha256, s: &str| {
+        h.update((s.len() as u64).to_le_bytes());
+        h.update(s.as_bytes());
+    };
+    put_str(&mut h, domain);
+    h.update((size as u64).to_le_bytes());
+    h.update(seed.to_le_bytes());
+    put_str(&mut h, difficulty);
+    h.update(hard_neg_ratio.to_bits().to_le_bytes());
+    h.update(singleton_master_fraction.to_bits().to_le_bytes());
+    put_str(&mut h, locale);
+    put_str(&mut h, only_entity.unwrap_or(""));
+    h.update((chunk_size.unwrap_or(0) as u64).to_le_bytes());
+    let digest = h.finalize();
+    let id = u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 digest is 32 bytes"));
+    format!("{domain}_{id:016x}")
 }
 
 /// Load and parse a domain schema JSON file.
@@ -423,6 +427,24 @@ pub fn build_pipeline_config(
         for (name, _) in remainders.iter().take(need) {
             *floor_map.get_mut(name).unwrap_or(&mut 0) += 1;
         }
+    }
+    // The 2-identity floor can still overshoot `total_unique` when the
+    // weights are skewed (e.g. 98:1:1 over 100 identities floors to
+    // 98+2+2): the top-up above only ever adds. Give the excess back from
+    // the largest allocations, never below 2 — always possible in that
+    // branch, since `total_unique >= 2 * n_entities`. Without this, a small
+    // --size produced up to ~40% more records than requested.
+    let mut excess = floor_sum.saturating_sub(total_unique);
+    while excess > 0 {
+        let Some((&top, _)) = floor_map
+            .iter()
+            .filter(|&(_, &v)| v > 2)
+            .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+        else {
+            break;
+        };
+        *floor_map.get_mut(top).expect("key taken from the map") -= 1;
+        excess -= 1;
     }
 
     let dup_ratios: Vec<(&str, f64)> = active_entities
@@ -696,6 +718,49 @@ mod tests {
             n_base_sum <= size,
             "n_base sum {n_base_sum} overshoots requested size {size}"
         );
+    }
+
+    #[test]
+    fn test_build_pipeline_config_rows_match_size_on_every_schema() {
+        // Regression: skewed entity weights made the 2-identity floor
+        // overshoot `--size` at small sizes (e.g. sports --size 30 wrote 43
+        // base+duplicate rows).
+        let mut checked = 0;
+        for entry in std::fs::read_dir(schemas_dir()).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "json") {
+                continue;
+            }
+            let domain = path.file_stem().unwrap().to_string_lossy().to_string();
+            let schema = load_schema(&domain, &schemas_dir()).unwrap();
+            for difficulty in valid_difficulty_names() {
+                for size in [10, 11, 20, 30, 57, 100, 333, 1000] {
+                    let config = build_pipeline_config(
+                        &domain,
+                        size,
+                        42,
+                        difficulty,
+                        0.3,
+                        default_singleton_master_fraction(difficulty),
+                        &schema,
+                        "t",
+                        "parquet",
+                        false,
+                        "parquet",
+                        None,
+                    )
+                    .unwrap();
+                    let rows: usize = config
+                        .entity_plans
+                        .iter()
+                        .map(|p| p.n_base + p.noise_types.iter().map(|n| n.count).sum::<usize>())
+                        .sum();
+                    assert_eq!(rows, size, "{domain} {difficulty} --size {size}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0);
     }
 
     #[test]

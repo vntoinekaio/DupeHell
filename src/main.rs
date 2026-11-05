@@ -86,7 +86,9 @@ struct Cli {
 
     #[arg(
         long,
-        help = "Fraction of masters with only one record (0.0 to 1.0). Defaults \
+        help = "Fraction of masters with only one record. Must leave room for the \
+                tier's doublet share: at most 0.70 (light), 0.60 (medium) or 0.80 \
+                (hell). Defaults \
                 to the chosen --difficulty tier's own value (0.50/0.30/0.10 \
                 for light/medium/hell, see schema::default_singleton_master_fraction) \
                 — pass this explicitly only to override that tier default."
@@ -138,8 +140,9 @@ struct Cli {
     #[arg(
         long,
         help = "DEPRECATED — normally unnecessary: a single run no longer needs RAM in \
-                proportion to --size. Generates internally as ceil(size / chunk-size) \
-                sequential, independently-seeded chunks, then assembles them into the same \
+                proportion to --size. Generates internally as sequential, \
+                independently-seeded chunks of chunk-size records (minimum 10; a \
+                remainder under 10 joins the last chunk), then assembles them into the same \
                 single dataset/GT/graph files (record_id/master_id stay globally contiguous), \
                 needing twice the disk space while it runs. Kept for compatibility. No effect \
                 if omitted or >= --size."
@@ -168,7 +171,9 @@ const GRAPH_BYTES_PER_CLUSTER_ROW: u64 = 24;
 /// the only case worth warning about. Advisory only; silent if system
 /// memory can't be read.
 fn warn_if_graph_memory_tight(cluster_rows: u64) {
-    let mut sys = sysinfo::System::new();
+    let Ok(mut sys) = sysinfo::System::new() else {
+        return;
+    };
     sys.refresh_memory();
     let available = sys.available_memory();
     let needed = cluster_rows * GRAPH_BYTES_PER_CLUSTER_ROW;
@@ -277,8 +282,11 @@ fn main() {
         std::process::exit(1);
     }
     let chunked = match cli.chunk_size {
-        Some(0) => {
-            eprintln!("Error: --chunk-size must be >= 1, got 0");
+        Some(cs) if cs < cli.size && cs < dupehell_core::pipeline::MIN_RUN_SIZE => {
+            eprintln!(
+                "Error: --chunk-size must be >= {} (each chunk is a full run), got {cs}",
+                dupehell_core::pipeline::MIN_RUN_SIZE
+            );
             std::process::exit(1);
         }
         Some(cs) if cs < cli.size => {

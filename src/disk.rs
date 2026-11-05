@@ -36,7 +36,6 @@ fn resolve(path: &Path) -> Option<PathBuf> {
 /// Index of the disk whose mount point is the longest prefix of `path`.
 fn disk_index(disks: &Disks, path: &Path) -> Option<usize> {
     disks
-        .list()
         .iter()
         .enumerate()
         .filter(|(_, d)| path.starts_with(d.mount_point()))
@@ -49,8 +48,8 @@ fn disk_index(disks: &Disks, path: &Path) -> Option<usize> {
 /// check rather than block a run on a guess.
 pub fn available_space(path: &Path) -> Option<u64> {
     let path = resolve(path)?;
-    let disks = Disks::new_with_refreshed_list();
-    disk_index(&disks, &path).map(|i| disks.list()[i].available_space())
+    let disks = Disks::new_with_refreshed_list().ok()?;
+    disk_index(&disks, &path).map(|i| disks[i].available_space())
 }
 
 pub fn gb(bytes: u64) -> f64 {
@@ -70,13 +69,13 @@ impl DiskGuard {
     /// `None` when the output volume can't be identified — no guard then.
     pub fn new(output_dir: &Path) -> Option<Self> {
         let path = resolve(output_dir)?;
-        let disks = Disks::new_with_refreshed_list();
+        let disks = Disks::new_with_refreshed_list().ok()?;
         let index = disk_index(&disks, &path)?;
         Some(Self { disks, index, path })
     }
 
     pub fn check(&mut self) -> Result<(), String> {
-        let disk = &mut self.disks.list_mut()[self.index];
+        let disk = &mut self.disks[self.index];
         disk.refresh_specifics(DiskRefreshKind::nothing().with_storage());
         let free = disk.available_space();
         if free < MIN_FREE_BYTES {

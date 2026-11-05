@@ -110,9 +110,9 @@ def test_dup_edge_integrity():
         src, tgt, etype, _st, _w = _edges(r.edges)
         checked = 0
         for (s, t, e) in zip(src, tgt, etype):
-            if e == "exact_dup":
+            if e in ("exact_dup", "fuzzy_dup"):
                 assert rid_to_mid[s] == rid_to_mid[t], (
-                    f"exact_dup edge links different masters: {s} vs {t}"
+                    f"duplicate edge links different masters: {s} vs {t}"
                 )
                 checked += 1
         assert checked > 0
@@ -127,15 +127,16 @@ def test_dup_edge_count():
         rid_to_mid, _ = _gt_maps(r.ground_truth)
         src, tgt, etype, _st, _w = _edges(r.edges)
 
-        # cluster size per master among exact_dup records
+        # cluster size per duplicated master (>= 2 records)
         from collections import Counter
 
-        size_by_mid = Counter(
-            m for m in rid_to_mid.values() if _is_dup(rid_to_mid, m)
-        )
+        size_by_mid = {
+            m: k for m, k in Counter(rid_to_mid.values()).items() if k >= 2
+        }
+        assert size_by_mid, "expected duplicate clusters"
         edges_by_mid = Counter()
         for (s, t, e) in zip(src, tgt, etype):
-            if e == "exact_dup":
+            if e in ("exact_dup", "fuzzy_dup"):
                 edges_by_mid[rid_to_mid[s]] += 1
 
         for mid, k in size_by_mid.items():
@@ -144,14 +145,6 @@ def test_dup_edge_count():
                 f"master {mid}: {k} records -> {expected} edges, "
                 f"got {edges_by_mid[mid]}"
             )
-
-
-def _is_dup(rid_to_mid, mid):
-    """A master is duplicated if >1 of its records are exact_dup in GT."""
-    from collections import Counter
-
-    c = Counter(1 for m in rid_to_mid.values() if m == mid)
-    return c[mid] >= 2
 
 
 # --------------------------------------------------------------------------- #
@@ -235,7 +228,7 @@ def test_spanning_tree_contract():
             size_by_mid[m] = size_by_mid.get(m, 0) + 1
         edges_by_mid = {}
         for (s, t, e) in zip(src, tgt, etype):
-            if e == "exact_dup":
+            if e in ("exact_dup", "fuzzy_dup"):
                 edges_by_mid[rid_to_mid[s]] = edges_by_mid.get(rid_to_mid[s], 0) + 1
 
         for mid, k in size_by_mid.items():
@@ -245,7 +238,7 @@ def test_spanning_tree_contract():
             complete = k * (k - 1) // 2
             # Either the full complete graph, or the spanning-tree fallback (k-1).
             assert n == complete or n == k - 1, (
-                f"master {mid}: {k} records but {n} exact_dup edges "
+                f"master {mid}: {k} records but {n} duplicate edges "
                 f"(expected {complete} or {k - 1})"
             )
 
@@ -281,7 +274,7 @@ def test_gt_backward_compat():
             "difficulty",
         ]
         assert set(gt.column("match_type").to_pylist()).issubset(
-            {"exact_dup", "hard_neg", "unique", "canary"}
+            {"exact_dup", "fuzzy_dup", "hard_neg", "unique", "canary"}
         )
 
 

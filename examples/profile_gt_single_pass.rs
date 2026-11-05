@@ -47,7 +47,7 @@ use arrow::datatypes::{DataType, Field, Int32Type, Schema};
 use arrow::ipc::reader::FileReader;
 use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_pcg::Pcg64;
 use rustc_hash::FxHashSet;
 use sha2::{Digest, Sha256};
@@ -163,9 +163,9 @@ fn stream(n_base: usize, dicts: &Dicts, mut f: impl FnMut(Item)) {
             base_n,
         );
         let dup_local: Vec<u32> = (0..n_dup)
-            .map(|_| rng.gen_range(0..base_n) as u32)
+            .map(|_| rng.random_range(0..base_n) as u32)
             .collect();
-        let dup_identical: Vec<bool> = (0..n_dup).map(|_| rng.gen_bool(EXACT_RATE)).collect();
+        let dup_identical: Vec<bool> = (0..n_dup).map(|_| rng.random_bool(EXACT_RATE)).collect();
         let dup_rid = id_array(b"R-", PAD, rid_next..rid_next + n_dup as u64, n_dup);
         rid_next += n_dup as u64;
         let dup_mid = id_array(

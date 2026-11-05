@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{
-    Array, ArrayBuilder, ArrayRef, AsArray, StringArray, StringBuilder, UInt64Array, UInt64Builder,
+    Array, ArrayRef, AsArray, StringArray, StringBuilder, UInt64Array, UInt64Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -153,11 +153,22 @@ pub struct ChunkOffsets {
     pub master_local: Vec<usize>,
     /// Next `HN-{:09}` counter value (see `hn_master_id_counter`).
     pub hn_master_counter: u64,
+    /// Next `row_offset` per entity (same indexing as `master_local`) for
+    /// the generated `_id` columns (`column_gen`'s `PREFIX-0000000042`
+    /// fallback): past this entity's base rows *and* its canary rows of
+    /// every previous chunk. Without it each chunk numbered its `_id`s from
+    /// 0 again, so two unrelated records of different chunks shared one
+    /// `party_id`/`customer_id`.
+    pub id_local: Vec<usize>,
 }
 
 impl ChunkOffsets {
     fn master_base(&self, entity_idx: usize) -> usize {
         self.master_local.get(entity_idx).copied().unwrap_or(0)
+    }
+
+    pub(crate) fn id_base(&self, entity_idx: usize) -> usize {
+        self.id_local.get(entity_idx).copied().unwrap_or(0)
     }
 }
 
@@ -1224,7 +1235,9 @@ fn log_rss(label: &str) {
         return;
     }
     let pid = sysinfo::Pid::from_u32(std::process::id());
-    let mut sys = sysinfo::System::new();
+    let Ok(mut sys) = sysinfo::System::new() else {
+        return;
+    };
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
     if let Some(p) = sys.process(pid) {
         log::debug!("[rss] {label}: rss={:.1} MB", p.memory() as f64 / 1e6);
@@ -1428,19 +1441,28 @@ pub fn run_pipeline_chunked(
 
         let prefix = entity_prefix(plan_idx);
         let master_base = offsets.master_base(plan_idx);
+        let id_base = offsets.id_base(plan_idx);
         // Parsed once per entity, not once per batch — see
         // `entity_gen::parse_columns`'s doc comment.
         let parsed_columns = crate::entity_gen::parse_columns(&plan.columns_json)?;
 
         // Per-entity streaming state
         let fk_targeted = fk_targets.contains(plan.name.as_str());
-        let mut fk_builder = arrow::array::StringBuilder::new();
-        let mut fk_rid_builder = arrow::array::StringBuilder::new();
-        // Reused across every row of this entity's FK-pool extraction
-        // instead of one `String` allocation per
-        // row via `record_id_string` — see `append_record_id`.
-        let mut fk_rid_buf: Vec<u8> = Vec::with_capacity(RID_LEN);
-        let mut fk_count: usize = 0;
+        // FK pool: a uniform reservoir sample (Algorithm R) of at most
+        // FK_POOL_CAP of this entity's identifiers, with their record index
+        // for graph edges. It used to keep the *first* FK_POOL_CAP
+        // identifiers, so past that many base rows no later record of the
+        // entity was ever referenced by another entity's FK.
+        let mut fk_ids: Vec<String> = Vec::new();
+        let mut fk_rids: Vec<u64> = Vec::new();
+        let mut fk_seen: usize = 0;
+        let mut fk_pool_rng = Rng::new(crate::rng::derive_seed(
+            config.seed,
+            &[
+                crate::rng::stream::FK_POOL,
+                crate::rng::name_key(&plan.name),
+            ],
+        ));
         // Only entities actually referenced by a `hard_neg_types` entry ever
         // have their HN pool read (see `hn_pools.get(&hn_cfg.entity_type)`
         // below); accumulating slices for the others just pins whole-batch
@@ -1448,8 +1470,17 @@ pub fn run_pipeline_chunked(
         let hn_targeted = hn_pool_sizing.contains_key(plan.name.as_str());
         let mut hn_slices: Vec<RecordBatch> = Vec::new();
         let mut hn_slice_rids: Vec<ArrayRef> = Vec::new();
-        let mut batch_rng = Rng::new(config.seed.wrapping_add(100));
-        let mut fk_rng = Rng::new(config.seed.wrapping_add(42));
+        // Per-entity streams (see `rng::derive_seed`): with a shared seed,
+        // the i-th row of every entity drew the same duplicates/FK targets.
+        let entity_key = crate::rng::name_key(&plan.name);
+        let mut batch_rng = Rng::new(crate::rng::derive_seed(
+            config.seed,
+            &[crate::rng::stream::DUPLICATES, entity_key],
+        ));
+        let mut fk_rng = Rng::new(crate::rng::derive_seed(
+            config.seed,
+            &[crate::rng::stream::FK_REMAP, entity_key],
+        ));
 
         // Each noise_type's planned `count` is spread across every batch of
         // masters in proportion to batch size (largest-remainder method),
@@ -1499,7 +1530,14 @@ pub fn run_pipeline_chunked(
             .enumerate()
         {
             let batch_n = (plan.n_base - offset).min(crate::entity_gen::BATCH_SIZE);
-            let batch_seed = config.seed.wrapping_add(batch_idx as u64 * 1000 + 1000);
+            let batch_seed = crate::rng::derive_seed(
+                config.seed,
+                &[
+                    crate::rng::stream::ENTITY_BATCH,
+                    entity_key,
+                    batch_idx as u64,
+                ],
+            );
 
             // Generate batch
             let rb = crate::entity_gen::generate_entity_batch_parsed(
@@ -1507,7 +1545,7 @@ pub fn run_pipeline_chunked(
                 &parsed_columns,
                 batch_n,
                 batch_seed,
-                offset,
+                id_base + offset,
             )?;
 
             // FK remap (uses pools from previously processed entities)
@@ -1543,30 +1581,30 @@ pub fn run_pipeline_chunked(
                 rb
             };
 
-            // Extract FK identifiers for this entity's pool, capped at
-            // FK_POOL_CAP (see comment above).
+            // Feed this batch's identifiers to the FK pool reservoir (see
+            // `fk_ids` above).
             if fk_targeted
-                && fk_count < FK_POOL_CAP
                 && let Some(ref id_col) = plan.identifier_col
                 && let Some(col) = rb.column_by_name(id_col)
             {
                 let s = col.as_string::<i32>();
                 for i in 0..s.len() {
-                    if fk_count >= FK_POOL_CAP {
-                        break;
+                    if s.is_null(i) {
+                        continue;
                     }
-                    if !s.is_null(i) {
-                        fk_builder.append_value(s.value(i));
-                        if config.graph_enabled {
-                            fk_rid_buf.clear();
-                            append_record_id(&mut fk_rid_buf, (global_rid_offset + i) as u64);
-                            fk_rid_builder.append_value(
-                                std::str::from_utf8(&fk_rid_buf)
-                                    .expect("append_record_id writes only ASCII digits"),
-                            );
+                    let rid = (global_rid_offset + i) as u64;
+                    if fk_seen < FK_POOL_CAP {
+                        fk_ids.push(s.value(i).to_string());
+                        fk_rids.push(rid);
+                    } else {
+                        let j = fk_pool_rng.next_usize(fk_seen + 1);
+                        if j < FK_POOL_CAP {
+                            fk_ids[j].clear();
+                            fk_ids[j].push_str(s.value(i));
+                            fk_rids[j] = rid;
                         }
-                        fk_count += 1;
                     }
+                    fk_seen += 1;
                 }
             }
 
@@ -1880,14 +1918,26 @@ pub fn run_pipeline_chunked(
 
         // Save FK pool for cross-entity remapping
         if let Some(id_col) = &plan.identifier_col
-            && fk_builder.len() > 0
+            && !fk_ids.is_empty()
         {
-            let arr = Arc::new(fk_builder.finish()) as ArrayRef;
+            let arr = Arc::new(arrow::array::StringArray::from_iter_values(&fk_ids)) as ArrayRef;
             if config.graph_enabled {
                 // Graph mode: also persist the target record_ids (column 1)
-                // so FK edges can be emitted by later-source entities. Same
-                // bounds as the identifier column above (FK_POOL_CAP gated).
-                let rid_arr = Arc::new(fk_rid_builder.finish()) as ArrayRef;
+                // so FK edges can be emitted by later-source entities.
+                let mut rid_builder = arrow::array::StringBuilder::with_capacity(
+                    fk_rids.len(),
+                    fk_rids.len() * RID_LEN,
+                );
+                let mut rid_buf: Vec<u8> = Vec::with_capacity(RID_LEN);
+                for &rid in &fk_rids {
+                    rid_buf.clear();
+                    append_record_id(&mut rid_buf, rid);
+                    rid_builder.append_value(
+                        std::str::from_utf8(&rid_buf)
+                            .expect("append_record_id writes only ASCII digits"),
+                    );
+                }
+                let rid_arr = Arc::new(rid_builder.finish()) as ArrayRef;
                 let schema = Arc::new(Schema::new(vec![
                     Field::new(id_col, DataType::Utf8, true),
                     Field::new("record_id", DataType::Utf8, true),
@@ -1974,7 +2024,7 @@ pub fn run_pipeline_chunked(
     // master — silently mislabeling a hard negative as a match. A counter
     // is unique by construction, eliminating the collision entirely.
     let mut hn_master_id_counter: u64 = offsets.hn_master_counter;
-    for hn_cfg in config.hard_neg_types.iter() {
+    for (hn_idx, hn_cfg) in config.hard_neg_types.iter().enumerate() {
         if hn_cfg.count == 0 {
             continue;
         }
@@ -1993,7 +2043,9 @@ pub fn run_pipeline_chunked(
             pool_rb,
             &hn_cfg.config_json,
             n_hn_max,
-            config.seed.wrapping_add(200),
+            // One stream per hard_neg_types entry: a shared seed drew the
+            // same pair indices for every type.
+            crate::rng::derive_seed(config.seed, &[crate::rng::stream::HARD_NEG, hn_idx as u64]),
             config.graph_enabled,
         )?;
 
@@ -2095,6 +2147,7 @@ pub fn run_pipeline_chunked(
             &mut canary_const_arr_cache,
             &mut global_rid_offset,
             &fk_pools,
+            &offsets,
             &mut writer,
             &mut node_writer,
             gt_acc.as_mut(),
@@ -2211,10 +2264,25 @@ pub fn run_pipeline_chunked(
             master_local[idx] = offsets.master_base(idx) + plan.n_base;
         }
     }
+    // Pool-only entities write no canary rows (see `canary::generate_all`).
+    let id_local = config
+        .entity_plans
+        .iter()
+        .enumerate()
+        .map(|(idx, plan)| {
+            let canaries = if plan.pool_only {
+                0
+            } else {
+                crate::canary::CANARY_COUNT
+            };
+            offsets.id_base(idx) + plan.n_base + canaries
+        })
+        .collect();
     let next_offsets = ChunkOffsets {
         rid_offset: global_rid_offset,
         master_local,
         hn_master_counter: hn_master_id_counter,
+        id_local,
     };
 
     Ok((
@@ -2372,8 +2440,8 @@ fn concat_parquet_files(in_paths: &[String], out_path: &str) -> Result<(), Strin
 }
 
 /// Generates `total_size` records by internally looping over
-/// `ceil(total_size / chunk_size)` sequential, independently-seeded chunk
-/// runs (`seed + chunk_idx`), keeping `record_id`/`master_id` globally
+/// sequential, independently-seeded chunk runs (see [`chunk_sizes`]),
+/// keeping `record_id`/`master_id` globally
 /// contiguous across chunks (see `ChunkOffsets`) instead of the shard-tag
 /// hack an external concat script would need, then assembling the chunk
 /// outputs into one final dataset/GT/graph file via `concat_dataset_files`.
@@ -2384,6 +2452,34 @@ fn concat_parquet_files(in_paths: &[String], out_path: &str) -> Result<(), Strin
 /// If `chunk_size == 0` or `chunk_size >= total_size`, this is exactly one
 /// chunk — delegates straight to `run_pipeline_with_progress`, byte-for-byte
 /// identical to calling it directly (no `--chunk-size` given).
+/// Smallest `--size` a single pipeline run accepts (see
+/// `schema::build_pipeline_config`) — and so the smallest chunk.
+pub const MIN_RUN_SIZE: usize = 10;
+
+/// Sizes of the chunks `run_chunked` splits `total` into: `chunk_size`
+/// each, except that a trailing remainder smaller than [`MIN_RUN_SIZE`] is
+/// folded into the last full chunk instead of becoming a chunk of its own
+/// (which `build_pipeline_config` would reject, after every previous chunk
+/// had already been generated). Requires `chunk_size >= MIN_RUN_SIZE`.
+pub fn chunk_sizes(total: usize, chunk_size: usize) -> Vec<usize> {
+    let mut sizes = vec![chunk_size; total / chunk_size];
+    let rem = total % chunk_size;
+    match sizes.last_mut() {
+        Some(last) if rem < MIN_RUN_SIZE => *last += rem,
+        _ if rem > 0 => sizes.push(rem),
+        _ => {}
+    }
+    sizes
+}
+
+struct RemoveDirOnDrop<'a>(&'a str);
+
+impl Drop for RemoveDirOnDrop<'_> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.0);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_chunked(
     ctx: &Context,
@@ -2423,9 +2519,17 @@ pub fn run_chunked(
         return run_pipeline_with_progress(ctx, &config, output_dir, progress);
     }
 
-    let n_chunks = total_size.div_ceil(chunk_size);
+    if chunk_size < MIN_RUN_SIZE {
+        return Err(format!(
+            "--chunk-size must be >= {MIN_RUN_SIZE} (each chunk is a full run), got {chunk_size}"
+        ));
+    }
+    let sizes = chunk_sizes(total_size, chunk_size);
     let tmp_dir = format!("{output_dir}/.dupehell_chunks_{final_run_id}");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("create {tmp_dir:?}: {e}"))?;
+    // Removes the per-chunk files on every exit path, including a chunk
+    // failing midway — not only after a successful assembly.
+    let _tmp_guard = RemoveDirOnDrop(&tmp_dir);
 
     let mut offsets = ChunkOffsets::default();
     let mut dataset_chunks: Vec<String> = Vec::new();
@@ -2441,9 +2545,11 @@ pub fn run_chunked(
         masters: 0,
     };
 
-    for chunk_idx in 0..n_chunks {
-        let this_size = chunk_size.min(total_size - chunk_idx * chunk_size);
-        let chunk_seed = seed.wrapping_add(chunk_idx as u64);
+    for (chunk_idx, &this_size) in sizes.iter().enumerate() {
+        // Not `seed + chunk_idx`: that made chunk 1 of seed 42 the same
+        // data as chunk 0 of seed 43.
+        let chunk_seed =
+            crate::rng::derive_seed(seed, &[crate::rng::stream::CHUNK, chunk_idx as u64]);
         let chunk_run_id = format!("{final_run_id}__chunk{chunk_idx:04}");
         let mut chunk_config = crate::schema::build_pipeline_config(
             domain,
@@ -2534,8 +2640,6 @@ pub fn run_chunked(
     } else {
         None
     };
-
-    std::fs::remove_dir_all(&tmp_dir).ok();
 
     Ok(PipelineOutput {
         output_files: vec![final_dataset],
@@ -3961,6 +4065,19 @@ mod tests {
                 avg.as_secs_f64() * 1000.0,
                 total_target_hits as f64 / N_REPS as f64,
             );
+        }
+    }
+
+    #[test]
+    fn test_chunk_sizes_fold_small_remainder() {
+        assert_eq!(chunk_sizes(1000, 500), vec![500, 500]);
+        assert_eq!(chunk_sizes(1005, 500), vec![500, 505]);
+        assert_eq!(chunk_sizes(1010, 500), vec![500, 500, 10]);
+        assert_eq!(chunk_sizes(1234, 400), vec![400, 400, 400, 34]);
+        for (total, cs) in [(1005, 500), (99, 10), (10_009, 1000), (25, 12)] {
+            let sizes = chunk_sizes(total, cs);
+            assert_eq!(sizes.iter().sum::<usize>(), total);
+            assert!(sizes.iter().all(|&s| s >= MIN_RUN_SIZE), "{sizes:?}");
         }
     }
 }
