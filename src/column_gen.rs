@@ -18,6 +18,21 @@ use crate::rng::Rng;
 /// refuses larger runs instead of letting `write_zpad` truncate).
 pub(crate) const ENTITY_ID_DIGITS: usize = 10;
 
+/// Prefix of a generated `_id` value: the column name without its `_id`
+/// suffix, uppercased (`order_line_id` -> `ORDER_LINE`, plain `id` -> `ID`).
+/// It used to be the first 4 letters of the name, so distinct columns
+/// collided on one prefix (`order_id`/`order_line_id` both `ORDE-…`,
+/// `subscriber_id`/`subscription_id` both `SUBS-…`): row i of an order
+/// line had the same identifier as row i of an unrelated order. Distinct
+/// column names now always give distinct prefixes.
+fn id_prefix(col_name: &str) -> String {
+    col_name
+        .strip_suffix("_id")
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or(col_name)
+        .to_uppercase()
+}
+
 /// Column type for dispatch.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ColType {
@@ -349,9 +364,9 @@ pub fn generate_column(
                 // real run measured 56M+ truncation warnings at width 7,
                 // since entities routinely exceed 10M rows well before
                 // `--size` reaches 100M).
-                let prefix: String = col.name.chars().take(4).collect::<String>().to_uppercase();
+                let prefix = id_prefix(&col.name);
                 let mut i: usize = row_offset;
-                build_string_array(n, 5 + ENTITY_ID_DIGITS, |buf| {
+                build_string_array(n, prefix.len() + 1 + ENTITY_ID_DIGITS, |buf| {
                     buf.extend_from_slice(prefix.as_bytes());
                     buf.push(b'-');
                     write_zpad(buf, i, ENTITY_ID_DIGITS);
@@ -504,7 +519,15 @@ mod tests {
         let arr = generate_column(&col, 5, &mut rng, &ctx, 0);
         let s = arr.as_string::<i32>();
         assert_eq!(s.len(), 5);
-        assert!(s.value(0).starts_with("PERS"), "id[{0}] = {:?}", s.value(0));
+        assert_eq!(s.value(0), "PERSON-0000000000");
+    }
+
+    #[test]
+    fn test_id_prefix_distinct_per_column() {
+        assert_eq!(id_prefix("order_id"), "ORDER");
+        assert_eq!(id_prefix("order_line_id"), "ORDER_LINE");
+        assert_ne!(id_prefix("subscriber_id"), id_prefix("subscription_id"));
+        assert_eq!(id_prefix("id"), "ID");
     }
 
     #[test]
@@ -676,7 +699,7 @@ mod tests {
         for i in 0..100 {
             let v = s.value(i);
             assert!(
-                !v.starts_with("DEPA-"),
+                !v.starts_with("DEPARTMENT-"),
                 "department_id[{i}] = {v:?} (should be pool value, not generated ID)"
             );
             assert!(!v.is_empty(), "department_id[{i}] empty");
