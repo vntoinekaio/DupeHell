@@ -3,7 +3,7 @@
 // Synthetic multi-domain dataset generator for record linkage benchmarking.
 // No liability for misuse.
 
-use rand::RngCore;
+use rand::Rng as _; // `next_u64` (named `RngCore` before rand 0.10)
 use rand::SeedableRng;
 use rand_pcg::Pcg64Mcg;
 
